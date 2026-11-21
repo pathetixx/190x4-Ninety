@@ -14,10 +14,10 @@ if (!updaterKey || !dedicatedMatch) {
 if (dedicatedMatch[1] === updaterKey) {
   throw new Error("Dedicated DPI public key must not match the OTA updater public key");
 }
-// Отсутствие legacy-константы — ЗАВЕРШЁННАЯ ротация (шаг 5 в
-// docs/DPI_CHANNEL_KEY_ROTATION.md: «в следующем релизе удалить legacy trust»).
-// Раньше проверка требовала её всегда, и выполнение собственной документированной
-// процедуры валило CI. Пока константа есть — она обязана совпадать с OTA-ключом.
+// A missing legacy constant means a COMPLETED rotation (step 5 in
+// docs/DPI_CHANNEL_KEY_ROTATION.md: "remove the legacy trust in the next release").
+// Previously the check always required it, and following our own documented
+// procedure failed CI. While the constant exists, it must match the OTA key.
 if (legacyMatch && legacyMatch[1] !== updaterKey) {
   throw new Error("Legacy DPI public key must match the current OTA updater public key during rotation");
 }

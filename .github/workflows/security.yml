@@ -93,10 +93,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          # Точный патч, а не '1.27': GOTOOLCHAIN=local запрещает Go подтянуть
-          # более новую toolchain самому, поэтому stdlib ядер — ровно эта версия.
-          # Нижнюю границу задаёт Xray-core (с v26.9.8 требует go 1.27); sing-box
-          # собирается на ней с v1.14.1, где h2mux починен под 1.27.
+          # An exact patch, not '1.27': GOTOOLCHAIN=local forbids Go from pulling
+          # a newer toolchain by itself, so the cores' stdlib is exactly this version.
+          # The lower bound is set by Xray-core (it requires go 1.27 since v26.9.8); sing-box
+          # builds on it since v1.14.1, where h2mux was fixed for 1.27.
           go-version: '1.27.4'
           cache: false
       - name: Install govulncheck
@@ -114,8 +114,8 @@ jobs:
           test "$(git -C core rev-parse HEAD)" = "$core_sha"
           (
             cd core
-            # То же обновление, что и в build.yml: аудит обязан смотреть на то
-            # дерево зависимостей, из которого собирается релизный бинарь.
+            # The same update as in build.yml: the audit must look at the same
+            # dependency tree the release binary is built from.
             GOTOOLCHAIN=local go get golang.org/x/mod@v0.40.0
             GOTOOLCHAIN=local go get github.com/insomniacslk/dhcp@v0.0.0-20260719225207-c76316d4aa82
             GOTOOLCHAIN=local go get golang.org/x/crypto@v0.58.0

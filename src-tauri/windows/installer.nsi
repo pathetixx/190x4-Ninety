@@ -79,14 +79,14 @@ Var NinetyPrevPerMachine
 Var NinetyInstallerMutex
 Var NinetyLockedPath
 Var NinetyWriteProbeAttempts
-; Сравнение версий (1 = апгрейд, 0 = та же, -1 = даунгрейд), посчитанное в
-; .onInit. Silent-установка страниц не исполняет, поэтому $R0 из PageReinstall
-; там навсегда остаётся пустым — и проверка запрета даунгрейда сравнивала бы
-; пустую строку, то есть не срабатывала никогда.
+; Version comparison (1 = upgrade, 0 = same, -1 = downgrade), computed in
+; .onInit. A silent install doesn't run pages, so $R0 from PageReinstall
+; stays empty there forever — and the downgrade ban check would compare
+; an empty string, i.e. never fire.
 Var NinetyVersionCompare
-; 1 — деинсталлятор запущен страницей обслуживания как первая половина
-; обновления/отката («удалить перед установкой»), а не для удаления Ninety.
-; Тогда автозапуск и обработчики ссылок пользователя сохраняются.
+; 1 — the uninstaller was launched by the maintenance page as the first half
+; of an update/rollback ("uninstall before installing"), not to remove Ninety.
+; Then the user's autostart and link handlers are kept.
 Var NinetyReinstallMode
 
 ; A flat kernel-object name avoids accidental namespace separators in NSIS
@@ -457,9 +457,9 @@ Function PageLeaveReinstall
       ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
-      ; Обновление/откат через «удалить перед установкой» — переустановка, а не
-      ; удаление: иначе каждое ручное обновление выключало бы автозапуск и
-      ; обработку ссылок. Удаление той же версии ($R0 = 0) флага не получает.
+      ; An update/rollback via "uninstall before installing" is a reinstall, not
+      ; a removal: otherwise every manual update would turn off autostart and
+      ; link handling. Removing the same version ($R0 = 0) doesn't get the flag.
       ${IfThen} $R0 <> 0 ${|} StrCpy $R1 "$R1 /NINETYREINSTALL" ${|}
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
       ExecWait '$R1' $0
@@ -690,9 +690,9 @@ Function .onInit
     ${EndIf}
   !endif
 
-  ; Сравнение версий считаем здесь, а не на странице обслуживания: страницы в
-  ; silent-режиме не исполняются вовсе, и проверка даунгрейда ниже сравнивала
-  ; бы пустую переменную. Контекст (SHCTX) к этому моменту уже окончательный.
+  ; The version comparison is computed here, not on the maintenance page: pages in
+  ; silent mode don't run at all, and the downgrade check below would compare
+  ; an empty variable. The context (SHCTX) is already final by this point.
   ReadRegStr $0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${If} $0 == ""
     StrCpy $NinetyVersionCompare 1   ; установленной версии нет — обычная установка
@@ -825,11 +825,11 @@ Section Install
   Call KuroganeProgressTick
   SetOutPath $INSTDIR
 
-  ; Каталог должен быть доступен на запись ДО хука: тот завершает Ninety и её
-  ; движки, снимает драйвер и прокси — незачем делать это ради установки,
-  ; которая всё равно упадёт на правах доступа. От запущенных процессов эта
-  ; проверка не зависит (пробный файл новый); залоченные файлы прежней версии
-  ; проверяет NinetyValidateInstallTarget уже после хука.
+  ; The directory must be writable BEFORE the hook: it terminates Ninety and its
+  ; engines, removes the driver and the proxy — there's no point doing that for an installation
+  ; that will fail on access rights anyway. This check doesn't depend on running
+  ; processes (the probe file is new); locked files of the previous version
+  ; are checked by NinetyValidateInstallTarget after the hook.
   Call NinetyValidateInstallDirectory
 
   !ifmacrodef NSIS_HOOK_PREINSTALL
@@ -950,11 +950,11 @@ Function .onInstSuccess
   ${OrIf} ${Silent}
     ${GetOptions} $CMDLINE "/R" $R0
     ${IfNot} ${Errors}
-      ; Аргументы старого процесса (/ARGS от updater) намеренно не передаём:
-      ; --autostarted прятал бы окно и сам поднимал VPN, --elevated отменял бы
-      ; запрос прав, --wait-parent ждал бы уже мёртвый PID, а старые ссылки
-      ; открылись бы повторно. Сессию после OTA возвращает журнал
-      ; ninety.update.resume во фронте.
+      ; The old process's arguments (/ARGS from the updater) are deliberately not passed:
+      ; --autostarted would hide the window and bring up the VPN by itself, --elevated would cancel
+      ; the rights request, --wait-parent would wait for an already dead PID, and old links
+      ; would open again. The session after OTA is restored by the
+      ; ninety.update.resume journal in the frontend.
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" ""
     ${EndIf}
   ${EndIf}
@@ -1079,12 +1079,12 @@ Section Uninstall
   ; This ensures the program does not launch automatically after uninstallation if it exists.
   ; If it doesn't exist, it does nothing.
   ; We do this when not updating (to preserve the registry value on updates)
-  ; Переустановка со страницы обслуживания автозапуск тоже сохраняет.
+  ; A reinstall from the maintenance page also keeps autostart.
   ${If} $UpdateMode <> 1
   ${AndIf} $NinetyReinstallMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
-    ; Задача автозапуска в Планировщике и обработчики VPN-ссылок, которые
-    ; Ninety заводит сама уже после установки (hooks.nsh).
+    ; The Task Scheduler autostart task and the VPN link handlers that
+    ; Ninety creates itself after installation (hooks.nsh).
     Call un.NinetyRemoveAutostartTask
     Call un.NinetyRemoveLinkHandlers
   ${EndIf}
@@ -1147,8 +1147,8 @@ Function NinetyProbeWritableFile
   Push ""
 FunctionEnd
 
-; Каталог установки существует и в него можно писать. Вызывается до хука
-; PREINSTALL, поэтому не должна зависеть от того, запущена ли Ninety.
+; The install directory exists and is writable. Called before the
+; PREINSTALL hook, so it must not depend on whether Ninety is running.
 Function NinetyValidateInstallDirectory
   StrCpy $NinetyLockedPath ""
   ClearErrors
@@ -1207,8 +1207,8 @@ Function NinetyValidateInstallTarget
     Call NinetyInstallTargetUnavailable
 FunctionEnd
 
-; Общий отказ обеих проверок каталога. Abort из вложенного Call прерывает
-; секцию так же, как из её собственного тела.
+; A shared failure of both directory checks. Abort from a nested Call interrupts
+; the section the same way as from its own body.
 Function NinetyInstallTargetUnavailable
   SetErrorLevel 5
   IfSilent 0 +2

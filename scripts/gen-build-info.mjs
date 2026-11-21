@@ -1,14 +1,14 @@
-// Ninety · генератор паспорта сборки (src/lib/build-info.js).
+// Ninety · the build passport generator (src/lib/build-info.js).
 //
-// Экран «О программе» показывает версии того, что приложение реально возит.
-// Раньше версия/коммит/дата запекались inline-PowerShell из build.yml, а строка
-// ядра правилась руками — и отставала: пины ядер живут в .github/pins.json и
-// обновляются ботом (scripts/check-pins.mjs), про build-info.js он не знает.
-// Теперь один источник: pins.json + tauri.conf.json.
+// The "About" screen shows the versions of what the app actually ships.
+// Previously the version/commit/date were baked in by inline PowerShell from build.yml, and the core
+// line was edited by hand — and lagged behind: the core pins live in .github/pins.json and
+// are updated by a bot (scripts/check-pins.mjs), which knows nothing about build-info.js.
+// Now there's one source: pins.json + tauri.conf.json.
 //
-// Использование:
+// Usage:
 //   node scripts/gen-build-info.mjs [--commit <sha>] [--date <DD.MM.YYYY>]
-// Без аргументов берёт коммит из git, дату — сегодняшнюю UTC.
+// Without arguments it takes the commit from git and today's UTC date.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,14 +17,14 @@ const PINS_PATH = ".github/pins.json";
 const CONFIG_PATH = "src-tauri/tauri.conf.json";
 const TARGET_PATH = "src/lib/build-info.js";
 
-// Тег пина → версия для показа: ведущая "v" пользователю ничего не сообщает.
+// Pin tag → the version for display: a leading "v" tells the user nothing.
 export function pinVersion(tag) {
   return String(tag || "").replace(/^v/, "");
 }
 
-// Ядра называем так же, как их зовут в мире: "sing-box 1.13.19-ninety.8" —
-// это ревизия НАШЕГО форка, и она обязана быть видна целиком, иначе паспорт
-// врёт о том, что собрано.
+// Cores are named the way the world calls them: "sing-box 1.13.19-ninety.8" —
+// this is the revision of OUR fork, and it must be visible in full, otherwise the passport
+// lies about what was built.
 export function coreLabels(pins) {
   return {
     core: `sing-box ${pinVersion(pins?.["ninety-core"]?.tag)}`,
@@ -32,9 +32,9 @@ export function coreLabels(pins) {
   };
 }
 
-// Компоненты, которые едут рядом с ядрами: sidecar-клиенты и драйвер TUN.
-// Движок DPI сюда не попадает — его версию отдаёт сам winws в рантайме
-// (dpi_versions), и запекать её было бы вторым источником правды.
+// Components that ship next to the cores: sidecar clients and the TUN driver.
+// The DPI engine isn't included — its version is reported by winws itself at runtime
+// (dpi_versions), and baking it in would be a second source of truth.
 export function componentVersions(pins) {
   return {
     naive: pinVersion(pins?.naive?.version),
@@ -43,10 +43,10 @@ export function componentVersions(pins) {
   };
 }
 
-// Канал зрелости — единственное поле, которое ставится руками: релизная
-// матрица (docs/RELEASE_QUALIFICATION.md) меняет его на «Stable» после
-// прохождения квалификации. Генератор обязан его сохранять, иначе следующая же
-// сборка молча вернула бы «Early access».
+// The maturity channel is the only field set by hand: the release
+// matrix (docs/RELEASE_QUALIFICATION.md) changes it to "Stable" after
+// qualification passes. The generator must preserve it, otherwise the very next
+// build would silently bring back "Early access".
 export function currentChannel(existing, fallback = "Early access") {
   const match = /channel:\s*"([^"]*)"/.exec(String(existing || ""));
   return match ? match[1] : fallback;
@@ -107,7 +107,7 @@ function main() {
   const commit = arg("commit", gitCommit);
   const date = arg("date", todayUtc);
   let existing = "";
-  try { existing = readFileSync(TARGET_PATH, "utf8"); } catch { /* первый запуск */ }
+  try { existing = readFileSync(TARGET_PATH, "utf8"); } catch { /* first launch */ }
   const channel = currentChannel(existing);
   const rendered = renderBuildInfo({ version, commit, date, pins, channel });
   writeFileSync(TARGET_PATH, rendered);
@@ -118,5 +118,5 @@ function main() {
   );
 }
 
-// Импорт из тестов не должен ничего перезаписывать.
+// Importing from tests must not overwrite anything.
 if (process.argv[1] && process.argv[1].endsWith("gen-build-info.mjs")) main();

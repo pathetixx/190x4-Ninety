@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# Генератор трей-значков Ninety: они-маска (пламя-корона/злые глаза/оскал)
-# в 3 состояниях. off=серый тусклый, proxy=красный, tun=purple(synthwave)+глоу.
-# Запуск: python3 gen_tray_icons.py  → пишет oni_{state}_{16,32,48}.png рядом.
+# Ninety tray icon generator: an oni mask (flame crown/angry eyes/grin)
+# in 3 states. off=dim grey, proxy=red, tun=purple(synthwave)+glow.
+# Run: python3 gen_tray_icons.py  → writes oni_{state}_{16,32,48}.png next to it.
 import os
 from PIL import Image, ImageDraw, ImageFilter
 
-S = 256  # мастер-канвас, потом даунскейл с антиалиасингом
+S = 256  # a master canvas, then a downscale with antialiasing
 OUT = os.path.dirname(os.path.abspath(__file__))
 
 def oni_mask():

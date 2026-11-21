@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Пишет представительный набор конфигов в каталог из argv[2], чтобы CI прогнал
-// их через `sing-box check` настоящим ядром. Ядро строго относится к неизвестным
-// полям: любое лишнее роняет ВЕСЬ конфиг, а узнать об этом на машине юзера — уже
-// поздно. Набор покрывает все три режима, блокировки, регион, WARP и все
-// протоколы, которые несёт только наш форк ядра (AmneziaWG 2/3, Mieru, OpenVPN).
+// Writes a representative set of configs into the directory from argv[2] so that CI runs
+// them through `sing-box check` with the real core. The core is strict about unknown
+// fields: any extra one brings down the WHOLE config, and finding out on the user's machine is
+// too late. The set covers all three modes, blocking, the region, WARP and all
+// protocols carried only by our core fork (AmneziaWG 2/3, Mieru, OpenVPN).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,8 +25,8 @@ const node = (host) => parseVless(`vless://uuid@${host}:443?security=tls&sni=${h
 const nodes = [node("a.example.com"), node("b.example.com")];
 const sub = { kind: "sub", subscription: { name: "S" }, nodes };
 
-// WireGuard живёт в config.endpoints, а не в outbounds, и шейпинг AmneziaWG
-// принимает только наше ядро — оба места стоит проверять настоящим `check`.
+// WireGuard lives in config.endpoints, not in outbounds, and AmneziaWG shaping
+// is accepted only by our core — both places are worth checking with a real `check`.
 const WG_CONF = `[Interface]
 Address = 172.16.0.2/32, 2606:4700:110:8edc:ef5d:17ec:2624:4a72/128
 MTU = 1280
@@ -55,8 +55,8 @@ const AWG_CONF = WG_CONF
 const wgNode = parseWireguardConf(WG_CONF, "WG");
 const awgNode = parseWireguardConf(AWG_CONF, "AWG");
 
-// AmneziaWG 2.0 (S3/S4, диапазоны H) и 3 (защита заголовков, padding,
-// хвосты): эти поля понимает только ядро с нашим ninety-wireguard-go.
+// AmneziaWG 2.0 (S3/S4, H ranges) and 3 (header protection, padding,
+// trailers): these fields are understood only by the core with our ninety-wireguard-go.
 const AWG2_CONF = WG_CONF
   .replace("H1 = 1", "H1 = 110000000-110020000")
   .replace("H2 = 2", "H2 = 1210000000-1210020000")
@@ -70,22 +70,22 @@ const AWG3_CONF = AWG2_CONF
 const awg2Node = parseWireguardConf(AWG2_CONF, "AWG2");
 const awg3Node = parseWireguardConf(AWG3_CONF, "AWG3");
 
-// Mieru: TCP с одиночным портом и всеми параметрами из официального примера,
-// UDP только с диапазонами (тогда server_port в конфиг не идёт).
+// Mieru: TCP with a single port and all parameters from the official example,
+// UDP only with ranges (then server_port doesn't go into the config).
 const mieruTcp = parseLink("mierus://user:pass@mieru1.example.net?handshake-mode=HANDSHAKE_NO_WAIT"
   + "&mtu=1400&multiplexing=MULTIPLEXING_HIGH&port=6666&port=9998-9999&profile=default"
   + "&protocol=TCP&protocol=TCP&traffic-pattern=CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3");
 const mieruUdp = parseLink("mierus://user:pass@mieru2.example.net?port=2000-2010&protocol=UDP&profile=u");
 
-// OpenVPN: TLS-профиль провайдера (tls-crypt, auth-user-pass, несколько
-// remote) и static key. Ключи в файлах — самоподписанные, только для CI.
+// OpenVPN: a provider TLS profile (tls-crypt, auth-user-pass, several
+// remotes) and a static key. The keys in the files are self-signed, CI only.
 const profilesDir = join(dirname(fileURLToPath(import.meta.url)), "sample-profiles");
 const ovpnTls = parseOpenvpnConf(readFileSync(join(profilesDir, "openvpn-tls.ovpn"), "utf8"), "OVPN",
   { username: "user", password: "pass" });
 const ovpnStatic = parseOpenvpnConf(readFileSync(join(profilesDir, "openvpn-static.ovpn"), "utf8"), "OVPN static");
 
-// XMC (finalmask Minecraft) — готовый outbound Xray: в sing-box от него
-// остаётся socks-мост, а сам он уходит в конфиг xray.
+// XMC (finalmask Minecraft) is a ready Xray outbound: in sing-box only a socks bridge
+// remains of it, and it itself goes into the xray config.
 const [xmcNode] = parseXrayConfig([{
   remarks: "XMC",
   outbounds: [{

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Ninety · каталог готовых списков для правил маршрутизации.
+// Ninety · the catalog of ready lists for routing rules.
 //
-// Правило «Готовый список» ссылается на файл из SagerNet/sing-geosite или
-// SagerNet/sing-geoip (ветка rule-set). Имя, которого там нет, ядро скачать не
-// сможет, поэтому в правило попадают только имена из этого каталога. Его
-// снимок лежит в src/lib/rule-set-catalog.js; категории меняются редко, и
-// перегенерировать его достаточно перед релизом.
+// A "Ready list" rule references a file from SagerNet/sing-geosite or
+// SagerNet/sing-geoip (the rule-set branch). A name that isn't there can't be downloaded
+// by the core, so only names from this catalog get into a rule. Its
+// snapshot lives in src/lib/rule-set-catalog.js; categories change rarely, and
+// regenerating it before a release is enough.
 //
-// Использование:
+// Usage:
 //   node scripts/gen-rule-set-catalog.mjs
-// GH_TOKEN/GITHUB_TOKEN необязателен, но снимает лимит анонимных запросов.
+// GH_TOKEN/GITHUB_TOKEN is optional, but lifts the anonymous request limit.
 
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

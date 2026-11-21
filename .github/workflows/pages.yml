@@ -24,9 +24,9 @@ concurrency:
 
 jobs:
   build:
-    # Публикация релиза через GITHUB_TOKEN не создаёт отдельный release-event
-    # workflow. workflow_run после Build Ninety гарантирует второй Pages deploy,
-    # когда релиз уже стал Latest и release.json содержит его ассеты.
+    # Publishing a release via GITHUB_TOKEN doesn't create a separate release-event
+    # workflow. workflow_run after Build Ninety guarantees a second Pages deploy
+    # once the release has become Latest and release.json contains its assets.
     if: >-
       (github.event_name != 'release' || github.event.release.prerelease == false) &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
@@ -56,10 +56,10 @@ jobs:
         with:
           path: site
 
-  # Публикация — отдельным job: deploy-pages в том же job, что и загрузка,
-  # иногда не находит только что загруженный артефакт (actions/deploy-pages#451).
-  # Так же устроены официальные шаблоны Pages; «Re-run failed jobs»
-  # перезапускает только публикацию, не создавая второй артефакт.
+  # Publishing is a separate job: deploy-pages in the same job as the upload
+  # sometimes doesn't find the freshly uploaded artifact (actions/deploy-pages#451).
+  # The official Pages starters are built the same way; "Re-run failed jobs"
+  # reruns only the publishing, without creating a second artifact.
   deploy:
     needs: build
     environment:

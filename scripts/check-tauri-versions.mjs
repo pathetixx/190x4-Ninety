@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// Версии Tauri-плагинов: Rust-крейт и его npm-пакет обязаны совпадать по
+// Tauri plugin versions: the Rust crate and its npm package must match in
 // major.minor.
 //
-// `tauri build` сверяет их сам и отказывается собирать при расхождении. Но
-// зовётся он только на теге, поэтому расхождение доезжает до релиза целым:
-// dependabot поднимает половинки разными PR (крейт — одним, npm-пакет —
-// другим), обе половинки проходят Checks по отдельности, и падает уже сборка
-// после `git push --tags`. Так релиз v0.6.1 и встал на
-// tauri-plugin-updater 2.11.0 против @tauri-apps/plugin-updater 2.10.1.
+// `tauri build` checks them itself and refuses to build on a mismatch. But
+// it's called only on a tag, so a mismatch reaches the release intact:
+// dependabot bumps the halves in different PRs (the crate in one, the npm package in
+// another), both halves pass Checks separately, and it's the build that fails
+// after `git push --tags`. That's how release v0.6.1 got stuck on
+// tauri-plugin-updater 2.11.0 vs @tauri-apps/plugin-updater 2.10.1.
 //
-// Версии берём из локов, а не из диапазонов в манифестах: собирается то, что
-// в локах, и «^2.0.1» ничего не говорит о том, что реально встанет.
+// Versions are taken from the locks, not from the ranges in the manifests: what gets built is what's
+// in the locks, and "^2.0.1" says nothing about what will actually be installed.
 
 import { readFileSync } from "node:fs";
 
-// Пары «крейт ↔ npm-пакет». Плагин без фронтенд-половинки (process у Tauri её
-// имеет, single-instance — нет) в сверку не попадает.
+// "crate ↔ npm package" pairs. A plugin without a frontend half (Tauri's process
+// has one, single-instance doesn't) isn't included in the check.
 const PAIRS = [
   ["tauri", "@tauri-apps/api"],
   ["tauri-plugin-deep-link", "@tauri-apps/plugin-deep-link"],
@@ -28,8 +28,8 @@ const PAIRS = [
 
 function crateVersions(path) {
   const out = new Map();
-  // Cargo.lock — TOML с повторяющимися [[package]]; тащить парсер ради двух
-  // полей не за чем, а блоки разделены однозначно.
+  // Cargo.lock is TOML with repeating [[package]]; there's no point pulling in a parser for two
+  // fields, and the blocks are delimited unambiguously.
   for (const block of readFileSync(path, "utf8").split("[[package]]")) {
     const match = block.match(/\nname = "([^"]+)"\nversion = "([^"]+)"/);
     if (match) out.set(match[1], match[2]);

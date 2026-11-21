@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Безопасное продвижение OTA в GitLab Generic Package Registry.
+"""Safe OTA promotion into the GitLab Generic Package Registry.
 
-Порядок намеренно жёсткий: immutable installer -> проверка размера/SHA-256 ->
-versioned latest.json -> обратная проверка -> stable/latest.json -> обратная
-проверка. GitHub draft публикуется workflow только после успешного завершения
-этого скрипта, поэтому основной GitLab endpoint не может остаться старым после
-переключения GitHub Latest.
+The order is deliberately strict: immutable installer -> size/SHA-256 check ->
+versioned latest.json -> read-back check -> stable/latest.json -> read-back
+check. The GitHub draft is published by the workflow only after this script
+finishes successfully, so the main GitLab endpoint can't stay old after
+GitHub Latest switches.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from pathlib import Path
 
 PKG = "ninety"
 PLATFORM = "windows-x86_64"
-# Portable ZIP для обновления из приложения (цель updater-плагина).
+# Portable ZIP for updating from within the app (the updater plugin target).
 PORTABLE_PLATFORM = "windows-x86_64-portable"
 METADATA_NAME = "latest.json"
 DOWNLOAD_TIMEOUT = 60
@@ -234,12 +234,12 @@ class GitLabClient:
                         )
                     else:
                         return downloaded
-                # Чтение сразу после записи может вернуть ПРЕЖНЮЮ копию: stable/
-                # перезаписывается каждым релизом, и GitLab отдаёт предыдущую
-                # ещё несколько секунд. Раньше это роняло релиз на ровном месте —
-                # зеркало уже было верным, а проверка смотрела на устаревший
-                # ответ. Поэтому расхождение — повод повторить, а не падать;
-                # окончательный вердикт выносим, только исчерпав попытки.
+                # A read right after a write may return the PREVIOUS copy: stable/
+                # is overwritten by every release, and GitLab returns the previous one
+                # for a few more seconds. This used to bring down a release out of nowhere —
+                # the mirror was already correct, while the check looked at a stale
+                # response. So a mismatch is a reason to retry, not to fail;
+                # the final verdict is given only after the attempts are exhausted.
             if attempt < 5:
                 time.sleep(2)
         if mismatch:

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# Парсер .bat-стратегий → strategies.json для Ninety (DPI-обход).
-# Каждый general*.bat запускает один winws.exe с длинной командой (чейны через
-# --new, перенос строк через ^). Извлекаем аргументы в массив, плейсхолдеры
-# %BIN%/%LISTS%/%GameFilter*% сохраняем — Rust подставит их при запуске.
+# A parser of .bat strategies → strategies.json for Ninety (DPI bypass).
+# Each general*.bat runs one winws.exe with a long command (chains via
+# --new, line continuation via ^). We extract the arguments into an array, the placeholders
+# %BIN%/%LISTS%/%GameFilter*% are kept — Rust substitutes them at launch.
 #
-# Использование (когда обновляется набор стратегий):
-#   python3 gen_strategies.py <каталог-с-.bat> src-tauri/dpi/strategies.json
-# Движок (winws.exe/WinDivert/.bin) обновляется отдельно — см. RELEASING/память.
+# Usage (when the strategy set is updated):
+#   python3 gen_strategies.py <directory-with-.bat> src-tauri/dpi/strategies.json
+# The engine (winws.exe/WinDivert/.bin) is updated separately — see RELEASING/memory.
 import os, re, json, glob, sys
 
 # Windows GitHub runners may expose stdout/stderr as cp1252. Keep diagnostic
@@ -16,10 +16,10 @@ for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(errors="backslashreplace")
 
-SRC = sys.argv[1]   # каталог с .bat (клон Flowseal)
-OUT = sys.argv[2]   # путь к strategies.json
+SRC = sys.argv[1]   # the directory with .bat files (a Flowseal clone)
+OUT = sys.argv[2]   # the path to strategies.json
 
-# Описания по семействам (RU). Базовые — из дизайн-референса.
+# Descriptions by family (RU). The base ones come from the design reference.
 DESC = {
     "general":   "Базовый профиль — split по SNI и подмена окна. Работает у большинства.",
     "alt":       "FakeTLS + disorder. Лёгкий вариант для мягких блокировок.",
@@ -44,11 +44,11 @@ DESC = {
     "exp":                "Экспериментальный профиль от Flowseal. В авто-подбор не входит: включайте вручную и проверяйте, что нужные сервисы открываются.",
 }
 
-# Автоканал подписывает результат этого парсера, а Ninety затем передаёт args
-# elevated winws.exe. Поэтому BAT — не просто «текстовые данные»: неизвестный
-# флаг может заставить winws писать файлы/включить debug и пересечь trust boundary.
-# Разрешаем только нужную стратегическую поверхность, пути — строго через наши
-# %BIN%/%LISTS%, всё новое fail-closed до review этого allowlist.
+# The auto channel signs this parser's result, and Ninety then passes the args
+# to an elevated winws.exe. So BAT isn't just "text data": an unknown
+# flag could make winws write files/enable debug and cross the trust boundary.
+# We allow only the needed strategy surface, paths strictly via our
+# %BIN%/%LISTS%, everything new is fail-closed until this allowlist is reviewed.
 AUTO_PICK_IDS = {
     "general",
     *("alt" if i == 1 else f"alt{i}" for i in range(1, 13)),
@@ -122,8 +122,8 @@ def valid_ports(value, placeholder):
     return True
 
 def validate_arg(arg, stem):
-    # Возвращает текст нарушения или None. Не падает сама: вызывающий код
-    # собирает все проблемы и завершает работу одним сводным отчётом.
+    # Returns the violation text or None. Doesn't fail itself: the calling code
+    # collects all problems and finishes with one summary report.
     if len(arg) > 4096 or "\0" in arg or "\r" in arg or "\n" in arg:
         return f"REJECT {stem}: oversized/control-character argument"
     flag, sep, value = arg.partition("=")
@@ -144,9 +144,9 @@ def validate_arg(arg, stem):
     elif flag == "--dpi-desync-fake-tls":
         ok = value == "!" or bool(SAFE_BIN.fullmatch(value)) or bool(SAFE_HEX.fullmatch(value))
     elif flag == "--dpi-desync-fake-unknown":
-        # Fake-пейлоад для неопознанного TCP (Flowseal 1.10.1+). Поверхность та
-        # же, что у --dpi-desync-fake-tls: наш %BIN%-файл или инлайн-hex;
-        # авто-ClientHello ("!") для неизвестного протокола не применяется.
+        # A fake payload for unidentified TCP (Flowseal 1.10.1+). The surface is the
+        # same as for --dpi-desync-fake-tls: our %BIN% file or inline hex;
+        # the auto ClientHello ("!") isn't applied for an unknown protocol.
         ok = bool(SAFE_BIN.fullmatch(value)) or bool(SAFE_HEX.fullmatch(value))
     elif flag == "--dpi-desync-fakedsplit-pattern":
         ok = bool(SAFE_HEX.fullmatch(value))
@@ -198,15 +198,15 @@ def make_id(stem):
         return "general", "general"
     inner = m.group(1).strip()
     sid = re.sub(r"[^a-z0-9]+", "_", inner.lower()).strip("_")
-    return sid, inner   # name = как в скобках (ALT11, FAKE TLS AUTO ALT2)
+    return sid, inner   # name = as in the parentheses (ALT11, FAKE TLS AUTO ALT2)
 
 def parse_args(text):
-    # text — содержимое .bat. Берём команду от winws.exe" до конца блока start.
+    # text — the .bat contents. We take the command from winws.exe" to the end of the start block.
     i = text.find('winws.exe"')
     if i < 0:
         return None
     rest = text[i + len('winws.exe"'):]
-    # склеиваем переносы ^\n, режем по строкам пока есть продолжение
+    # glue the ^\n continuations, cut by lines while there's a continuation
     lines = rest.splitlines()
     buf = []
     for ln in lines:
@@ -218,14 +218,14 @@ def parse_args(text):
         if not cont:
             break
     joined = " ".join(buf)
-    # токенизация: пробелы вне кавычек; кавычки убираем (Command сам квотит)
+    # tokenization: spaces outside quotes; quotes are removed (Command quotes itself)
     args = []
     for tok in re.findall(r'(?:[^\s"]|"[^"]*")+', joined):
         tok = tok.replace('"', "")
-        # cmd-escape: внутри батника `^` экранирует следующий символ. В стратегиях
-        # встречается только `^!` (значение fake-tls для авто-ClientHello при
-        # enabledelayedexpansion) — winws должен получить литерал `!`, иначе
-        # читает `^!` как путь к файлу и падает «could not read ^!».
+        # cmd escape: inside a batch file `^` escapes the next character. In the strategies
+        # only `^!` occurs (the fake-tls value for the auto ClientHello with
+        # enabledelayedexpansion) — winws must get a literal `!`, otherwise it
+        # reads `^!` as a file path and fails with "could not read ^!".
         tok = tok.replace("^!", "!")
         if tok:
             args.append(tok)
@@ -252,14 +252,14 @@ for path in sorted(glob.glob(os.path.join(SRC, "general*.bat"))):
         "id": sid,
         "name": name,
         "desc": DESC.get(sid, "Профиль обхода DPI на движке winws."),
-        # Любая новая upstream-стратегия остаётся ручной, пока мы явно не
-        # рассмотрим её и не добавим id в проверенный auto-pick набор.
+        # Any new upstream strategy stays manual until we explicitly
+        # review it and add its id to the verified auto-pick set.
         "experimental": sid not in AUTO_PICK_IDS,
         "args": args,
     })
 
-# Fail-closed: ни один аргумент вне allowlist не доходит до strategies.json,
-# который канал подписывает и отдаёт elevated winws.exe.
+# Fail-closed: not a single argument outside the allowlist reaches strategies.json,
+# which the channel signs and hands to an elevated winws.exe.
 if rejects:
     for problem in rejects:
         print(problem, file=sys.stderr)
@@ -277,7 +277,7 @@ if missing:
 if len(strategies) > 64:
     raise SystemExit(f"REJECT: too many strategies ({len(strategies)})")
 
-# Сортировка: general, ALT…, FAKE TLS…, SIMPLE FAKE…
+# Sorting: general, ALT…, FAKE TLS…, SIMPLE FAKE…
 def sortkey(s):
     order = {"general": 0}
     base = 5

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Системные пути не берутся из окружения процесса.
+// System paths aren't taken from the process environment.
 //
-// %SystemRoot%, %ProgramFiles% и соседние переменные пишет HKCU\Environment —
-// то есть обычный пользователь без прав администратора. Из этих путей у нас
-// запускаются бинари под `runas`, перезаписывается системный hosts и решается,
-// выдавать ли задаче автозапуска RunLevel=highest. Подменённая переменная в
-// таком месте превращается в тихое повышение прав.
+// %SystemRoot%, %ProgramFiles% and neighboring variables are written by HKCU\Environment —
+// i.e. a regular user without administrator rights. From these paths we
+// launch binaries under `runas`, rewrite the system hosts and decide
+// whether to give the autostart task RunLevel=highest. A swapped variable in
+// such a place turns into a silent privilege escalation.
 //
-// Безопасные источники: util::system_directory / windows_directory /
-// system_hosts_path (GetSystemDirectoryW, GetWindowsDirectoryW) и
+// Safe sources: util::system_directory / windows_directory /
+// system_hosts_path (GetSystemDirectoryW, GetWindowsDirectoryW) and
 // util::program_files_roots (HKLM).
 
 import { readdir, readFile } from "node:fs/promises";

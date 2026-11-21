@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Запекание header.bmp (150x57) и sidebar.bmp (164x314) для NSIS-инсталлера.
+"""Baking header.bmp (150x57) and sidebar.bmp (164x314) for the NSIS installer.
 
-Исходный арт в `art/header.png` / `art/sidebar.png` (эстетика 190×4 Kurogane:
-марка на plate, вордмарк Orbitron, неон). NSIS требует 24-bit BMP без альфы —
-здесь PNG плющатся на матовый чёрный фон и сохраняются BMP3.
+The source art is in `art/header.png` / `art/sidebar.png` (the 190×4 Kurogane aesthetic:
+the mark on a plate, the Orbitron wordmark, neon). NSIS requires a 24-bit BMP without alpha —
+here the PNGs are flattened onto a matte black background and saved as BMP3.
 
-Запускать руками когда меняется арт: положить новые PNG точных размеров в `art/`
-и `python3 make_installer_bitmaps.py`. Лого не генерируем программно — арт рисуется
-дизайн-инструментом. Старый процедурный генератор заменён этим запеканием.
+Run by hand when the art changes: put new PNGs of the exact sizes into `art/`
+and run `python3 make_installer_bitmaps.py`. The logo isn't generated programmatically — the art is drawn
+in a design tool. The old procedural generator was replaced by this baking.
 """
 import argparse
 import io
@@ -18,7 +18,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(ROOT, "art")
-INK_0 = (8, 8, 10)  # #08080A — матовый чёрный, общий фон обоих битмапов
+INK_0 = (8, 8, 10)  # #08080A — matte black, the shared background of both bitmaps
 
 TARGETS = [
     ("header", (150, 57)),
@@ -34,9 +34,9 @@ def render_bmp(name, size):
     if im.size != size:
         sys.exit(f"{name}.png has size {im.size}, expected {size}")
     bg = Image.new("RGB", size, INK_0)
-    bg.paste(im, (0, 0), im)  # корректно сводим PNG-альфу на фон установщика
+    bg.paste(im, (0, 0), im)  # correctly composite the PNG alpha onto the installer background
     buf = io.BytesIO()
-    bg.save(buf, format="BMP")  # 24-bit BMP3, bottom-up — то что ждёт NSIS
+    bg.save(buf, format="BMP")  # 24-bit BMP3, bottom-up — what NSIS expects
     return buf.getvalue()
 
 

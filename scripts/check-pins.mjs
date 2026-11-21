@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// Ninety · сторож внешних пинов сборки.
+// Ninety · the watcher of external build pins.
 //
-// Всё, что не собирается из наших исходников, приезжает в инсталлятор по
-// точному пину в .github/pins.json: ядро — тегом и коммитом, бинари — URL и
-// sha256. Пин защищает
-// от подмены, но ничего не говорит о том, что вышла новая версия: об этом
-// узнавали случайно. Скрипт сверяет каждый пин с источником и в режиме --write
-// подставляет новые значения, включая пересчитанный sha256 реально скачанного
-// файла (переписать хеш «на глаз» нельзя — тогда пин перестаёт что-либо
-// значить).
+// Everything not built from our sources gets into the installer by
+// an exact pin in .github/pins.json: the core by tag and commit, binaries by URL and
+// sha256. A pin protects
+// against substitution, but says nothing about a new version being released: that was
+// learned by chance. The script checks each pin against its source and in --write mode
+// substitutes the new values, including the recomputed sha256 of the actually downloaded
+// file (rewriting a hash "by eye" isn't possible — then the pin stops meaning
+// anything).
 //
-// Использование:
-//   node scripts/check-pins.mjs            # отчёт, ничего не меняет
-//   node scripts/check-pins.mjs --write    # обновить пины в .github/pins.json
+// Usage:
+//   node scripts/check-pins.mjs            # report, changes nothing
+//   node scripts/check-pins.mjs --write    # update the pins in .github/pins.json
 //
-// winws/WinDivert сюда не входят: их ведёт engine-watch.yml, который сверяет
-// сами байты бинарей, а не версию.
+// winws/WinDivert aren't included here: they're handled by engine-watch.yml, which compares
+// the binaries' bytes themselves, not the version.
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -29,12 +29,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pinsPath = join(root, ".github/pins.json");
 
 const write = process.argv.includes("--write");
-// Модуль импортируется тестом, который проверяет, что описания пинов всё ещё
-// находят себя в build.yml: «сторож ослеп» — самая тихая из возможных поломок.
+// The module is imported by a test that checks that the pin descriptions still
+// find themselves in build.yml: "the watcher went blind" is the quietest possible breakage.
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-// GitHub отдаёт больше без токена, чем с ним, только когда токен битый:
-// заголовок ставим лишь если он есть, чтобы скрипт работал и локально.
+// GitHub returns more without a token than with one only when the token is broken:
+// we set the header only if it exists, so the script works locally too.
 const ghHeaders = {
   accept: "application/vnd.github+json",
   ...(process.env.GH_TOKEN || process.env.GITHUB_TOKEN
@@ -48,14 +48,14 @@ async function gh(path) {
   return response.json();
 }
 
-// Свежий релиз по дате публикации, а НЕ /releases/latest: XTLS помечает все
-// свежие релизы pre-release, и «latest» у них показывает версию многомесячной
-// давности — сторож по latest предлагал бы откатиться назад.
+// The newest release by publication date, NOT /releases/latest: XTLS marks all
+// fresh releases as pre-release, and their "latest" shows a version many months
+// old — a watcher based on latest would suggest rolling back.
 //
-// Обратный случай — TrustTunnel: там стабильные релизы выходят как есть, а
-// сверху копятся rc. Брать оттуда верхний подряд значит предлагать rc в
-// инсталлятор, поэтому политика pre-release задаётся на каждый источник
-// отдельно, а не угадывается.
+// The opposite case is TrustTunnel: there stable releases come out as is, and
+// rc's pile up on top. Taking the topmost one means suggesting an rc for
+// the installer, so the pre-release policy is set per source
+// rather than guessed.
 async function newestRelease(repo, { allowPrerelease = false } = {}) {
   const releases = await gh(`repos/${repo}/releases?per_page=30`);
   const usable = releases
@@ -78,14 +78,14 @@ function assetUrl(release, pattern) {
   return asset.browser_download_url;
 }
 
-// Каждый пин умеет: прочитать себя из build.yml, узнать актуальное значение и
-// вернуть замену. Ошибка одного источника не должна прятать остальные, поэтому
-// они выполняются независимо.
+// Each pin can: read itself from build.yml, find out the current value and
+// return a replacement. An error from one source must not hide the others, so
+// they run independently.
 const pins = [
   {
     name: "ninety-core",
-    // Форк сторожит апстрим сам (upstream-watch.yml в ninety-core); здесь
-    // проверяется обратное — не отстал ли Ninety от тега форка.
+    // The fork watches upstream itself (upstream-watch.yml in ninety-core); here
+    // the opposite is checked — whether Ninety has fallen behind the fork's tag.
     read: (data) => data["ninety-core"].tag,
     async latest() {
       const tags = await gh("repos/pathetixx/ninety-core/tags?per_page=1");
@@ -100,7 +100,7 @@ const pins = [
     name: "xray-core",
     read: (data) => data["xray-core"].tag,
     async latest() {
-      // У XTLS pre-release — обычный режим выпуска, стабильным висит старьё.
+      // For XTLS pre-release is the regular release mode, the stable one is ancient.
       const release = await newestRelease("XTLS/Xray-core", { allowPrerelease: true });
       const commit = await gh(`repos/XTLS/Xray-core/commits/${release.tag_name}`);
       return { version: release.tag_name, sha: commit.sha };
@@ -135,7 +135,7 @@ const pins = [
   },
   {
     name: "wintun",
-    // wintun.net — не GitHub и без API: версия живёт в имени файла на странице.
+    // wintun.net isn't GitHub and has no API: the version lives in the file name on the page.
     read: (data) => data.wintun.version,
     async latest() {
       const response = await fetch("https://www.wintun.net/");
@@ -164,13 +164,13 @@ function compareVersions(a, b) {
 }
 
 
-// sha256, который сейчас стоит рядом с этим URL: строка вида
+// The sha256 currently next to this URL: a line like
 
 
 export { pins, compareVersions, readPins };
 
 if (!isMain) {
-  // Импорт — только за описаниями пинов; сеть и запись остаются за запуском.
+  // Importing is only for the pin descriptions; network and writing are left to the run.
 } else {
   await main();
 }
@@ -217,12 +217,12 @@ async function main() {
   if (changed) {
     writeFileSync(pinsPath, `${JSON.stringify(data, null, 2)}\n`);
     console.log("pins.json обновлён");
-    // «О программе» показывает версии ядер и компонентов из этих же пинов.
-    // Без пересборки паспорт бы отставал ровно на один бамп — и именно так он
-    // и отставал, пока строка ядра правилась руками.
+    // "About" shows core and component versions from these same pins.
+    // Without a rebuild the passport would lag exactly one bump behind — and that's exactly how it
+    // lagged while the core line was edited by hand.
     refreshBuildInfo(data);
-    // Лицензионные тексты называют те же версии, а для ядра — ещё и тег, по
-    // которому искать исходники сборки.
+    // License texts name the same versions, and for the core also the tag by
+    // which to look up the build's sources.
     const notices = writeNotices(root);
     if (notices.length) console.log(`лицензионные тексты обновлены: ${notices.join(", ")}`);
   }
@@ -233,18 +233,18 @@ async function main() {
       { flag: "a" });
   }
 
-  // Недоступный источник — это не «всё в порядке»: молчаливый зелёный ран здесь
-  // означал бы, что сторож перестал сторожить.
+  // An unavailable source isn't "all good": a silent green run here
+  // would mean the watcher stopped watching.
   process.exitCode = failures ? 1 : 0;
 }
 
-// Паспорт сборки пересобираем прямо здесь: commit/date в дев-дереве остаются
-// плейсхолдерами (их ставит CI перед сборкой), меняются только версии.
+// The build passport is rebuilt right here: commit/date in the dev tree stay
+// placeholders (CI sets them before the build), only the versions change.
 function refreshBuildInfo(pins) {
   const buildInfoPath = join(root, "src/lib/build-info.js");
   const configPath = join(root, "src-tauri/tauri.conf.json");
   let existing = "";
-  try { existing = readFileSync(buildInfoPath, "utf8"); } catch { /* нет файла — соберём заново */ }
+  try { existing = readFileSync(buildInfoPath, "utf8"); } catch { /* no file — rebuild it */ }
   const version = JSON.parse(readFileSync(configPath, "utf8")).version;
   const commit = existing.match(/commit: "([^"]*)"/)?.[1] ?? "local";
   const date = existing.match(/date: "([^"]*)"/)?.[1] ?? "—";

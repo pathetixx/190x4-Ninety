@@ -4,9 +4,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# --ci-smoke пишет и стирает боевой profile store, поэтому в самом приложении
-# он включается только этим opt-in'ом (см. ci_smoke_requested в lib.rs). Без
-# переменной релизный бинарь игнорирует флаг и стартует как обычно.
+# --ci-smoke writes and wipes the live profile store, so in the app itself
+# it's enabled only by this opt-in (see ci_smoke_requested in lib.rs). Without
+# the variable the release binary ignores the flag and starts as usual.
 $env:NINETY_CI_SMOKE = "1"
 
 function Assert-Release([bool]$Condition, [string]$Message) {
@@ -106,12 +106,12 @@ if (Test-Path $LatestJson) {
   Assert-Release ([string]$portablePlatform.url -eq $expectedPortableUrl) "URL Portable в latest.json не совпадает с ZIP"
 }
 
-# Полный boot Tauri без сети/VPN. --ci-smoke проверяет backend ping и сам
-# вызывает app.exit(0) через три секунды; зависание или мгновенный crash валят CI.
-# Лимит ожидания измеряет холодный старт, а не выход: на свежем раннере первый
-# запуск WebView2 и сканирование неподписанного exe Defender'ом съедали почти
-# все 30 секунд и валили сборку на здоровом бинаре. 90 секунд по-прежнему ловят
-# реальное зависание, но не гонку с первым запуском.
+# A full Tauri boot without network/VPN. --ci-smoke checks the backend ping and itself
+# calls app.exit(0) after three seconds; a hang or an instant crash fails CI.
+# The wait limit measures the cold start, not the exit: on a fresh runner the first
+# WebView2 launch and Defender scanning the unsigned exe ate almost
+# all of the 30 seconds and failed the build on a healthy binary. 90 seconds still catch
+# a real hang, but not a race with the first launch.
 $process = Start-Process -FilePath $app.FullName -ArgumentList "--ci-smoke" -PassThru
 if (-not $process.WaitForExit(90000)) {
   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -119,8 +119,8 @@ if (-not $process.WaitForExit(90000)) {
 }
 Assert-Release ($process.ExitCode -eq 0) "Ninety.exe CI smoke завершился с кодом $($process.ExitCode)"
 
-# Тот же boot из реально подготовленного Portable layout. Маркер рядом с EXE
-# включает безопасное portable-поведение updater'а.
+# The same boot from an actually prepared Portable layout. The marker next to the EXE
+# enables the safe portable behavior of the updater.
 $portableProcess = Start-Process -FilePath $portableApp.FullName -ArgumentList "--ci-smoke" -PassThru
 if (-not $portableProcess.WaitForExit(90000)) {
   Stop-Process -Id $portableProcess.Id -Force -ErrorAction SilentlyContinue

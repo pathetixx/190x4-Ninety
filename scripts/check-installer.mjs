@@ -251,9 +251,9 @@ if (templatePath && existsSync(templatePath)) {
   if (template.includes("Local\\\\pw.x190x4.ninety.installer")) {
     fail("installer.nsi содержит невалидный двойной разделитель namespace в имени mutex");
   }
-  // Запущенный деинсталлятор залочен по построению. Без этого исключения путь
-  // «страница обслуживания → заменить/удалить» (он же выбор по умолчанию при
-  // апгрейде) упирается в собственный образ и отменяет операцию.
+  // A running uninstaller is locked by construction. Without this exception the path
+  // "maintenance page → replace/remove" (also the default choice on
+  // upgrade) runs into its own image and cancels the operation.
   if (!template.includes('$R9 == "$INSTDIR\\uninstall.exe"')) {
     fail("un.NinetyProbeWritableFile должен пропускать запущенный uninstall.exe");
   }
@@ -285,7 +285,7 @@ if (templatePath && existsSync(templatePath)) {
   }
 }
 
-// Тело `!macro NAME` … `!macroend` (без вложенных макросов).
+// The body of `!macro NAME` … `!macroend` (without nested macros).
 function macroBody(source, name) {
   const start = source.indexOf(`!macro ${name}`);
   if (start < 0) return null;
@@ -293,13 +293,13 @@ function macroBody(source, name) {
   return end < 0 ? null : source.slice(start, end);
 }
 
-// Значение `const NAME: &str = "…"` / `r"…"` из Rust-исходника.
+// The value of `const NAME: &str = "…"` / `r"…"` from a Rust source.
 function rustStrConst(source, name) {
   return source.match(new RegExp(`const ${name}: &str = r?"([^"]*)";`))?.[1] ?? null;
 }
 
 if (hooksPath && existsSync(hooksPath)) {
-  // Комментарии не в счёт: проверяется только исполняемый код хуков.
+  // Comments don't count: only the hooks' executable code is checked.
   const hooks = readFileSync(hooksPath, "utf8")
     .split("\n")
     .filter((line) => !line.trim().startsWith(";"))
@@ -307,9 +307,9 @@ if (hooksPath && existsSync(hooksPath)) {
   const proxySource = readFileSync(resolve(root, "src-tauri/src/proxy_win.rs"), "utf8");
   const urlSource = readFileSync(resolve(root, "src-tauri/src/url_handler.rs"), "utf8");
 
-  // Завершение по имени убивало одноимённые процессы чужих программ (xray.exe и
-  // sing-box.exe у v2rayN, winws.exe у zapret). Только наши имена И путь образа
-  // внутри $INSTDIR.
+  // Terminating by name killed same-named processes of other programs (xray.exe and
+  // sing-box.exe of v2rayN, winws.exe of zapret). Only our names AND an image path
+  // inside $INSTDIR.
   if (/taskkill/i.test(hooks) || /\/IM\s/.test(hooks)) {
     fail("hooks.nsh не должен завершать процессы по имени (taskkill /IM)");
   }
@@ -325,8 +325,8 @@ if (hooksPath && existsSync(hooksPath)) {
     if (!hooks.includes(`$4 == "${image}"`)) fail(`hooks.nsh не завершает ${image} из каталога установки`);
   }
 
-  // Службы драйвера снимаются только при ImagePath внутри $INSTDIR; WinDivert
-  // регистрируют и другие программы.
+  // Driver services are removed only with an ImagePath inside $INSTDIR; WinDivert
+  // is registered by other programs too.
   if (!hooks.includes("query NinetyTunnelService")) fail("hooks.nsh не проверяет legacy-службу NinetyTunnelService");
   if (!hooks.includes('"SYSTEM\\CurrentControlSet\\Services\\$R1" "ImagePath"')) {
     fail("hooks.nsh не сверяет ImagePath службы драйвера с каталогом установки");
@@ -340,7 +340,7 @@ if (hooksPath && existsSync(hooksPath)) {
     }
   }
 
-  // Восстановление прокси повторяет proxy_win.rs: константы обязаны совпадать.
+  // Proxy restoration repeats proxy_win.rs: the constants must match.
   for (const [rust, nsis] of [
     ["INET_SETTINGS_KEY", "NINETY_INET_SETTINGS_KEY"],
     ["NINETY_KEY", "NINETY_STATE_KEY"],
@@ -375,13 +375,13 @@ if (hooksPath && existsSync(hooksPath)) {
     }
   }
 
-  // Задачу portable-копии деинсталлятор установленной не трогает.
+  // The installed copy's uninstaller doesn't touch the portable copy's task.
   const portableTask = rustStrConst(proxySource, "PORTABLE_TASK_NAME");
   if (portableTask && hooks.includes(`"${portableTask}"`)) fail("hooks.nsh не должен трогать задачу portable-копии");
   if (!hooks.includes('/Delete /TN "${NINETY_AUTOSTART_TASK}" /F')) fail("hooks.nsh не снимает задачу автозапуска");
 
-  // Обработчики ссылок: ровно SUPPORTED_SCHEMES плюс ninety (его в HKCU
-  // дописывает плагин deep-link).
+  // Link handlers: exactly SUPPORTED_SCHEMES plus ninety (it's added to HKCU
+  // by the deep-link plugin).
   const supportedMatch = urlSource.match(/pub const SUPPORTED_SCHEMES: &\[&str\] = &\[([^\]]*)\]/);
   const supported = [...(supportedMatch?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   if (!supported.length) fail("url_handler.rs: не найден SUPPORTED_SCHEMES");
@@ -397,15 +397,15 @@ if (hooksPath && existsSync(hooksPath)) {
 
 if (templatePath && existsSync(templatePath)) {
   const template = readFileSync(templatePath, "utf8");
-  // Хук завершает процессы и снимает драйвер — только после проверки, что в
-  // каталог вообще можно писать.
+  // The hook terminates processes and removes the driver — only after checking that
+  // the directory can be written to at all.
   const directoryCheck = template.indexOf("Call NinetyValidateInstallDirectory");
   const preinstallHook = template.indexOf("!insertmacro NSIS_HOOK_PREINSTALL");
   if (directoryCheck < 0 || preinstallHook < 0 || directoryCheck > preinstallHook) {
     fail("installer.nsi должен проверять каталог установки до хука PREINSTALL");
   }
-  // Аргументы старого процесса после OTA: --autostarted прятал окно и сам
-  // подключал VPN, --wait-parent ждал мёртвый PID.
+  // Arguments of the old process after OTA: --autostarted hid the window and
+  // connected the VPN by itself, --wait-parent waited for a dead PID.
   if (template.includes('"/ARGS"')) fail("installer.nsi не должен передавать новой версии аргументы старого процесса");
   for (const marker of [
     "Call un.NinetyRemoveAutostartTask",

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Ninety · статичная русская страница сайта (site/ru/index.html).
+// Ninety · the static Russian page of the site (site/ru/index.html).
 //
-// Основная страница переводится скриптом в браузере, но краулеры и превью
-// ссылок в мессенджерах JavaScript не выполняют и видят английский текст.
-// Поэтому русская версия собирается заранее из site/index.html и словаря
-// translations.ru в site/app.js. Руками site/ru/index.html не правится:
-// tests/site.test.mjs сверяет его с выводом этого скрипта.
+// The main page is translated by a script in the browser, but crawlers and link previews
+// in messengers don't run JavaScript and see the English text.
+// So the Russian version is built in advance from site/index.html and the
+// translations.ru dictionary in site/app.js. site/ru/index.html isn't edited by hand:
+// tests/site.test.mjs compares it with this script's output.
 //
-// Использование:
-//   node scripts/build-site-ru.mjs          — пересобрать site/ru/index.html
-//   node scripts/build-site-ru.mjs --check  — упасть, если файл устарел
+// Usage:
+//   node scripts/build-site-ru.mjs          — rebuild site/ru/index.html
+//   node scripts/build-site-ru.mjs --check  — fail if the file is outdated
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -67,13 +67,13 @@ export function buildRuPage(html, translations) {
   out = replaceOnce(out, /(<meta property="og:locale" content=")[^"]*(")/, "$1ru_RU$2", "og:locale");
   out = replaceOnce(out, /(<link rel="canonical" href=")[^"]*(")/, `$1${SITE_URL}ru/$2`, "canonical");
 
-  // Тексты с data-i18n. Тот же разбор, что и в тесте статической разметки.
+  // Texts with data-i18n. The same parsing as in the static markup test.
   out = out.replace(/<(\w+)([^>]*\bdata-i18n="([^"]+)"[^>]*)>(.*?)<\/\1>/gs, (match, tag, attrs, key) => {
     if (!(key in ru)) throw new Error(`translations.ru: нет ключа ${key}`);
     return `<${tag}${attrs}>${escapeHtml(ru[key])}</${tag}>`;
   });
 
-  // Активная кнопка языка.
+  // The active language button.
   out = out.replace(
     /<button class="lang-button is-active" type="button" data-lang="en">/,
     '<button class="lang-button" type="button" data-lang="en">',
@@ -83,10 +83,10 @@ export function buildRuPage(html, translations) {
     '<button class="lang-button is-active" type="button" data-lang="ru">',
   );
 
-  // Локальные пути: страница лежит на уровень глубже.
+  // Local paths: the page is one level deeper.
   out = out.replace(/\b(src|href)="(?!https?:|#|mailto:|\.\.\/)([^"]+)"/g, '$1="../$2"');
 
-  // alt главного скриншота до выполнения JS.
+  // alt of the main screenshot before JS runs.
   out = out.replace(/(data-screen-image src="[^"]+" alt=")[^"]*(")/, "$1Главный экран Ninety$2");
 
   return out;

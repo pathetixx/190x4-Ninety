@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Ninety · версии компонентов в лицензионных текстах.
+// Ninety · component versions in the license texts.
 //
-// THIRD-PARTY-NOTICES.md и текст лицензии инсталлятора называют точные версии
-// того, что лежит в пакете, — для GPL-ядра это ещё и адрес исходников сборки.
-// Правились они руками и отставали на несколько бампов: пины двигают боты
-// (check-pins.mjs, engine-watch.yml), а набор стратегий — синк DPI-канала.
-// Теперь версии подставляются из тех же файлов, что читает сборка:
+// THIRD-PARTY-NOTICES.md and the installer license text name the exact versions
+// of what's in the package — for the GPL core that's also the address of the build's sources.
+// They were edited by hand and lagged several bumps behind: the pins are moved by bots
+// (check-pins.mjs, engine-watch.yml), and the strategy set by the DPI channel sync.
+// Now the versions are substituted from the same files the build reads:
 // .github/pins.json, src-tauri/dpi/engine-version.txt, src-tauri/dpi/version.txt.
 //
-// Использование:
+// Usage:
 //   node scripts/gen-notices.mjs
-// license.rtf пересобирается из license.txt через make_license_rtf.py.
+// license.rtf is rebuilt from license.txt via make_license_rtf.py.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -32,7 +32,7 @@ export function readSources(base = root) {
   };
 }
 
-// Заголовок раздела → содержимое ячейки Version в его таблице.
+// Section heading → the contents of the Version cell in its table.
 function versionCells({ pins, engine, strategies }) {
   const commit = (pin) => `\`${pin.tag}\` (commit \`${pin.sha}\`)`;
   return [
@@ -45,10 +45,10 @@ function versionCells({ pins, engine, strategies }) {
   ];
 }
 
-// Разделы и строки ищутся по тексту: пропавший раздел — ошибка, а не молчаливый
-// пропуск, иначе версия снова тихо застынет.
+// Sections and lines are found by text: a missing section is an error, not a silent
+// skip, otherwise the version would quietly freeze again.
 export function renderNotices(text, sources) {
-  // Windows-checkout может отдать CRLF: переводы строк сохраняем как были.
+  // A Windows checkout may return CRLF: line endings are kept as they were.
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
   for (const [heading, cell] of versionCells(sources)) {
@@ -67,7 +67,7 @@ export function renderNotices(text, sources) {
   return lines.join(eol);
 }
 
-// Тег ядра стоит в английской и русской частях: "(tag …)" и "(тег …)".
+// The core tag stands in the English and Russian parts: "(tag …)" and "(тег …)".
 export function renderLicenseTxt(text, { pins }) {
   const pattern = /(github\.com\/pathetixx\/ninety-core \((?:tag|тег) )[^)]+\)/g;
   const found = (text.match(pattern) || []).length;
@@ -90,7 +90,7 @@ function rebuildRtf(base) {
   throw new Error(`python не найден: запусти ${LICENSE_RTF_SCRIPT} вручную`);
 }
 
-// Возвращает изменённые файлы (license.rtf идёт вместе с license.txt).
+// Returns the changed files (license.rtf goes together with license.txt).
 export function writeNotices(base = root) {
   const sources = readSources(base);
   const changed = [];

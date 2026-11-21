@@ -228,8 +228,8 @@ const screens = {
 
 const SUPPORTED_LANGUAGES = ["en", "ru"];
 const DEFAULT_LANGUAGE = "en";
-// Русская версия лежит статичной страницей в ru/ (scripts/build-site-ru.mjs):
-// у неё язык задан адресом, а пути к ресурсам начинаются с "../".
+// The Russian version is a static page in ru/ (scripts/build-site-ru.mjs):
+// its language is set by the address, and resource paths start with "../".
 const PAGE_LANGUAGE = globalThis.document?.documentElement.dataset.pageLang || DEFAULT_LANGUAGE;
 const SITE_ROOT = globalThis.document?.documentElement.dataset.siteRoot || "";
 const LANGUAGE_PAGES = { en: SITE_ROOT || "./", ru: `${SITE_ROOT}ru/` };
@@ -243,9 +243,9 @@ function readStoredLanguage() {
   }
 }
 
-// navigator.languages — это список по убыванию приоритета, поэтому берём первый
-// знакомый, а не просто navigator.language. Региональные теги (ru-RU, en-GB)
-// сводим к базовому: словарь у нас один на язык.
+// navigator.languages is a list in descending priority, so we take the first
+// one we know, not just navigator.language. Regional tags (ru-RU, en-GB)
+// are reduced to the base: we have one dictionary per language.
 function detectBrowserLanguage() {
   const wanted = navigator.languages?.length ? navigator.languages : [navigator.language];
   for (const tag of wanted) {
@@ -255,10 +255,10 @@ function detectBrowserLanguage() {
   return DEFAULT_LANGUAGE;
 }
 
-// Явный выбор кнопкой сильнее языка браузера: он и только он лежит в
-// localStorage. Пока выбора не было, определение остаётся живым — сменив язык
-// системы, посетитель увидит сайт на новом языке.
-// На странице не языка по умолчанию язык задан адресом: /ru/ всегда по-русски.
+// An explicit choice with a button is stronger than the browser language: it and only it is stored in
+// localStorage. Until a choice has been made, detection stays live — after changing the system
+// language, the visitor will see the site in the new language.
+// On a page in a non-default language the language is set by the address: /ru/ is always in Russian.
 let currentLanguage =
   PAGE_LANGUAGE === DEFAULT_LANGUAGE ? readStoredLanguage() || detectBrowserLanguage() : PAGE_LANGUAGE;
 let currentScreen = "home";
@@ -288,7 +288,7 @@ function storeLanguage(language) {
   try {
     localStorage.setItem("ninety-site-language", language);
   } catch {
-    // В приватном или ограниченном режиме браузер может запретить localStorage.
+    // In private or restricted mode the browser may forbid localStorage.
   }
 }
 
@@ -423,8 +423,8 @@ function setLanguage(language, { persist = true } = {}) {
   document.documentElement.lang = currentLanguage;
   if (persist) storeLanguage(currentLanguage);
 
-  // Заголовок и описание живут в <head>, где нет data-i18n: без этого страница
-  // на русском отдавала бы английский <title> и такое же превью в соцсетях.
+  // The title and description live in <head>, where there's no data-i18n: without this the page
+  // in Russian would serve an English <title> and the same social media preview.
   document.title = t("meta.title");
   for (const selector of ['meta[name="description"]', 'meta[property="og:description"]']) {
     document.querySelector(selector)?.setAttribute("content", t("meta.description"));
@@ -460,8 +460,8 @@ function updateScreen(name) {
 document.querySelectorAll("[data-lang]").forEach((button) => {
   button.addEventListener("click", () => {
     const language = button.dataset.lang;
-    // Русскую версию открываем отдельным адресом: им можно поделиться, и
-    // превью ссылки будет на русском. С /ru/ на английский — обратно в корень.
+    // The Russian version is opened at a separate address: it can be shared, and
+    // the link preview will be in Russian. From /ru/ to English — back to the root.
     if (language !== PAGE_LANGUAGE && (language !== DEFAULT_LANGUAGE || PAGE_LANGUAGE !== DEFAULT_LANGUAGE)) {
       storeLanguage(language);
       window.location.href = LANGUAGE_PAGES[language];
@@ -479,8 +479,8 @@ window.addEventListener("scroll", () => {
   topbar.classList.toggle("is-scrolled", window.scrollY > 12);
 });
 
-// persist: false — первый показ не должен записывать определённый язык как
-// осознанный выбор, иначе определение сработало бы ровно один раз в жизни.
+// persist: false — the first display must not record the detected language as
+// a deliberate choice, otherwise detection would work exactly once in a lifetime.
 setLanguage(currentLanguage, { persist: false });
 updateScreen(currentScreen);
 loadLatestRelease();

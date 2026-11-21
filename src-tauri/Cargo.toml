@@ -18,12 +18,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-# unwind, а НЕ abort. Отказоустойчивость сетевого бэкенда построена на раскрутке
-# стека: netproc.rs ловит панику снимка TCP-таблицы через catch_unwind (иначе
-# IPC-промис не settl-ится), util.rs::MutexExt восстанавливает отравленные локи
-# с хэндлами движков, а tokio изолирует панику внутри отдельного таска. При
-# `panic = "abort"` весь этот код — no-op: процесс умирает на месте, минуя
-# RunEvent::Exit, и системный прокси остаётся на мёртвом порту.
+# unwind, NOT abort. The network backend's fault tolerance is built on stack
+# unwinding: netproc.rs catches a TCP table snapshot panic via catch_unwind (otherwise
+# the IPC promise doesn't settle), util.rs::MutexExt recovers poisoned locks
+# with engine handles, and tokio isolates a panic inside a separate task. With
+# `panic = "abort"` all this code is a no-op: the process dies on the spot, bypassing
+# RunEvent::Exit, and the system proxy stays on a dead port.
 panic = "unwind"
 strip = "symbols"
 
@@ -44,30 +44,30 @@ serde_json = "1"
 tokio = { version = "1", features = ["time", "sync", "rt", "macros", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-# http2 ОБЯЗАТЕЛЕН: DoH-серверы (Quad9/Yandex) отвергают HTTP/1.1 (505/обрыв),
-# без него dns_probe считал живой DoH-резолвер мёртвым — watchdog спамил фолбэком.
+# http2 is MANDATORY: DoH servers (Quad9/Yandex) reject HTTP/1.1 (505/disconnect),
+# without it dns_probe considered a live DoH resolver dead — the watchdog spammed the fallback.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "http2", "cookies"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 argon2 = "0.6"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "getrandom"] }
 zeroize = "1"
-# Проверка подписи канала стратегий (minisign — тот же ключ, что у OTA-апдейтера).
+# Verifying the strategy channel signature (minisign — the same key as the OTA updater).
 minisign-verify = "0.3"
-# Распаковка подписанного бандла канала (после верификации байтов).
+# Unpacking the channel's signed bundle (after verifying the bytes).
 zip = { version = "9", default-features = false, features = ["deflate"] }
 urlencoding = "2.1"
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-# WG handshake (boringtun) — нужен для warp_scan_endpoints в WG-режиме.
-# default-features = false убирает FFI bindings и device-loop, оставляет noise/Tunn.
+# WG handshake (boringtun) — needed for warp_scan_endpoints in WG mode.
+# default-features = false removes the FFI bindings and the device loop, keeps noise/Tunn.
 boringtun = { version = "0.7", default-features = false }
-# BLAKE2s для пересчёта MAC1 после подмены reserved (CF WARP client_id routing).
+# BLAKE2s for recomputing MAC1 after substituting reserved (CF WARP client_id routing).
 blake2 = "0.11"
-# Метки времени (журнал, WARP, папки восстановления). Крейт и так в дереве
-# зависимостей (tauri, cookie, plist); chrono заменён: RUSTSEC-2026-0543.
+# Timestamps (log, WARP, recovery folders). The crate is already in the dependency
+# tree (tauri, cookie, plist); chrono was replaced: RUSTSEC-2026-0543.
 time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
-# TTL на сокете ДО connect (трасса в diagnose.rs): у tokio такой ручки нет.
-# Крейт и так в дереве зависимостей (tokio/hyper), новых сторонних имён не вносит.
+# TTL on the socket BEFORE connect (the trace in diagnose.rs): tokio has no such knob.
+# The crate is already in the dependency tree (tokio/hyper), it adds no new third-party names.
 socket2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -81,19 +81,19 @@ windows = { version = "0.62", features = [
     "Win32_NetworkManagement_WiFi",
     "Win32_NetworkManagement_WindowsFilteringPlatform",
     "Win32_Security",
-    # DPAPI (CryptProtectData) — шифрование warp.json / state-backup.json (secrets.rs).
+    # DPAPI (CryptProtectData) — encryption of warp.json / state-backup.json (secrets.rs).
     "Win32_Security_Cryptography",
     "Win32_Security_Cryptography_Catalog",
     "Win32_Security_Cryptography_Sip",
-    # Authenticode / WinVerifyTrust для Protected Browser.
+    # Authenticode / WinVerifyTrust for the Protected Browser.
     "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
-    # Job Object (KILL_ON_JOB_CLOSE) — движки не переживают смерть Ninety
+    # Job Object (KILL_ON_JOB_CLOSE) — the engines don't outlive Ninety's death
     # (job_guard.rs).
     "Win32_System_JobObjects",
     "Win32_System_Ole",
-    # GetPerformanceInfo / GlobalMemoryStatusEx — сэмплер давления хоста
+    # GetPerformanceInfo / GlobalMemoryStatusEx — the host pressure sampler
     # (host_pressure.rs).
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",

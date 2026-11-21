@@ -1769,8 +1769,8 @@ Function KuroganeFinishProgress
 FunctionEnd
 
 Function un.KuroganeFinishProgress
-  ; Не KInstallComplete: на финальном экране удаления «компоненты развёрнуты»
-  ; противоречит только что выполненной операции.
+  ; Not KInstallComplete: on the uninstall final screen "components deployed"
+  ; contradicts the operation just performed.
   !insertmacro KuroganeFinishProgressImpl "un." "$(KUninstallComplete)"
 FunctionEnd
 

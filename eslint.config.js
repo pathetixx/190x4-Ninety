@@ -1,18 +1,18 @@
-// Ninety · ESLint flat config. Гейт ловит РЕАЛЬНЫЕ баги (необъявленные globals,
-// дубли ключей, недостижимый код, сравнение с NaN), не навязывая стиль — форматом
-// правит рука (fmt намеренно выключен и в Rust-части). CI зовёт eslint с
-// --max-warnings 0 (см. package.json), поэтому и warn-правила (unused-vars) валят
-// сборку — baseline держим на нуле находок. Уровень warn оставлен, чтобы локальный
-// `eslint` без флага отличал стилевую находку от настоящей ошибки в выводе.
+// Ninety · ESLint flat config. The gate catches REAL bugs (undeclared globals,
+// duplicate keys, unreachable code, comparison with NaN) without imposing a style — formatting
+// is done by hand (fmt is deliberately off in the Rust part too). CI calls eslint with
+// --max-warnings 0 (see package.json), so warn rules (unused-vars) also fail
+// the build — we keep the baseline at zero findings. The warn level is kept so that a local
+// `eslint` without the flag distinguishes a style finding from a real error in the output.
 
 import js from "@eslint/js";
 import globals from "globals";
 
-// Затенение импорта локальным именем — баг этого кода, а не стиль: в dpi-view
-// `const t = e.target` перекрывал импортированную `t` из i18n, и клик по
-// тумблеру падал с TypeError уже ПОСЛЕ записи настройки и перезапуска движка.
-// Готовое `no-shadow` для этого слишком шумно (46 находок, почти все — про
-// hoist локальных имён), поэтому гейтим ровно этот класс.
+// Shadowing an import with a local name is a bug in this code, not style: in dpi-view
+// `const t = e.target` shadowed the imported `t` from i18n, and a click on
+// a toggle failed with a TypeError AFTER the setting was written and the engine restarted.
+// The stock `no-shadow` is too noisy for this (46 findings, almost all about
+// hoisting local names), so we gate exactly this class.
 const ninetyPlugin = {
   rules: {
     "no-import-shadow": {
@@ -56,7 +56,7 @@ const ninetyPlugin = {
 
 export default [
   {
-    // Сторонний код и не-исходники не линтуем.
+    // Third-party code and non-sources aren't linted.
     ignores: [
       "src/vendor/**",
       "src/assets/**",
@@ -67,8 +67,8 @@ export default [
   },
   js.configs.recommended,
   {
-    // Фронтенд — браузерные ES-модули (withGlobalTauri: __TAURI__ берётся как
-    // window.__TAURI__, отдельный global не нужен).
+    // The frontend is browser ES modules (withGlobalTauri: __TAURI__ is taken as
+    // window.__TAURI__, a separate global isn't needed).
     files: ["src/**/*.js", "site/**/*.js"],
     languageOptions: {
       ecmaVersion: 2023,
@@ -78,17 +78,17 @@ export default [
     plugins: { ninety: ninetyPlugin },
     rules: {
       "ninety/no-import-shadow": "error",
-      // catch {} без тела — осознанный паттерн (best-effort операции по всему коду).
+      // catch {} without a body is a deliberate pattern (best-effort operations throughout the code).
       "no-empty": ["error", { allowEmptyCatch: true }],
-      // while(true) reconnect-циклы и т.п. — не константный баг.
+      // while(true) reconnect loops and the like aren't a constant-condition bug.
       "no-constant-condition": ["error", { checkLoops: false }],
-      // Мёртвые переменные — сигнал, но не повод валить CI: показываем как warn.
-      // Аргументы и пойманные ошибки не караем (обработчики, сигнатуры API).
+      // Dead variables are a signal, but not a reason to fail CI: shown as warn.
+      // Arguments and caught errors aren't penalized (handlers, API signatures).
       "no-unused-vars": ["warn", { args: "none", caughtErrors: "none" }],
     },
   },
   {
-    // Тесты и скрипты сборки — Node-окружение.
+    // Tests and build scripts are a Node environment.
     files: ["tests/**/*.mjs", "scripts/**/*.{js,mjs}"],
     languageOptions: {
       ecmaVersion: 2023,

@@ -147,10 +147,10 @@ jobs:
                 current_candidates+=("$asset_current")
               fi
             fi
-            # Самовосстановление после оборванного release upload: notes
-            # записываются до assets и остаются monotonic record, даже если
-            # version.txt ещё не успел загрузиться. Берём максимальную из двух
-            # валидных версий, поэтому старый asset не ослабляет новый record.
+            # Self-repair after an interrupted release upload: notes
+            # are written before assets and stay a monotonic record, even if
+            # version.txt hasn't been uploaded yet. We take the maximum of the two
+            # valid versions, so an old asset doesn't weaken a new record.
             notes_current=$(gh release view dpi-channel --repo "$GITHUB_REPOSITORY" \
               --json body --jq .body | tr ' ' '\n' | sed -n 's/^flowseal=//p')
             if [[ "$notes_current" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -483,9 +483,9 @@ jobs:
           import re
 
           source = Path("src-tauri/src/dpi.rs").read_text(encoding="utf-8")
-          # Legacy-константа исчезает на последнем шаге ротации ключа
-          # (docs/DPI_CHANNEL_KEY_ROTATION.md, шаг 5) — это штатное конечное
-          # состояние, а не поломка. Обязателен только dedicated key.
+          # The legacy constant disappears at the last step of the key rotation
+          # (docs/DPI_CHANNEL_KEY_ROTATION.md, step 5) — this is the regular final
+          # state, not a breakage. Only the dedicated key is mandatory.
           written = 0
           for index, name in enumerate(("CHANNEL_DEDICATED_PUBKEY_B64", "CHANNEL_LEGACY_PUBKEY_B64")):
               match = re.search(rf'const {name}: &str = "([^"]+)";', source)

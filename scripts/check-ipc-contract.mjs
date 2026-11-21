@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// IPC-контракт Rust ↔ фронт: в generate_handler! нет команд, которых никто не
-// зовёт, и фронт не зовёт того, чего там нет.
+// The Rust ↔ frontend IPC contract: generate_handler! has no commands nobody
+// calls, and the frontend doesn't call what isn't there.
 //
-// Каждая запись в generate_handler! — это ручка, доступная любому коду внутри
-// WebView, и компилятор держит её функцию живой. Экраны переезжают на агрегаты
-// (health_snapshot, read_log_chunk), а прежние команды остаются: к v0.6.0 их
-// накопилось тринадцать. Обратная сторона — вызов несуществующей команды: он
-// проваливается только в рантайме, тостом «command not found».
+// Every entry in generate_handler! is a handle available to any code inside
+// the WebView, and the compiler keeps its function alive. Screens move to aggregates
+// (health_snapshot, read_log_chunk), while the old commands stay: by v0.6.0
+// thirteen of them had piled up. The flip side is calling a nonexistent command: it
+// fails only at runtime, with a "command not found" toast.
 //
-// Имена команд ищем среди ВСЕХ строковых литералов фронта, а не только внутри
-// invoke(...): часть вызовов собирает имя в переменную (clash-api, автозапуск,
-// link-handlers), и литерал всё равно лежит рядом в коде.
+// Command names are searched among ALL frontend string literals, not only inside
+// invoke(...): some calls assemble the name in a variable (clash-api, autostart,
+// link-handlers), and the literal still lies nearby in the code.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -38,7 +38,7 @@ if (!handlerBlock) {
   console.error(`${HANDLER_FILE}: не найден generate_handler![...]`);
   process.exit(1);
 }
-const registered = new Map(); // команда → путь, как записан в lib.rs
+const registered = new Map(); // command → path, as written in lib.rs
 for (const raw of handlerBlock[1].split(",")) {
   const path = raw.replace(/\/\/.*$/gm, "").trim();
   if (!path) continue;
@@ -46,7 +46,7 @@ for (const raw of handlerBlock[1].split(",")) {
 }
 
 const literals = new Set();
-const invoked = new Map(); // команда → первое место вызова
+const invoked = new Map(); // command → the first call site
 for (const file of await jsFiles(FRONTEND_ROOT)) {
   const text = await readFile(file, "utf8");
   for (const match of text.matchAll(/["'`]([A-Za-z_][A-Za-z0-9_:]*)["'`]/g)) {

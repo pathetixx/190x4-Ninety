@@ -66,12 +66,12 @@ jobs:
       - name: Node preflight
         run: npm run preflight
 
-      # package-lock.json закоммичен → детерминированная установка через npm ci.
+      # package-lock.json is committed → a deterministic install via npm ci.
       - name: Install deps
         run: npm ci --no-audit --no-fund
 
-      # eslint.config.js + --max-warnings 0 (в npm-скрипте): и ошибки (no-undef,
-      # дубли ключей, недостижимый код), и warn-находки (unused-vars) валят гейт.
+      # eslint.config.js + --max-warnings 0 (in the npm script): both errors (no-undef,
+      # duplicate keys, unreachable code) and warn findings (unused-vars) fail the gate.
       - name: Run ESLint
         run: npm run lint
 

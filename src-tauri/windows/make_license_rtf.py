@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Конвертит license.txt -> license.rtf.
+# Converts license.txt -> license.rtf.
 #
-# WiX MSI требует RTF, NSIS принимает оба. licenseFile в tauri.conf.json
-# общий для обоих target'ов — значит нужен RTF. Кириллица в RTF —
-# через \\u<decimal>? escape (Unicode).
+# WiX MSI requires RTF, NSIS accepts both. licenseFile in tauri.conf.json
+# is shared by both targets — so RTF is needed. Cyrillic in RTF goes
+# through the \\u<decimal>? escape (Unicode).
 import argparse
 import os
 import sys
@@ -14,7 +14,7 @@ OUT = os.path.join(ROOT, "license.rtf")
 
 
 def to_rtf_token(ch):
-    # Escape одного символа в RTF-токен.
+    # Escape one character into an RTF token.
     if ch == "\\":
         return r"\\"
     if ch == "{":
@@ -24,7 +24,7 @@ def to_rtf_token(ch):
     cp = ord(ch)
     if cp < 128:
         return ch
-    # Unicode escape — RTF Unicode-mode (см. docstring).
+    # Unicode escape — RTF Unicode mode (see the docstring).
     return "\\u" + str(cp) + "?"
 
 
@@ -48,8 +48,8 @@ def render_rtf():
 
 
 def encoded_rtf():
-    # RTF понимает LF, а единый байтовый формат не создаёт CR-whitespace в git и
-    # делает --check детерминированным на Linux и Windows.
+    # RTF understands LF, and a single byte format doesn't create CR whitespace in git and
+    # makes --check deterministic on Linux and Windows.
     return render_rtf().encode("ascii")
 
 

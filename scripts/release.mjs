@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// Ninety · релиз одной командой, от бампа до раздачи по OTA. Оборачивает весь
-// ритуал (RELEASING.md) так, что две ручные переменные — номер версии и
-// заметки — авторятся по одному разу и разъезжаться не могут:
-//   версия → bump-version.mjs (app manifests + website fallback);
-//   заметки → секция CHANGELOG.md этой версии → git tag -a -F → тело draft'а.
-// CHANGELOG.md — единый источник заметок: те же байты уходят в аннотацию тега
-// (→ latest.json/OTA) и в тело релиза.
+// Ninety · a release in one command, from the bump to OTA distribution. Wraps the whole
+// ritual (RELEASING.md) so that the two manual variables — the version number and
+// the notes — are authored once each and can't drift apart:
+//   version → bump-version.mjs (app manifests + website fallback);
+//   notes → this version's CHANGELOG.md section → git tag -a -F → the draft body.
+// CHANGELOG.md is the single source of notes: the same bytes go into the tag annotation
+// (→ latest.json/OTA) and into the release body.
 //
-// Компиляция — в CI (локально не собираем): push тега запускает сборку/подпись/
-// публикацию/зеркала. После запуска CI скрипт сразу завершается и не следит за
-// раном. Проверка уже завершённого релиза остаётся отдельным режимом --verify.
+// Compilation happens in CI (we don't build locally): pushing the tag starts the build/signing/
+// publishing/mirrors. After starting CI the script exits immediately and doesn't watch
+// the run. Checking an already finished release remains a separate --verify mode.
 //
-// Использование:
+// Usage:
 //   node scripts/release.mjs X.Y.Z [--dry-run] [--yes]
-//   node scripts/release.mjs X.Y.Z --verify        # только проверить уже вышедший релиз
-// Перед запуском: добавить секцию "## vX.Y.Z — YYYY-MM-DD" в НАЧАЛО CHANGELOG.md.
+//   node scripts/release.mjs X.Y.Z --verify        # only check an already published release
+// Before running: add a "## vX.Y.Z — YYYY-MM-DD" section at the TOP of CHANGELOG.md.
 
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -74,7 +74,7 @@ const normalizedNotes = (value) => noteLines(value)
   .filter((line) => !/^#{1,6}\s+/u.test(line))
   .join("\n");
 
-// Поднять fn() до истины с ретраями — OTA-эндпоинты/CDN могут догонять пару секунд.
+// Drive fn() to true with retries — OTA endpoints/CDN may take a couple of seconds to catch up.
 async function retry(fn, tries = 8, delayMs = 5000) {
   for (let i = 0; i < tries; i++) {
     try { if (await fn()) return true; } catch { /* transient */ }
@@ -83,7 +83,7 @@ async function retry(fn, tries = 8, delayMs = 5000) {
   return false;
 }
 
-// Проверка, что релиз реально встал и раздаётся. Используется режимом --verify.
+// Checking that the release has actually landed and is being served. Used by the --verify mode.
 async function verifyRelease(version) {
   const tag = `v${version}`;
   console.log(`\nПроверка релиза ${tag}:`);
@@ -107,7 +107,7 @@ async function verifyRelease(version) {
   check(names.some((n) => /_windows-x64-portable\.zip\.sig$/.test(n)), "подпись Portable ZIP (.zip.sig)");
   check(names.includes("latest.json"), "ассет latest.json");
 
-  // GitHub /releases/latest/ отдаёт нашу версию ⇒ релиз стал Latest, и подпись на месте.
+  // GitHub /releases/latest/ serves our version ⇒ the release became Latest, and the signature is in place.
   let ghMetadata;
   const ghOk = await retry(async () => {
     const r = await fetch(GH_LATEST);
@@ -120,8 +120,8 @@ async function verifyRelease(version) {
   });
   check(ghOk, `GitHub OTA: latest.json = ${version}, подпись есть (= релиз Latest)`);
 
-  // GitLab — первичный OTA-источник. CI проверяет installer + versioned metadata,
-  // переключает stable/latest.json и только после этого публикует GitHub draft.
+  // GitLab is the primary OTA source. CI checks the installer + versioned metadata,
+  // switches stable/latest.json and only after that publishes the GitHub draft.
   let glMetadata;
   const glOk = await retry(async () => {
     const r = await fetch(GL_LATEST);
@@ -155,7 +155,7 @@ async function verifyRelease(version) {
   "Portable OTA: GitHub и GitLab отдают ZIP с одной подписью");
 }
 
-// --- аргументы ---
+// --- arguments ---
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const version = argv.find((a) => !a.startsWith("--"));
@@ -170,16 +170,16 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version))
   die(`нужна версия X.Y.Z (получено: ${version ?? "<none>"})`);
 const tag = `v${version}`;
 
-// --- режим только-проверки ---
+// --- verify-only mode ---
 if (flags.has("--verify")) {
   await verifyRelease(version);
   console.log(failed ? `\n✗ проверка: ${failed} провал(ов)` : "\n✓ всё встало");
   process.exit(failed ? 1 : 0);
 }
 
-// --- предпроверки (только чтение) ---
-// --allow-branch объявлен в supportedFlags и описан в RELEASING.md, но раньше
-// нигде не читался: скрипт принимал флаг и всё равно падал на проверке ветки.
+// --- prechecks (read-only) ---
+// --allow-branch was declared in supportedFlags and described in RELEASING.md, but used to
+// be read nowhere: the script accepted the flag and still failed on the branch check.
 const allowBranch = flags.has("--allow-branch");
 const branch = cap("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
 if (branch !== "main") {
@@ -191,13 +191,13 @@ const head = cap("git", ["rev-parse", "HEAD"]);
 const originHead = cap("git", ["rev-parse", `origin/${branch}`]);
 if (head !== originHead) die(`локальный ${branch} должен точно совпадать с origin/${branch} перед релизом`);
 
-// Скрипт сам коммитит только release-файлы. Любая другая грязь (особенно уже
-// staged) могла бы незаметно попасть в релизный commit через общий git commit.
+// The script itself commits only the release files. Any other dirt (especially already
+// staged) could silently get into the release commit via a shared git commit.
 const dirty = cap("git", ["status", "--porcelain=v1"])
   .split("\n")
   .filter(Boolean);
-// cap() trims output, поэтому у единственной строки первый пробел porcelain
-// может исчезнуть (" M CHANGELOG.md" → "M CHANGELOG.md").
+// cap() trims output, so for a single line the first porcelain space
+// may disappear (" M CHANGELOG.md" → "M CHANGELOG.md").
 const releaseNotesOnly = /^(?:[ MARC?][ MDARC?]|[MARC?]) CHANGELOG\.md$/;
 const unexpectedDirty = dirty.filter((line) => !releaseNotesOnly.test(line));
 if (unexpectedDirty.length) {
@@ -208,9 +208,9 @@ if (cap("git", ["tag", "-l", tag])) die(`тег ${tag} уже существуе
 try {
   if (cap("git", ["ls-remote", "--tags", "origin", tag]))
     die(`тег ${tag} уже существует на origin`);
-} catch { /* сетевой сбой ls-remote — не фатально */ }
+} catch { /* an ls-remote network failure isn't fatal */ }
 
-// --- заметки из CHANGELOG.md (единый источник) ---
+// --- notes from CHANGELOG.md (the single source) ---
 const clPath = join(root, "CHANGELOG.md");
 const lines = readFileSync(clPath, "utf8").split("\n");
 const isHeader = (l) => /^## v\d+\.\d+\.\d+\b/.test(l);
@@ -227,9 +227,9 @@ if (end === -1) end = lines.length;
 const notes = lines.slice(headIdx + 1, end).join("\n").trim();
 if (!notes) die(`секция ${tag} в CHANGELOG.md пустая`);
 
-// Релизные заметки должны быть двуязычными: OTA и GitHub Release читают одну
-// и ту же аннотацию тега, поэтому забытый английский текст уже нельзя
-// исправить после публикации без выпуска новой версии.
+// Release notes must be bilingual: OTA and the GitHub Release read the same
+// tag annotation, so forgotten English text can no longer be
+// fixed after publication without releasing a new version.
 const missingLanguages = [
   !hasRussianNotes(notes) && "русский",
   !hasEnglishNotes(notes) && "английский",
@@ -242,7 +242,7 @@ if (missingLanguages.length) {
 const today = new Date().toISOString().slice(0, 10);
 const needDate = !/—\s*\d{4}-\d{2}-\d{2}/.test(lines[headIdx]);
 
-// --- план ---
+// --- plan ---
 console.log(`\nРелиз ${tag}`);
 console.log(`  синхронизация версии приложения и сайта → ${version}`);
 if (needDate) console.log(`  дата в заголовке CHANGELOG → ${today}`);
@@ -262,7 +262,7 @@ if (!autoYes) {
   if (ans !== "y" && ans !== "yes") die("отменено — ничего не запушено");
 }
 
-// --- выполнение (записи + сеть) ---
+// --- execution (writes + network) ---
 if (needDate) {
   lines[headIdx] = `## ${tag} — ${today}`;
   writeFileSync(clPath, lines.join("\n"));
@@ -270,15 +270,15 @@ if (needDate) {
 
 run("node", ["scripts/bump-version.mjs", version]);
 run("node", ["scripts/check-version.mjs"]);
-// Список обязан покрывать ВСЁ, что трогает bump-version.mjs: файл, забытый
-// здесь, остаётся изменённым в рабочем дереве, а в тег уезжает старая версия.
-// Равенство двух списков проверяет tests/release-flags.test.mjs.
+// The list must cover EVERYTHING bump-version.mjs touches: a file forgotten
+// here stays modified in the working tree, and the old version goes into the tag.
+// The equality of the two lists is checked by tests/release-flags.test.mjs.
 run("git", ["add", "package.json", "package-lock.json",
   "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock",
   "src/lib/build-info.js", "site/app.js", "site/index.html", "site/ru/index.html", "CHANGELOG.md"]);
-// Повторный заход после красной сборки — штатный случай: версия уже забампана
-// прошлым запуском, и коммитить нечего. Пустой `git commit` уронил бы ритуал
-// ровно там, где он должен доводить релиз до тега.
+// Running again after a red build is a regular case: the version was already bumped
+// by the previous run, and there's nothing to commit. An empty `git commit` would break the ritual
+// exactly where it's supposed to carry the release through to the tag.
 if (cap("git", ["diff", "--cached", "--name-only"])) {
   run("git", ["commit", "-m", tag]);
 } else {
@@ -287,10 +287,10 @@ if (cap("git", ["diff", "--cached", "--name-only"])) {
 
 const dir = mkdtempSync(join(tmpdir(), "ninety-rel-"));
 const notesFile = join(dir, "notes.md");
-writeFileSync(notesFile, notes + "\n");           // те же байты, что в CHANGELOG
+writeFileSync(notesFile, notes + "\n");           // the same bytes as in CHANGELOG
 
-// Без verbatim Git считает Markdown-заголовки комментариями и выкидывает их
-// из аннотации. Именно аннотация становится OTA notes на Windows-раннере.
+// Without verbatim Git treats Markdown headings as comments and throws them
+// out of the annotation. It's exactly the annotation that becomes the OTA notes on the Windows runner.
 run("git", ["tag", "-a", "--cleanup=verbatim", tag, "-F", notesFile]);
 run("git", ["push", "origin", branch]);
 run("git", ["push", "origin", tag]);
