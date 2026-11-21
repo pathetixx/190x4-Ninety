@@ -1,5 +1,5 @@
-// Единый арбитр сетевого намерения. Старое async-завершение может закончиться,
-// но не имеет права принимать runtime после нового user/auto intent.
+// A single arbiter of network intent. An old async completion may finish,
+// but has no right to accept the runtime after a new user/auto intent.
 export function createNetworkIntentArbiter(initial = "idle") {
   let epoch = 0;
   let desired = initial;

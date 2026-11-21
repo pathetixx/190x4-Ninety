@@ -1,12 +1,12 @@
-// Ninety · бэкап/восстановление UI-state и Rust-owned profile-store через
+// Ninety · backup/restore of the UI state and the Rust-owned profile store via
 // writable config dir.
 //
-// localStorage живёт в профиле WebView2 (каталог EBWebView): его сносят
-// чистилки диска, антивирусы и переустановка системы — юзер молча теряет
-// настройки. Профили/подписки берём из Rust-owned store. Держим шифрованный снапшот
-// восстанавливаемых ninety.*-ключей рядом с конфигами
-// (Rust: state_backup_save/load, файл state-backup.json) и на старте
-// восстанавливаем, если хранилище пусто.
+// localStorage lives in the WebView2 profile (the EBWebView directory): it gets wiped by
+// disk cleaners, antiviruses and OS reinstalls — the user silently loses
+// settings. Profiles/subscriptions are taken from the Rust-owned store. We keep an encrypted snapshot
+// of the restorable ninety.* keys next to the configs
+// (Rust: state_backup_save/load, the state-backup.json file) and at startup
+// restore it if the storage is empty.
 
 import { STORAGE_KEYS, shouldBackupStorageKey, shouldRestoreStorageKey } from "/lib/storage-policy.js";
 import {
@@ -17,7 +17,7 @@ import {
 } from "/lib/profile-store.js";
 import { localizedInvoke } from "/lib/backend-errors.js";
 
-// Маркеры «хранилище живое»: есть хоть один — восстановление не нужно.
+// "Storage is alive" markers: if there's at least one, no restore is needed.
 const CORE_KEYS = ["ninety.options.v1", "ninety.profiles.v1", "ninety.subscriptions.v1"];
 const BACKUP_SCHEMA_VERSION = 2;
 
@@ -29,8 +29,8 @@ function snapshot({ includeUpdateResume = false } = {}) {
   let storedKeys = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    // Маркер возврата сессии нужен только в снимке, который делаем прямо перед
-    // OTA. В обычном бэкапе он не должен переживать произвольный перезапуск.
+    // The session resume marker is needed only in the snapshot taken right before
+    // OTA. In a regular backup it must not survive an arbitrary restart.
     if (!shouldBackupStorageKey(k) && !(includeUpdateResume && k === STORAGE_KEYS.updateResume)) continue;
     const v = localStorage.getItem(k);
     if (v != null) {
@@ -38,8 +38,8 @@ function snapshot({ includeUpdateResume = false } = {}) {
       storedKeys++;
     }
   }
-  // Профили теперь живут в Rust-owned store. В recovery backup сохраняем тот
-  // же совместимый набор строковых полей, но берём его из памяти, а не из
+  // Profiles now live in the Rust-owned store. In the recovery backup we keep the
+  // same compatible set of string fields, but take it from memory rather than from
   // WebView localStorage.
   const profileEntries = profileStoreBackupEntries();
   let profileData = false;
@@ -56,9 +56,9 @@ function snapshot({ includeUpdateResume = false } = {}) {
     }
     if (profileData) storedKeys += Object.keys(profileEntries).length;
   }
-  // Дефолтные CORE-ключи нужны только чтобы частичный, но реальный storage дал
-  // валидный snapshot. Полностью пустое хранилище не должно перетирать полезный
-  // дисковый backup искусственными {}, [], [].
+  // The default CORE keys are needed only so that a partial but real storage yields
+  // a valid snapshot. A completely empty storage must not overwrite a useful
+  // disk backup with artificial {}, [], [].
   if (storedKeys === 0) return null;
   if (out["ninety.options.v1"] == null) out["ninety.options.v1"] = "{}";
   if (out["ninety.profiles.v1"] == null) out["ninety.profiles.v1"] = "[]";
@@ -67,8 +67,8 @@ function snapshot({ includeUpdateResume = false } = {}) {
 }
 
 let backupInFlight = Promise.resolve();
-// Сколько отказов подряд считаем «страховка мертва». Один сбой бывает
-// транзиентным (файл занят антивирусом), три подряд — уже состояние.
+// How many failures in a row we count as "the safety net is dead". One failure can be
+// transient (the file is locked by an antivirus), three in a row is already a state.
 const BACKUP_FAILURE_ALERT_AT = 3;
 let consecutiveFailures = 0;
 
@@ -78,9 +78,9 @@ function emitBackupEvent(name, detail) {
     globalThis.dispatchEvent(new CustomEvent(name, { detail }));
   } catch {}
 }
-// Значение журнала запоминаем и в старом процессе после strict OTA-save, и в
-// новом процессе при импорте модуля. Это позволяет распознать переход
-// «resume был → RuntimeReady удалил его» без изменений в main.js.
+// The journal value is remembered both in the old process after the strict OTA save and in
+// the new process on module import. This lets us recognize the transition
+// "resume existed → RuntimeReady deleted it" without changes in main.js.
 let pendingResumeValue = (() => {
   try { return localStorage.getItem(STORAGE_KEYS.updateResume); }
   catch { return null; }
@@ -92,12 +92,12 @@ function restorePendingResume() {
 }
 
 export function backupNow({ includeUpdateResume = false, strict = false } = {}) {
-  // Каждая заявка получает собственный Promise: OTA не начнёт установку, пока
-  // именно её снимок не записан после возможного обычного бэкапа в очереди.
+  // Each request gets its own Promise: OTA won't start the installation until
+  // exactly its snapshot is written after a possible regular backup in the queue.
   backupInFlight = backupInFlight.catch(() => {}).then(async () => {
-    // Resume-журнал — durable lock, который переживает relaunch. Пока он жив,
-    // debounce/periodic backup не имеет права перезаписать OTA-снимок версией
-    // без ninety.update.resume. RuntimeReady удаляет журнал перед обычным backup.
+    // The resume journal is a durable lock that survives a relaunch. While it lives,
+    // debounce/periodic backup has no right to overwrite the OTA snapshot with a version
+    // without ninety.update.resume. RuntimeReady deletes the journal before a regular backup.
     let closingResume = false;
     if (!includeUpdateResume) {
       try {
@@ -107,13 +107,13 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
           return;
         }
       } catch {}
-      // Журнал существовал в этой OTA-сессии, но теперь удалён RuntimeReady:
-      // следующая запись обязана строго зафиксировать его отсутствие на диске.
+      // The journal existed in this OTA session but has now been deleted by RuntimeReady:
+      // the next write must strictly record its absence on disk.
       closingResume = pendingResumeValue != null;
     }
-    // Хранилище профилей отказало: в памяти неполные данные, а причина может
-    // устраниться сама. Снимок затёр бы рабочую копию и за две записи вытеснил бы
-    // .bak, поэтому пропускаем его. Для OTA и закрытия журнала это отказ.
+    // The profile storage failed: memory holds incomplete data, and the cause may
+    // go away on its own. A snapshot would overwrite the working copy and within two writes push out
+    // .bak, so we skip it. For OTA and closing the journal this is a failure.
     if (profileStoreIsDegraded()) {
       if (strict || closingResume) {
         if (closingResume) restorePendingResume();
@@ -122,8 +122,8 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
       return;
     }
     const snap = snapshot({ includeUpdateResume });
-    // Пустое хранилище не пишем — не перетираем полезный бэкап пустотой. Но при
-    // закрытии OTA-журнала это не успех: старый дисковый resume остался бы жив.
+    // We don't write an empty storage — we don't overwrite a useful backup with emptiness. But when
+    // closing the OTA journal this isn't a success: the old resume on disk would stay alive.
     if (!snap) {
       if (closingResume) {
         restorePendingResume();
@@ -142,9 +142,9 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
     } catch (e) {
       if (closingResume) restorePendingResume();
       console.warn("state backup failed", e);
-      // Страховка, которая молча не работает, хуже отсутствующей: серия отказов
-      // означает, что при потере профиля WebView2 восстанавливать будет нечего.
-      // Одно событие на серию — слушатель сам решает, как сказать пользователю.
+      // A safety net that silently doesn't work is worse than none: a series of failures
+      // means that when the WebView2 profile is lost there will be nothing to restore.
+      // One event per series — the listener decides itself how to tell the user.
       consecutiveFailures += 1;
       if (consecutiveFailures === BACKUP_FAILURE_ALERT_AT) {
         emitBackupEvent("ninety:state-backup-error", {
@@ -152,24 +152,24 @@ export function backupNow({ includeUpdateResume = false, strict = false } = {}) 
           reason: String(e?.message || e),
         });
       }
-      // Фоновые снимки остаются best-effort, но OTA обязан остановиться до
-      // shutdown/install. Закрытие resume-журнала тоже strict: иначе старый
-      // marker останется на диске и воскреснет при будущей потере WebView2.
+      // Background snapshots stay best-effort, but OTA must stop before
+      // shutdown/install. Closing the resume journal is strict too: otherwise the old
+      // marker would stay on disk and come back to life on a future WebView2 loss.
       if (strict || closingResume) throw e;
     }
   });
   return backupInFlight;
 }
 
-// Перед OTA сохраняем единый снимок профиля и флага возврата сессии. Сам флаг
-// одноразовый: main.js удалит его сразу после следующего успешного старта.
+// Before OTA we save a single snapshot of the profile and the session resume flag. The flag itself
+// is one-time: main.js deletes it right after the next successful start.
 export function backupForUpdate() {
   return backupNow({ includeUpdateResume: true, strict: true });
 }
 
 let backupTimer = null;
-// Дебаунс после мутаций (профили/подписки/настройки) — серия правок подряд
-// даёт одну запись на диск, а не по записи на каждый чих.
+// Debounce after mutations (profiles/subscriptions/settings) — a series of edits in a row
+// produces one write to disk, not a write for every sneeze.
 export function backupSoon(delayMs = 5000) {
   if (backupTimer) clearTimeout(backupTimer);
   backupTimer = setTimeout(() => { backupTimer = null; backupNow(); }, delayMs);
@@ -182,15 +182,15 @@ export function unwrapSnapshotEnvelope(parsed) {
   return keys && typeof keys === "object" && !Array.isArray(keys) ? keys : null;
 }
 
-// true → ключи восстановлены; вызывающий делает location.reload(), чтобы все
-// модули перечитали localStorage с нуля (тема/язык/опции читаются при загрузке).
+// true → the keys were restored; the caller does location.reload() so that all
+// modules reread localStorage from scratch (theme/language/options are read on load).
 export async function restoreIfEmpty() {
   const integrity = storageIntegrity();
   if (integrity.profiles && integrity.settings) return false;
-  // Гвард от вечного цикла: снапшот с ninety.*-ключами, но без единого CORE_KEY
-  // (например, только тема) давал restore → reload → хранилище «всё ещё пусто» →
-  // restore → reload… sessionStorage переживает reload, но не перезапуск аппы —
-  // второй заход в рамках одной загрузки не делаем.
+  // A guard against an endless loop: a snapshot with ninety.* keys but without a single CORE_KEY
+  // (e.g. only the theme) produced restore → reload → storage "still empty" →
+  // restore → reload… sessionStorage survives a reload but not an app restart —
+  // we don't make a second attempt within one load.
   const ATTEMPT_KEY = "ninety.restore.attempted";
   try { if (sessionStorage.getItem(ATTEMPT_KEY) === "1") return false; } catch {}
   let raw;
@@ -201,8 +201,8 @@ export async function restoreIfEmpty() {
   const snap = unwrapSnapshotEnvelope(parsed);
   if (!validateSnapshot(snap)) return false;
   const profileKeys = new Set(Object.keys(profileStoreBackupEntries()));
-  // Профили целы — трогать их нельзя: бэкап может быть старше живого стора.
-  // Восстанавливаем тогда только настройки, ради которых сюда и зашли.
+  // The profiles are intact — they must not be touched: the backup may be older than the live store.
+  // Then we restore only the settings we came here for.
   const profileRestored = integrity.profiles
     ? true
     : await restoreProfileStoreFromBackup(snap);
@@ -219,8 +219,8 @@ export async function restoreIfEmpty() {
     && typeof v === "string");
   if (!entries.length) return false;
 
-  // Web Storage не даёт transaction API: staging делаем в памяти, затем
-  // проверяем каждую запись; при любом исключении возвращаем исходный набор.
+  // Web Storage has no transaction API: we stage in memory, then
+  // check every write; on any exception we restore the original set.
   const before = new Map(entries.map(([k]) => [k, localStorage.getItem(k)]));
   try {
     for (const [k, v] of entries) localStorage.setItem(k, v);
@@ -235,9 +235,9 @@ export async function restoreIfEmpty() {
   }
   let restored = 0;
   for (const [k, v] of entries) {
-    // update.resume бывает только в снимке, созданном непосредственно перед
-    // OTA; без него при потерянном WebView2 восстановится профиль, но не сама
-    // активная сессия.
+    // update.resume exists only in a snapshot created right before
+    // OTA; without it, with a lost WebView2, the profile is restored but not the
+    // active session itself.
     if (localStorage.getItem(k) === v) restored++;
   }
   if (restored > 0) {
@@ -273,13 +273,13 @@ export function validateSnapshot(snap) {
   return true;
 }
 
-// Профили и настройки теряются независимо: профили живут в Rust-owned store,
-// настройки — только в localStorage WebView2. Очистка профиля WebView (чистилка
-// диска, антивирус, переустановка) оставляет профили нетронутыми, и общая
-// проверка «хранилище целое» объявляла состояние полным: режим подключения,
-// строгий туннель, Kill Switch, маршрутизация, DPI и тема не возвращались, а
-// автозапуск поднимался с настройками по умолчанию. Поэтому отвечаем на два
-// вопроса раздельно.
+// Profiles and settings get lost independently: profiles live in the Rust-owned store,
+// settings only in the WebView2 localStorage. Clearing the WebView profile (a disk
+// cleaner, an antivirus, a reinstall) leaves the profiles untouched, and the shared
+// "storage is intact" check declared the state complete: the connection mode,
+// strict tunnel, Kill Switch, routing, DPI and theme didn't come back, and
+// autostart came up with default settings. So we answer the two
+// questions separately.
 export function storageIntegrity() {
   const snap = Object.fromEntries(CORE_KEYS.map(k => [k, localStorage.getItem(k)]));
   const liveProfileEntries = profileStoreBackupEntries();
@@ -292,9 +292,9 @@ export function storageIntegrity() {
       || Object.keys(JSON.parse(liveProfileEntries[STORAGE_KEYS.proxySelection] || "{}")).length > 0;
   } catch {}
   const profiles = profileStoreIsPersisted() || hasLiveProfileData;
-  // loadOptions() намеренно держит дефолты в памяти и не пишет plaintext-blob,
-  // поэтому отсутствие ключа настроек само по себе ещё не означает потерю — но
-  // при живых профилях это ровно она: рабочая сессия всегда сохраняет options.
+  // loadOptions() deliberately keeps defaults in memory and doesn't write a plaintext blob,
+  // so the absence of the settings key by itself doesn't mean a loss yet — but
+  // with live profiles that's exactly what it is: a working session always saves options.
   const settings = localStorage.getItem(STORAGE_KEYS.options) != null;
   if (!settings && profiles) snap[STORAGE_KEYS.options] = "{}";
   Object.assign(snap, liveProfileEntries);

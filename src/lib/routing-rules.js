@@ -1,15 +1,15 @@
-// Ninety · Гибкие правила маршрутизации — контракт + валидация/нормализация.
-// Чистые хелперы (без DOM/Tauri): UI подраздела «Правила маршрутизации» (из
-// Claude Design) зовёт их при добавлении/сохранении правила, а движок конфига
-// (singbox.js::customRulesToSingbox) превращает готовые правила в route-rules
-// sing-box. Источник истины по форме правила и допустимым значениям.
+// Ninety · Flexible routing rules — contract + validation/normalization.
+// Pure helpers (no DOM/Tauri): the UI of the "Routing rules" subsection (from
+// Claude Design) calls them when adding/saving a rule, and the config engine
+// (singbox.js::customRulesToSingbox) turns ready rules into sing-box
+// route rules. The source of truth for the rule shape and allowed values.
 //
-// Правило:
+// Rule:
 //   { id, enabled, type:"domain"|"ip"|"process"|"set",
-//     match:"suffix"|"exact"|"keyword" (только domain),
-//     values:[…] (для "set" — "geosite:<имя>" / "geoip:<код страны>"), action:"proxy"|"direct"|"block"|"node"|"warp",
-//     target:{ tag, name } — только для action:"node",
-//     name — необязательная подпись для списка; в конфиг ядра не попадает }
+//     match:"suffix"|"exact"|"keyword" (domain only),
+//     values:[…] (for "set" — "geosite:<name>" / "geoip:<country code>"), action:"proxy"|"direct"|"block"|"node"|"warp",
+//     target:{ tag, name } — only for action:"node",
+//     name — an optional label for the list; doesn't get into the core config }
 
 import { uid } from "/lib/uid.js";
 import { REGION_GEOSITE, normalizeSetRef } from "/lib/rule-sets.js";
@@ -18,18 +18,18 @@ export const RULE_TYPES = ["domain", "ip", "process", "set"];
 export const DOMAIN_MATCHES = ["suffix", "exact", "keyword"];
 export const RULE_ACTIONS = ["proxy", "direct", "block", "node", "warp"];
 
-// Действия, уводящие трафик в конкретный аутбаунд, а не в общий «через VPN».
-// "node" требует target, "warp" — включённого WARP: и то, и другое может
-// отсутствовать в момент сборки конфига, поэтому оба деградируют до "proxy"
-// (см. resolveRuleTarget в singbox.js) вместо падения ядра на пустом теге.
+// Actions that send traffic to a specific outbound rather than the general "through VPN".
+// "node" requires a target, "warp" requires WARP to be enabled: either may
+// be missing at config build time, so both degrade to "proxy"
+// (see resolveRuleTarget in singbox.js) instead of the core failing on an empty tag.
 export const TARGETED_ACTIONS = ["node", "warp"];
 
-// Подписи для UI — в каталоге i18n (rr.type/rr.match/rr.action), берёт routing-view.js.
+// UI labels are in the i18n catalog (rr.type/rr.match/rr.action), taken by routing-view.js.
 
-// Ссылка правила на конкретный сервер. Тег ноды — хеш её содержимого
-// (singbox.js::nodeTag), поэтому переупорядочивание подписки правило переживает.
-// Имя храним вторым ключом: если провайдер поменял параметры ноды, хеш уедет, а
-// человекочитаемое имя обычно остаётся тем же — правило не осиротеет молча.
+// A rule's reference to a specific server. A node tag is a hash of its contents
+// (singbox.js::nodeTag), so the rule survives the subscription being reordered.
+// The name is kept as a second key: if the provider changed the node's parameters, the hash moves,
+// but the human-readable name usually stays the same — the rule won't silently become orphaned.
 export function normalizeTarget(target) {
   const tag = String(target?.tag || "").trim().slice(0, 128);
   const name = String(target?.name || "").trim().slice(0, 200);
@@ -37,12 +37,12 @@ export function normalizeTarget(target) {
   return { ...(tag ? { tag } : {}), ...(name ? { name } : {}) };
 }
 
-// Подпись правила: чисто косметическое поле, по которому пользователь узнаёт
-// правило в списке. Лимит — в символах (code points), а не в UTF-16: обрезка
-// по .slice() могла бы разрезать emoji пополам. Переносы и табы — в пробел,
-// прочие управляющие и bidi-override символы вычищаем: они ломают строку
-// списка и позволяют визуально подменить текст. ZWJ/ZWNJ оставляем — они
-// нужны персидскому тексту и составным emoji.
+// Rule label: a purely cosmetic field by which the user recognizes
+// the rule in the list. The limit is in characters (code points), not UTF-16: truncating
+// with .slice() could cut an emoji in half. Line breaks and tabs become spaces,
+// other control and bidi-override characters are stripped: they break the list
+// row and allow visually spoofing the text. ZWJ/ZWNJ are kept — they're
+// needed for Persian text and composite emoji.
 export const RULE_NAME_MAX = 64;
 const NAME_SPACE_RE = /[\t\n\r\v\f\u2028\u2029]+/g;
 // eslint-disable-next-line no-control-regex
@@ -57,9 +57,9 @@ export function normalizeRuleName(raw) {
   return clampRuleName(clean).trim();
 }
 
-// Правила отличаются только подписью? Тогда сетевой результат тот же и
-// переподключаться незачем. Сравниваем всё, кроме корневого name; target.name —
-// рабочее поле выбора сервера, его сравнение сохраняется.
+// Do the rules differ only by label? Then the network result is the same and
+// there's no reason to reconnect. We compare everything except the root name; target.name is
+// a working field of the server choice, its comparison stays.
 function stableJson(v) {
   if (Array.isArray(v)) return "[" + v.map(stableJson).join(",") + "]";
   if (v && typeof v === "object") {
@@ -74,7 +74,7 @@ export function sameRuleExceptName(a, b) {
   return stableJson(strip(a)) === stableJson(strip(b));
 }
 
-// Новое правило с дефолтами (для кнопки «Добавить»).
+// A new rule with defaults (for the "Add" button).
 export function newRule(partial = {}) {
   return {
     id: uid("r-"),
@@ -87,12 +87,12 @@ export function newRule(partial = {}) {
   };
 }
 
-// ── Нормализация значений по типу ───────────────────────────────────
-// Unicode-домен → punycode (A-label). sing-box матчит домены в том виде, в каком
-// их видит резолвер, то есть в punycode: правило, сохранённое как «почта.рф», не
-// совпало бы никогда. Конверсию делает сам WHATWG-URL — без внешних зависимостей.
-// Трогаем ТОЛЬКО строки с не-ASCII: для чистого ASCII парсер URL заодно
-// нормализовал бы «0x7f.1» в IP-адрес, чего пользователь не просил.
+// ── Normalizing values by type ───────────────────────────────────
+// Unicode domain → punycode (A-label). sing-box matches domains in the form
+// the resolver sees them, i.e. punycode: a rule saved as "почта.рф" would
+// never match. The conversion is done by WHATWG URL itself — no external dependencies.
+// We touch ONLY strings with non-ASCII: for pure ASCII the URL parser would also
+// normalize "0x7f.1" into an IP address, which the user didn't ask for.
 function hasNonAscii(s) {
   for (const ch of s) if (ch.codePointAt(0) > 0x7f) return true;
   return false;
@@ -106,31 +106,31 @@ function toPunycode(host) {
   } catch { return host; }
 }
 
-// Домен: срезаем схему/путь/порт/ведущий "*.", нижний регистр.
-// match="keyword" — это подстрока имени, а не домен: срез схемы/пути/порта там
-// менял бы сам искомый фрагмент, поэтому для него только trim/lowercase/punycode.
+// Domain: strip the scheme/path/port/leading "*.", lowercase.
+// match="keyword" is a substring of the name, not a domain: stripping the scheme/path/port there
+// would change the searched fragment itself, so for it only trim/lowercase/punycode.
 export function normalizeDomain(v, match = "suffix") {
   let s = String(v || "").trim().toLowerCase();
   if (!s) return "";
   if (match === "keyword") return toPunycode(s);
-  s = s.replace(/^[a-z]+:\/\//, ""); // https:// и т.п.
-  s = s.split("/")[0]; // путь
+  s = s.replace(/^[a-z]+:\/\//, ""); // https:// and the like
+  s = s.split("/")[0]; // path
   s = s.split("?")[0];
-  s = s.replace(/^\*\./, ""); // *.youtube.com → youtube.com (suffix покрывает поддомены)
+  s = s.replace(/^\*\./, ""); // *.youtube.com → youtube.com (suffix covers subdomains)
   s = s.replace(/:\d+$/, ""); // :443
   return toPunycode(s);
 }
 
-// Метка LDH: 1..63 символа, не начинается и не заканчивается дефисом.
-// Подчёркивание оставлено намеренно (служебные имена вида _acme-challenge).
+// LDH label: 1..63 characters, doesn't start or end with a hyphen.
+// The underscore is left on purpose (service names like _acme-challenge).
 const RE_LABEL = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
 
-// Валидный домен. Зона целиком пишется явно, с точкой: «.ru», «.xn--p1ai» —
-// так же, как в базе региона, и только для «Поддомены». Голое «youtube» без
-// точки остаётся ошибкой: так почти всегда имели в виду «Содержит».
-// Прежняя регулярка требовала TLD из одних букв ([a-z]{2,63}) и
-// молча выбрасывала весь punycode (xn--p1ai, то есть любой .рф/.中国) и TLD с
-// цифрой (.p2p, .b2b): правило исчезало из списка, а причина нигде не всплывала.
+// A valid domain. A whole zone is written explicitly, with a dot: ".ru", ".xn--p1ai" —
+// just like in the region base, and only for "Subdomains". A bare "youtube" without
+// a dot stays an error: that almost always meant "Contains".
+// The former regex required a TLD of letters only ([a-z]{2,63}) and
+// silently threw away all punycode (xn--p1ai, i.e. any .рф/.中国) and TLDs with
+// a digit (.p2p, .b2b): the rule vanished from the list, and the cause never surfaced anywhere.
 function isValidDomainName(s, match = "suffix") {
   if (!s || s.length > 253) return false;
   const zone = match === "suffix" && s.startsWith(".");
@@ -138,22 +138,22 @@ function isValidDomainName(s, match = "suffix") {
   if (labels.length < (zone ? 1 : 2)) return false;
   if (!labels.every((label) => RE_LABEL.test(label))) return false;
   const tld = labels[labels.length - 1];
-  // Чисто числовой TLD запрещён — иначе "1.2.3.4" прошёл бы как домен.
+  // A purely numeric TLD is forbidden — otherwise "1.2.3.4" would pass as a domain.
   return tld.length >= 2 && !/^\d+$/.test(tld);
 }
 
-// Ключевое слово — подстрока имени хоста, а не домен: точка и TLD не нужны.
-// Проверяем только длину и алфавит имени хоста.
+// A keyword is a substring of the host name, not a domain: no dot or TLD needed.
+// We check only the length and the host name alphabet.
 function isValidDomainKeyword(s) {
   return !!s && s.length <= 253 && /^[a-z0-9_.-]+$/.test(s);
 }
 
 const RE_IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-// Канонический вид IPv4 или "" — ведущие нули снимаются здесь, а не только
-// проверяются. Иначе «192.168.001.100» проходил валидацию и уезжал в конфиг
-// ядра как есть: sing-box такую запись отвергает, и правило пользователя молча
-// не работало (либо весь конфиг не поднимался).
+// The canonical form of IPv4 or "" — leading zeros are stripped here, not just
+// checked. Otherwise "192.168.001.100" passed validation and went into the core
+// config as is: sing-box rejects such an entry, and the user's rule silently
+// didn't work (or the whole config didn't come up).
 function canonicalIpv4(s) {
   const m = s.match(RE_IPV4);
   if (!m) return "";
@@ -164,7 +164,7 @@ function canonicalIpv4(s) {
 
 function validIpv6(s) {
   if (!s.includes(":")) return false;
-  if (s.includes("%")) return false; // zone-id в sing-box ip_cidr не нужен
+  if (s.includes("%")) return false; // sing-box ip_cidr doesn't need a zone-id
   try {
     new URL(`http://[${s}]/`);
     return true;
@@ -173,7 +173,7 @@ function validIpv6(s) {
   }
 }
 
-// IP/CIDR: вернуть нормализованную запись (одиночный IP → /32 или /128) либо "".
+// IP/CIDR: return a normalized entry (a single IP → /32 or /128) or "".
 export function normalizeIp(v) {
   const s = String(v || "").trim();
   if (!s) return "";
@@ -188,7 +188,7 @@ export function normalizeIp(v) {
   return `${canonical}/${cidr}`;
 }
 
-// Процесс: имя исполняемого файла. Срезаем путь, добавляем .exe если забыли.
+// Process: the executable file name. Strip the path, add .exe if forgotten.
 export function normalizeProcess(v) {
   let s = String(v || "").trim();
   if (!s) return "";
@@ -198,7 +198,7 @@ export function normalizeProcess(v) {
   return s;
 }
 
-// Нормализовать одно значение по типу. "" = невалидно.
+// Normalize one value by type. "" = invalid.
 export function normalizeValue(type, v, match = "suffix") {
   if (type === "ip") return normalizeIp(v);
   if (type === "process") return normalizeProcess(v);
@@ -206,25 +206,25 @@ export function normalizeValue(type, v, match = "suffix") {
   return normalizeDomain(v, match); // domain
 }
 
-// Валидно ли значение (для подсветки поля в UI).
+// Whether the value is valid (for highlighting the field in the UI).
 export function isValidValue(type, v, match = "suffix") {
   const n = normalizeValue(type, v, match);
   if (!n) return false;
   if (type === "domain") {
     return match === "keyword" ? isValidDomainKeyword(n) : isValidDomainName(n, match);
   }
-  return true; // ip/process/set уже выверены нормализацией
+  return true; // ip/process/set are already verified by normalization
 }
 
-// Привести правило к чистому виду перед сохранением: нормализовать values,
-// выкинуть пустые/битые, дедуп. Вернуть { rule, dropped } — dropped = сколько
-// значений отброшено (UI может предупредить).
+// Bring the rule to a clean form before saving: normalize values,
+// drop empty/broken ones, dedup. Return { rule, dropped } — dropped = how many
+// values were discarded (the UI may warn).
 export function sanitizeRule(rule) {
   const type = RULE_TYPES.includes(rule?.type) ? rule.type : "domain";
   const match = type === "domain" && DOMAIN_MATCHES.includes(rule?.match) ? rule.match : "suffix";
   const requested = RULE_ACTIONS.includes(rule?.action) ? rule.action : "proxy";
-  // «Через сервер» без цели неотличимо от «через VPN», но в конфиг уехало бы с
-  // пустым тегом и уронило старт ядра. Такое правило деградируем прямо здесь.
+  // "Through a server" without a target is indistinguishable from "through VPN", but it would go into the config with
+  // an empty tag and bring down the core start. Such a rule is degraded right here.
   const target = requested === "node" ? normalizeTarget(rule?.target) : null;
   const action = requested === "node" && !target ? "proxy" : requested;
   const seen = new Set();
@@ -257,10 +257,10 @@ export function sanitizeRule(rule) {
   };
 }
 
-// База региона в виде пользовательских правил («Сделать своими»): та же зона
-// и те же списки, что выпускает singbox.js для региона, — после переноса
-// маршрутизация не меняется, а правила можно править как свои. origin отличает
-// их при возврате базы.
+// The region base as user rules ("Make them mine"): the same zone
+// and the same lists that singbox.js emits for the region — after the migration
+// routing doesn't change, and the rules can be edited as your own. origin tells
+// them apart when the base is restored.
 export function regionRules(region) {
   const sets = [
     ...(REGION_GEOSITE[region] ? [`geosite:${REGION_GEOSITE[region]}`] : []),
@@ -272,12 +272,12 @@ export function regionRules(region) {
   ].map((rule) => sanitizeRule(rule).rule);
 }
 
-// ── Файл правил: экспорт и импорт ───────────────────────────────────
-// Перенос списка между устройствами. id правила локален (по нему экран ищет
-// строку), поэтому в файл не пишется, а при импорте выдаётся заново.
-// regionDetached едет вместе с правилами: перенесённая база региона живёт в
-// самом списке, и без флага на втором устройстве регион выпускал бы свои
-// правила поверх уже импортированных.
+// ── Rules file: export and import ───────────────────────────────────
+// Moving the list between devices. A rule's id is local (the screen finds the
+// row by it), so it isn't written to the file and is reissued on import.
+// regionDetached travels with the rules: the migrated region base lives in
+// the list itself, and without the flag the region on the second device would emit its own
+// rules on top of the already imported ones.
 export const RULES_FILE_TYPE = "ninety.routing-rules";
 export const RULES_FILE_VERSION = 1;
 export const RULES_IMPORT_MAX = 1000;
@@ -297,10 +297,10 @@ export function buildRulesExport(rules, { regionDetached = false, now = new Date
   };
 }
 
-// Разбор файла. Принимает и голый массив правил — так проще собрать файл
-// руками. Неизвестный тип или действие правило отбрасывают целиком: молча
-// превратить «Блок» из будущей версии в «Через VPN» хуже, чем пропустить.
-// Возвращает { rules, regionDetached, skipped, dropped } или { error }, где
+// Parsing the file. Also accepts a bare array of rules — that makes it easier to assemble a file
+// by hand. An unknown type or action discards the rule entirely: silently
+// turning a "Block" from a future version into "Through VPN" is worse than skipping it.
+// Returns { rules, regionDetached, skipped, dropped } or { error }, where
 // error — "parse" | "format" | "newer" | "tooMany" | "empty".
 export function parseRulesImport(text) {
   let data;
@@ -345,15 +345,15 @@ export function parseRulesImport(text) {
   return { rules, regionDetached, skipped, dropped };
 }
 
-// Одно и то же правило независимо от id, подписи, метки базы и тумблера:
-// выключенная у себя копия — всё равно «уже есть».
+// The same rule regardless of id, label, base mark and toggle:
+// a copy disabled locally is still "already there".
 function ruleFingerprint(rule) {
   return stableJson({ ...rule, id: undefined, name: undefined, origin: undefined, enabled: undefined });
 }
 
-// mode "replace" — список целиком из файла; "append" — новые правила в конец,
-// уже имеющиеся пропускаются. При добавлении метка базы региона снимается:
-// «Вернуть базу» на этом устройстве не должна удалять то, что импортировали.
+// mode "replace" — the whole list from the file; "append" — new rules at the end,
+// existing ones are skipped. When appending, the region base mark is removed:
+// "Restore base" on this device must not delete what was imported.
 export function mergeImportedRules(current, incoming, mode = "append") {
   const list = Array.isArray(incoming) ? incoming : [];
   if (mode === "replace") return { rules: list.map((r) => ({ ...r })), added: list.length, duplicates: 0 };

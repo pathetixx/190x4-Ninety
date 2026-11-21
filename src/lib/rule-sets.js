@@ -1,9 +1,9 @@
-// Ninety · готовые списки для правил маршрутизации и базы региона.
+// Ninety · ready lists for routing rules and the region base.
 //
-// Значение правила «Готовый список» — ссылка вида "geosite:youtube" (сайты
-// сервиса или категории) или "geoip:ru" (адреса страны). Файлы берутся из
-// первоисточников SagerNet; имя, которого нет в каталоге, ядро скачать не
-// сможет, поэтому в правило попадают только имена из rule-set-catalog.js.
+// The value of a "Ready list" rule is a reference like "geosite:youtube" (sites
+// of a service or category) or "geoip:ru" (a country's addresses). The files are taken from
+// the original SagerNet sources; a name that isn't in the catalog can't be downloaded
+// by the core, so only names from rule-set-catalog.js get into a rule.
 
 import { GEOIP_CODES, GEOSITE_NAMES } from "/lib/rule-set-catalog.js";
 
@@ -12,10 +12,10 @@ export const GEOIP_BASE = "https://raw.githubusercontent.com/SagerNet/sing-geoip
 
 export const SET_KINDS = ["geosite", "geoip"];
 
-// Страновой geosite существует не для каждого региона — только эти три.
-// Для остальных база региона опирается на geoip. Раньше сюда подставлялось
-// зеркало, где для tr лежал файл с доменами госсайтов РФ, а для by не лежало
-// ничего — правило молча не работало.
+// A country geosite doesn't exist for every region — only these three.
+// For the rest the region base relies on geoip. Previously a mirror was substituted here
+// where for tr there was a file with Russian government site domains, and for by there was
+// nothing — the rule silently didn't work.
 export const REGION_GEOSITE = {
   ru: "category-ru",
   cn: "cn",
@@ -25,7 +25,7 @@ export const REGION_GEOSITE = {
 const GEOSITE = new Set(GEOSITE_NAMES);
 const GEOIP = new Set(GEOIP_CODES);
 
-// Первое, что видно в выборе списка, пока поиск пуст. Остальное — поиском.
+// The first thing visible in the list picker while the search is empty. The rest — via search.
 export const POPULAR_GEOSITE = [
   "youtube", "google", "telegram", "discord", "openai", "anthropic", "category-ai-!cn",
   "netflix", "spotify", "twitch", "instagram", "facebook", "x", "tiktok", "whatsapp",
@@ -34,7 +34,7 @@ export const POPULAR_GEOSITE = [
 ];
 export const POPULAR_GEOIP = ["ru", "by", "kz", "ua", "cn", "ir", "tr", "us", "de", "nl", "fi"];
 
-// "geosite:YouTube" / " geoip:RU " → { kind, name } в каноническом виде, либо null.
+// "geosite:YouTube" / " geoip:RU " → { kind, name } in canonical form, or null.
 export function parseSetRef(value) {
   const raw = String(value ?? "").trim().toLowerCase();
   const sep = raw.indexOf(":");
@@ -65,8 +65,8 @@ export function setUrl(ref) {
     : `${GEOIP_BASE}/geoip-${ref.name}.srs`;
 }
 
-// Поиск по каталогу для выбора списка: сначала совпадения с начала имени,
-// потом остальные. Пустой запрос — популярные.
+// Catalog search for the list picker: matches at the start of the name first,
+// then the rest. An empty query — the popular ones.
 export function searchSets(kind, query, limit = 60) {
   const q = String(query ?? "").trim().toLowerCase();
   if (!q) return kind === "geosite" ? POPULAR_GEOSITE.slice() : POPULAR_GEOIP.slice();

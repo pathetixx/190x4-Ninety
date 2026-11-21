@@ -1,4 +1,4 @@
-// Тонкий JS-wrapper над Tauri-командами clash-API.
+// Thin JS wrapper over the clash API Tauri commands.
 
 import { perfObserver } from "/lib/performance-observer.js";
 import { createTelemetryCache } from "/lib/telemetry-cache.js";
@@ -14,9 +14,9 @@ const CONNECTIONS_TTL_MS = 800;
 const TRAFFIC_TTL_MS = 800;
 
 let runtimeProvider = null;
-// Цель замера. Балансер в ядре меряет ноды URL'ом из настроек; ручные и
-// фоновые пробы обязаны бить туда же, иначе UI сравнивает задержки до одного
-// хоста с решением ядра, принятым по задержкам до другого.
+// The measurement target. The balancer in the core measures nodes with the URL from settings; manual and
+// background probes must hit the same place, otherwise the UI compares latencies to one
+// host with the core's decision made based on latencies to another.
 let probeUrlProvider = null;
 let selectionRevision = 0;
 let selectionQueue = Promise.resolve();
@@ -43,7 +43,7 @@ function probeUrl(explicit) {
   try {
     const url = probeUrlProvider?.();
     if (typeof url === "string" && url) return url;
-  } catch { /* настройки недоступны — падаем на встроенный адрес */ }
+  } catch { /* settings unavailable — fall back to the built-in address */ }
   return DEFAULT_URL;
 }
 
@@ -128,9 +128,9 @@ export async function getProxies(port, options = {}) {
   return value;
 }
 
-// Живые соединения для монитора правил маршрутизации:
+// Live connections for the routing rules monitor:
 // [{ process, processPath, host, destinationIP, outbound:"direct"|"proxy"|"block" }].
-// Все одновременные consumers делят один IPC/HTTP snapshot в пределах TTL.
+// All concurrent consumers share one IPC/HTTP snapshot within the TTL.
 export async function getConnections(port, options = {}) {
   const value = await cachedCall(
     "connections",
@@ -148,8 +148,8 @@ export async function getConnections(port, options = {}) {
   return value;
 }
 
-// Кумулятивные totals ядра. traffic-meter использует тот же single-flight слой,
-// поэтому параллельный тик не создаёт второй /connections request.
+// The core's cumulative totals. traffic-meter uses the same single-flight layer,
+// so a parallel tick doesn't create a second /connections request.
 export async function getTrafficTotal(port, options = {}) {
   const value = await cachedCall(
     "traffic",
@@ -169,8 +169,8 @@ export async function getTrafficTotal(port, options = {}) {
   return { up, down };
 }
 
-// Процессы с исходящей сетевой активностью (для выбора при создании правила):
-// [{ name, pid, path }]. Нативный снимок ОС, от sing-box не зависит.
+// Processes with outbound network activity (for picking when creating a rule):
+// [{ name, pid, path }]. A native OS snapshot, independent of sing-box.
 export async function listNetworkProcesses() {
   return invoke("list_network_processes");
 }
@@ -194,12 +194,12 @@ export async function testGroup(group, { port, url, timeoutMs = 5000, token } = 
   return value;
 }
 
-// Замер задержки эффективной ноды для hero/location-card.
+// Latency measurement of the effective node for the hero/location card.
 //
-// Корень бага «в списке 30мс, на главной 100+»: апстрим-форк в обработчике
-// одиночного GET /proxies/{name}/delay меряет через context.Background(), который
-// НЕ несёт box-ctx → IsUnifiedDelayFromContext=false → один HEAD с полным dial+TLS
-// (завышение ~3x). В CI одиночный handler патчится на unified context.
+// The root of the "30 ms in the list, 100+ on the home screen" bug: the upstream fork, in the handler
+// of a single GET /proxies/{name}/delay, measures via context.Background(), which
+// does NOT carry box-ctx → IsUnifiedDelayFromContext=false → one HEAD with a full dial+TLS
+// (~3x inflation). In CI the single handler is patched to use a unified context.
 export async function refreshEffectiveDelay({ port, url, timeoutMs = 5000, token } = {}) {
   let data;
   try { data = await getProxies(port, { token }); } catch (e) {
@@ -214,14 +214,14 @@ export async function refreshEffectiveDelay({ port, url, timeoutMs = 5000, token
   } catch { return { delay: 0, tag }; }
 }
 
-// Ждёт, пока Balancer выберет ноду с ПОДТВЕРЖДЁННЫМ замером.
+// Waits until the Balancer picks a node with a CONFIRMED measurement.
 //
-// Ставится там, где раньше стоял форс-прогон группы с коротким дедлайном.
-// Тот прогон делал ровно обратное задуманному: ядро отменяло незавершённые
-// пробы вместе с запросом и стирало их историю, то есть проверка «жива ли
-// подписка» сама же и вычищала замеры, на которые опирается Авто.
+// Placed where a forced group run with a short deadline used to be.
+// That run did exactly the opposite of what was intended: the core cancelled unfinished
+// probes together with the request and erased their history, i.e. the "is the
+// subscription alive" check itself wiped the measurements Auto relies on.
 //
-// Возвращает тег лидера либо null, если за отведённое время подтверждения нет.
+// Returns the leader's tag, or null if there's no confirmation within the allotted time.
 export async function awaitMeasuredLeader({ port, timeoutMs = 6000, token } = {}) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -239,10 +239,10 @@ export async function awaitMeasuredLeader({ port, timeoutMs = 6000, token } = {}
   }
 }
 
-// Разрыв живых прокси-соединений. Нужен после смены ноды: сам селектор старые
-// потоки не рвёт (почему — в clash.rs::clash_close_proxy_connections), поэтому
-// keep-alive браузера продолжал бы идти через прежний сервер. direct-соединения
-// не трогает.
+// Tears down live proxy connections. Needed after a node switch: the selector itself doesn't tear down
+// old streams (why — see clash.rs::clash_close_proxy_connections), so
+// the browser's keep-alive would keep going through the previous server. direct connections
+// are not touched.
 export async function closeProxyConnections({ port, token } = {}) {
   const closed = await call(
     "closeProxyConnections",
@@ -254,24 +254,24 @@ export async function closeProxyConnections({ port, token } = {}) {
   return Number(closed) || 0;
 }
 
-// Ручной выбор активной ноды в Selector-группе.
-// PUT /proxies/{group} {"name": tag}. Работает только для type=Selector.
+// Manual selection of the active node in a Selector group.
+// PUT /proxies/{group} {"name": tag}. Works only for type=Selector.
 //
-// closeConnections=false — для восстановления выбора на свежем runtime (рвать
-// там нечего, ядро секунду как поднялось) и для тихого возврата к «Авто» после
-// временного закрепления ноды: живые соединения на ней исправны.
+// closeConnections=false — for restoring the selection on a fresh runtime (there is nothing
+// to tear down, the core came up a second ago) and for quietly returning to "Auto" after
+// temporarily pinning a node: the live connections on it are fine.
 //
-// background=true — фоновая смена (возврат к «Авто» по таймеру): она не
-// вытесняет уже поставленный в очередь выбор пользователя, а сама решает в
-// момент исполнения, нужна ли ещё. shouldApply вызывается внутри очереди,
-// когда все ранее поставленные выборы уже применены; false → { stale: true }.
+// background=true — a background switch (returning to "Auto" on a timer): it doesn't
+// displace a user selection already queued, and decides itself at
+// execution time whether it's still needed. shouldApply is called inside the queue
+// when all previously queued selections have been applied; false → { stale: true }.
 export function selectProxy(group, name, {
   port, token, closeConnections = true, background = false, shouldApply,
 } = {}) {
-  // Обычный выбор вытесняет все ранее поставленные (latest wins). Фоновый
-  // ревизию не меняет вовсе: любой выбор пользователя, сделанный после его
-  // постановки, делает фоновый устаревшим, а сам фоновый никогда не
-  // вытесняет выбор пользователя.
+  // A regular selection displaces all previously queued ones (latest wins). A background one
+  // doesn't change the revision at all: any user selection made after it was
+  // queued makes the background one stale, and the background one itself never
+  // displaces the user's selection.
   const revision = background ? selectionRevision : ++selectionRevision;
   const isStale = () => revision !== selectionRevision;
   const task = async () => {
@@ -289,9 +289,9 @@ export function selectProxy(group, name, {
         port: runtimePort(port, captured), processGeneration: captured?.processGeneration,
       });
     }
-    // Выбор подтверждён ядром — теперь уводим с прежней ноды уже открытые потоки.
-    // Неудача здесь не отменяет выбор: новые соединения идут через новую ноду в
-    // любом случае, поэтому ошибку логируем, а не поднимаем в UI.
+    // The selection is confirmed by the core — now move the already open streams off the previous node.
+    // A failure here doesn't cancel the selection: new connections go through the new node
+    // either way, so we log the error rather than surface it in the UI.
     if (closeConnections) {
       try {
         await closeProxyConnections({ port, token: captured });
@@ -310,7 +310,7 @@ export function cancelPendingSelections() {
   selectionRevision++;
 }
 
-// "now" внешнего Selector — что юзер выбрал ("auto" или node-tag).
+// "now" of the outer Selector — what the user picked ("auto" or a node tag).
 export function pickSelectorNow(proxiesResp) {
   const proxies = proxiesResp?.proxies || {};
   const sel = proxies.proxy;
@@ -318,9 +318,9 @@ export function pickSelectorNow(proxiesResp) {
   return sel.now || null;
 }
 
-// Эффективная нода через которую реально пойдёт трафик.
-// Если selector.now=="auto" — лезем в URLTest "auto" и берём его .now (min-delay).
-// Для одиночного профиля (нет Selector) — возвращаем "proxy" (это сам outbound).
+// The effective node the traffic will actually go through.
+// If selector.now=="auto" — we look into the URLTest "auto" and take its .now (min delay).
+// For a single profile (no Selector) we return "proxy" (that's the outbound itself).
 export function pickEffectiveNode(proxiesResp) {
   const proxies = proxiesResp?.proxies || {};
   const sel = proxies.proxy;

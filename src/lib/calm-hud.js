@@ -1,10 +1,10 @@
-// Ninety · спокойный главный экран.
-// Включается только вручную в Настройках → Оформление: кольца HUD стоят,
-// видео-маска на паузе, надписи не мигают и не дрожат, а обновляются редко.
-// Системный prefers-reduced-motion сюда намеренно не подключён: на Windows его
-// часто включают ради производительности, и живой HUD тогда пропадал бы у тех,
-// кто его не выключал.
-// Режим — атрибут data-hud-mode="calm" на <html>; стили в styles/calm-hud.css.
+// Ninety · calm main screen.
+// Enabled only manually in Settings → Appearance: the HUD rings stand still,
+// the video mask is paused, labels don't blink or jitter and update rarely.
+// The system prefers-reduced-motion is deliberately not wired here: on Windows it's
+// often enabled for performance, and the live HUD would then disappear for those
+// who never turned it off.
+// The mode is the data-hud-mode="calm" attribute on <html>; styles in styles/calm-hud.css.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { emit } from "/lib/bus.js";

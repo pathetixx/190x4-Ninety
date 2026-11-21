@@ -1,5 +1,5 @@
-// Ninety · Settings view — разделы навигатором.
-// Не SPA-роутер: внутренний state хранится в this view (sectionKey).
+// Ninety · Settings view — sections with a navigator.
+// Not an SPA router: the internal state is kept in this view (sectionKey).
 
 import { STARTUP_CONNECT_MODES } from "/lib/startup-runtime-policy.js";
 import {
@@ -27,8 +27,8 @@ import {
 } from "/lib/dns-presets.js";
 import { localizedInvoke } from "/lib/backend-errors.js";
 
-// Label-карты строятся в рантайме: t() зависит от текущего языка, замораживать
-// на import нельзя. SECTIONS держит только key+icon; title/hint берём через t().
+// Label maps are built at runtime: t() depends on the current language, freezing them
+// at import isn't possible. SECTIONS holds only key+icon; title/hint are taken via t().
 const startupConnectLabels = () => ({
   off: t("settings.enums.startupConnect.off"),
   restore: t("settings.enums.startupConnect.restore"),
@@ -71,7 +71,7 @@ const tunStackLabels = () => ({
   mixed: t("settings.enums.tunStack.mixed"), gvisor: t("settings.enums.tunStack.gvisor"), system: t("settings.enums.tunStack.system"),
 });
 
-// Уровни логов — литеральные имена sing-box, не переводятся.
+// Log levels are literal sing-box names, not translated.
 const LOG_LABELS = {
   trace: "trace", debug: "debug", info: "info", warn: "warn", error: "error",
 };
@@ -101,7 +101,7 @@ const muxProtocolLabels = () => ({
 });
 
 let currentSection = null; // null = menu
-let currentSubsection = null; // вложенный уровень внутри секции (напр. routing→routing-rules)
+let currentSubsection = null; // a nested level inside a section (e.g. routing→routing-rules)
 
 export function mountSettings(root, opts = {}) {
   if (!root) return;
@@ -114,12 +114,12 @@ export function mountSettings(root, opts = {}) {
   const onProtectedBrowserLaunch = opts.onProtectedBrowserLaunch || (async () => {});
   const onProtectedBrowserCheck = opts.onProtectedBrowserCheck || (async () => {});
   const onProtectedBrowserDownload = opts.onProtectedBrowserDownload || (async () => {});
-  // Состояние проверки обновлений живёт в main.js (расписание, найденная
-  // версия). Карточка «Обновления» без него могла лишь обещать, что проверки
-  // идут; узнать их исход можно было только нажав кнопку.
+  // The update check state lives in main.js (schedule, the found
+  // version). Without it the "Updates" card could only promise that checks
+  // were happening; the outcome could be learned only by pressing the button.
   const getUpdateStatus = opts.getUpdateStatus || (() => null);
-  // Живой инстанс под-экрана «Правила маршрутизации» — чтобы погасить его
-  // монитор-таймер при уходе назад.
+  // The live instance of the "Routing rules" sub-screen — to stop its
+  // monitor timer when going back.
   let routingRulesInstance = null;
   let warpHistoryCleanup = null;
   let warpScanCleanup = null;
@@ -133,12 +133,12 @@ export function mountSettings(root, opts = {}) {
       warpScanCleanup = null;
     }
   }
-  // Инстанс под-экрана живёт ровно столько, сколько его DOM. Раньше destroy()
-  // висел только на кнопке «назад», а любой другой уход (клик по «Настройки» в
-  // навигации → goMenu, смена секции, refresh) просто затирал innerHTML: на
-  // document оставался keydown-обработчик модалки, activeInstance в
-  // routing-view.js продолжал ссылаться на мёртвый DOM, а монитор соединений
-  // ещё до 2 секунд бил в clash_get_connections.
+  // The sub-screen instance lives exactly as long as its DOM. Previously destroy()
+  // hung only on the "back" button, while any other exit (clicking "Settings" in
+  // the navigation → goMenu, a section change, refresh) simply overwrote innerHTML: the
+  // modal's keydown handler stayed on document, activeInstance in
+  // routing-view.js kept referencing the dead DOM, and the connection monitor
+  // kept hitting clash_get_connections for up to 2 more seconds.
   function destroyRoutingRules() {
     if (!routingRulesInstance) return;
     routingRulesInstance.destroy?.();
@@ -162,8 +162,8 @@ export function mountSettings(root, opts = {}) {
     a11ySwitchAll(root);
   }
 
-  // Под-экран «Правила маршрутизации»: settings-head (с back → назад в
-  // «Маршрутизация») + точка монтирования rr-блока.
+  // The "Routing rules" sub-screen: settings-head (with back → back to
+  // "Routing") + the rr block mount point.
   function renderRoutingRulesSub() {
     return `
     <header class="settings-head">
@@ -177,8 +177,8 @@ export function mountSettings(root, opts = {}) {
   }
   function bindRoutingRulesSub(el, onChange) {
     el.querySelector("[data-back-sub]")?.addEventListener("click", () => {
-      // Уничтожение — в render(): оно обязано случаться на любом уходе, а не
-      // только по этой кнопке.
+      // Destruction is in render(): it must happen on any exit, not
+      // only via this button.
       currentSubsection = null;
       render();
     });
@@ -199,14 +199,14 @@ export function mountSettings(root, opts = {}) {
       currentSection = null;
       render();
     });
-    // <input>/<select> с data-opt — старая логика (change/blur → value)
+    // <input>/<select> with data-opt — the old logic (change/blur → value)
     el.querySelectorAll("input[data-opt], select[data-opt]").forEach(input => {
       const path = input.dataset.opt;
       const handler = async () => {
         const value = readInput(input, path);
-        // blur стреляет и на простом «кликнул в поле — кликнул мимо», без правки
-        // значения. Без этой отсечки такой клик доходил до onChange →
-        // pathNeedsRestart → реконнект живого туннеля на ровном месте.
+        // blur also fires on a simple "clicked into the field — clicked away", without editing
+        // the value. Without this cutoff such a click reached onChange →
+        // pathNeedsRestart → a reconnect of the live tunnel for no reason.
         if (value === getOption(loadOptions(), path)) return;
         if (input.dataset.action === "autostart") {
           try {
@@ -224,8 +224,8 @@ export function mountSettings(root, opts = {}) {
           }
         }
         const normalized = updateOption(path, value);
-        // Поле должно показывать то, что реально сохранено (например, после trim),
-        // иначе следующий blur снова увидит расхождение и снова дёрнет реконнект.
+        // The field must show what's actually saved (e.g. after trim),
+        // otherwise the next blur sees a mismatch again and triggers a reconnect again.
         const applied = getOption(normalized, path);
         if (input.type !== "checkbox" && String(applied ?? "") !== input.value) {
           input.value = String(applied ?? "");
@@ -238,7 +238,7 @@ export function mountSettings(root, opts = {}) {
         input.addEventListener("blur", handler);
       }
     });
-    // .switch[data-on][data-opt] — новый toggle (click переключает)
+    // .switch[data-on][data-opt] — the new toggle (a click toggles it)
     el.querySelectorAll(".switch[data-opt]").forEach(sw => {
       const path = sw.dataset.opt;
       sw.addEventListener("click", async () => {
@@ -279,8 +279,8 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll("[data-action='check-updates']").forEach(btn => {
       btn.addEventListener("click", () => window.__ninetyUpdateCheck?.());
     });
-    // Строка-настройка с тумблером кликабельна целиком, не
-    // только сам тумблер. Только там, где тумблер — единственный контрол.
+    // A settings row with a toggle is clickable as a whole, not
+    // just the toggle itself. Only where the toggle is the only control.
     el.querySelectorAll(".set-row").forEach(rowEl => {
       const sw = rowEl.querySelector(".switch");
       if (!sw || rowEl.querySelectorAll("input, select, button, .switch").length > 1) return;
@@ -303,9 +303,9 @@ export function mountSettings(root, opts = {}) {
     bindPrivacySection(el, sec);
   }
 
-  // Логин и пароль для соседей по сети. Первый показ заводит пару, если её
-  // ещё нет: включённый пароль сразу даёт рабочие значения. Очищенное поле
-  // бэкенд заполняет новым значением, а не снимает пароль.
+  // Login and password for network neighbors. The first display creates the pair if it
+  // doesn't exist yet: an enabled password immediately gives working values. A cleared field
+  // is filled by the backend with a new value rather than removing the password.
   function bindLanAuth(el, onChange) {
     const inputs = [...el.querySelectorAll("input[data-lan-auth]")];
     if (!inputs.length) return;
@@ -366,8 +366,8 @@ export function mountSettings(root, opts = {}) {
       const result = await getProtectedBrowserStatus();
       if (!statusEl?.isConnected) return;
       const available = !!result?.ok && !!result.data?.available;
-      // Браузер на месте, но проверка его забраковала: «не найден» здесь —
-      // тупик, пользователь смотрит на установленное приложение.
+      // The browser is in place, but the check rejected it: "not found" here is
+      // a dead end, the user is looking at an installed app.
       const rejected = !!result?.ok && !available && !!result.data?.reason;
       if (!result?.ok) {
         statusEl.textContent = t("settings.privacy.statusError");
@@ -390,8 +390,8 @@ export function mountSettings(root, opts = {}) {
     })();
   }
 
-  // Секция «Маршрутизация»: строка-ссылка в под-экран «Правила маршрутизации».
-  // Сам rr-блок монтируется отдельным под-экраном (routing-view.js).
+  // The "Routing" section: a link row into the "Routing rules" sub-screen.
+  // The rr block itself is mounted as a separate sub-screen (routing-view.js).
   function bindRoutingSection(el, sec) {
     if (sec.key !== "routing") return;
     el.querySelector("[data-subsection='routing-rules']")?.addEventListener("click", () => {
@@ -400,13 +400,13 @@ export function mountSettings(root, opts = {}) {
     });
   }
 
-  // Секция «О программе»: подставляем версию приложения и открываем репозиторий
-  // в системном браузере (через shell-плагин; Tauri перехватывает обычную
-  // навигацию, поэтому внешние ссылки только так).
+  // The "About" section: we fill in the app version and open the repository
+  // in the system browser (via the shell plugin; Tauri intercepts regular
+  // navigation, so external links work only this way).
   async function bindAboutSection(el, sec) {
     if (sec.key !== "about") return;
-    // Версия — авторитетно из рантайма (tauri.conf), подставляем и в паспорт,
-    // и в чип идентичности. build-info даёт лишь дев-фолбэк до загрузки.
+    // The version comes authoritatively from the runtime (tauri.conf), we put it both into the passport
+    // and into the identity chip. build-info gives only a dev fallback until loaded.
     try {
       const v = await window.__TAURI__?.app?.getVersion?.();
       if (v) {
@@ -423,8 +423,8 @@ export function mountSettings(root, opts = {}) {
     void fillAboutDpiEngine(el);
   }
 
-  // Версия движка обхода приходит от самого winws (dpi_versions), а не из
-  // паспорта сборки: запечённое значение разъехалось бы с обновлением канала.
+  // The bypass engine version comes from winws itself (dpi_versions), not from the
+  // build passport: a baked-in value would diverge with a channel update.
   async function fillAboutDpiEngine(el) {
     const slot = el.querySelector("#about-dpi-engine");
     if (!slot) return;
@@ -433,11 +433,11 @@ export function mountSettings(root, opts = {}) {
       const versions = invoke ? await invoke("dpi_versions") : null;
       if (!slot.isConnected) return;
       if (versions?.engine) slot.textContent = versions.engine;
-    } catch { /* движок не спросили — в строке остаётся «—» */ }
+    } catch { /* the engine wasn't asked — the line keeps "—" */ }
   }
 
-  // Строка живёт, пока жив её узел: секция перерисовывается на смену языка и
-  // на каждый вход в «О программе», и слушатель обязан уходить вместе с ней.
+  // The line lives as long as its node: the section is redrawn on a language change and
+  // on every entry into "About", and the listener must go away together with it.
   function bindAboutUpdateStatus(el) {
     const slot = el.querySelector("#about-upd-status");
     if (!slot) return;
@@ -452,7 +452,7 @@ export function mountSettings(root, opts = {}) {
       globalThis.removeEventListener?.("ninety:update-state", onState);
     };
     const onState = () => { if (!paint()) stop(); };
-    // «Проверено N минут назад» стареет само по себе, без единого события.
+    // "Checked N minutes ago" gets stale on its own, without a single event.
     const timer = setInterval(() => { if (!paint()) stop(); }, 30_000);
     globalThis.addEventListener?.("ninety:update-state", onState);
   }
@@ -465,11 +465,11 @@ export function mountSettings(root, opts = {}) {
     try { window.open(url, "_blank"); } catch {}
   }
 
-  // Тумблер «Всегда запускать от администратора» (секция Общие). Состояние
-  // живёт не в options-localStorage, а в маркер-файле на стороне Rust
-  // (is_always_admin/set_always_admin) — поэтому биндим отдельно от generic
-  // switch'ей. При включении на следующих стартах Ninety сам перезапустится
-  // с UAC (см. setup() в lib.rs) — нужно для TUN без ручного запроса прав.
+  // The "Always run as administrator" toggle (General section). The state
+  // lives not in the options localStorage but in a marker file on the Rust side
+  // (is_always_admin/set_always_admin) — so it's bound separately from the generic
+  // switches. When enabled, on subsequent starts Ninety restarts itself
+  // with UAC (see setup() in lib.rs) — needed for TUN without a manual rights request.
   async function bindAlwaysAdmin(el, sec) {
     if (sec.key !== "general") return;
     const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
@@ -485,7 +485,7 @@ export function mountSettings(root, opts = {}) {
       try {
         await invoke("set_always_admin", { enable: newVal });
       } catch (e) {
-        sw.dataset.on = String(!newVal); // откат при ошибке
+        sw.dataset.on = String(!newVal); // rollback on error
         alert(t("settings.general.adminSaveErr", { err: e?.message || e }));
       }
     });
@@ -512,8 +512,8 @@ export function mountSettings(root, opts = {}) {
           ? t("portable.unlock")
           : passphrase ? t("portable.setChange") : t("portable.set");
       };
-      // После каждой команды состояние берём у backend, а не собираем из
-      // догадок на месте: он один знает, что осталось на диске и в памяти.
+      // After each command the state is taken from the backend, not assembled from
+      // guesses on the spot: only it knows what's left on disk and in memory.
       const refresh = async () => {
         try {
           sync(await invoke("portable_secrets_status"));
@@ -528,8 +528,8 @@ export function mountSettings(root, opts = {}) {
         if (passphrase == null || passphrase === "") return;
         try {
           await invoke("portable_secrets_set_passphrase", { passphrase });
-          // Запертое хранилище на этом запуске уже не открылось, и профили
-          // живут только в памяти. Перезагрузка перечитает их с диска с ключом.
+          // The locked storage didn't open on this launch, and the profiles
+          // live only in memory. A reload will reread them from disk with the key.
           if (wasLocked) {
             location.reload();
             return;
@@ -555,8 +555,8 @@ export function mountSettings(root, opts = {}) {
     } catch {}
   }
 
-  // Идентификатор устройства для подписок с лимитом устройств. Значение
-  // подставляется после рендера: при первом обращении оно заводится в Rust.
+  // Device identifier for subscriptions with a device limit. The value
+  // is filled in after render: on the first access it's created in Rust.
   function bindDeviceHwid(el, sec) {
     if (sec.key !== "general") return;
     const valueEl = el.querySelector("[data-hwid-value]");
@@ -584,8 +584,8 @@ export function mountSettings(root, opts = {}) {
     el.querySelector("[data-action='hwid-regenerate']")?.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // Для панели это другое устройство: старое останется в её списке и,
-      // пока владелец подписки его не удалит, будет занимать слот.
+      // For the panel this is another device: the old one will stay in its list and,
+      // until the subscription owner removes it, will take a slot.
       const ok = await openConfirmModal({
         title: t("settings.general.hwidRegenerateTitle"),
         message: t("settings.general.hwidRegenerateConfirm"),
@@ -637,7 +637,7 @@ export function mountSettings(root, opts = {}) {
     if (sec.key !== "appearance") return;
     el.querySelector("#settings-lang")?.addEventListener("change", async (e) => {
       await setLang(e.target.value);
-      render(); // обновить подписи раздела на новом языке
+      render(); // update the section labels in the new language
     });
     el.querySelector("[data-contrast-toggle]")?.addEventListener("click", (e) => {
       const on = e.currentTarget.dataset.on !== "true";
@@ -652,7 +652,7 @@ export function mountSettings(root, opts = {}) {
     el.querySelectorAll(".theme-card[data-theme]").forEach(card => {
       card.addEventListener("click", () => {
         const id = card.dataset.theme;
-        // главный setter в main.js пишет localStorage + меняет data-theme на корне
+        // the main setter in main.js writes localStorage + changes data-theme on the root
         window.__ninetySetTheme?.(id);
         el.querySelectorAll(".theme-card[data-theme]").forEach(c => {
           c.dataset.on = String(c.dataset.theme === id);
@@ -661,9 +661,9 @@ export function mountSettings(root, opts = {}) {
     });
   }
 
-  // DNS-комбо. Сохраняем только реально изменившееся и только валидное:
-  // выбор пункта «Свой адрес…» сам по себе ничего не пишет и не перезапускает
-  // ядро, а битый ручной ввод отклоняется здесь, а не падает позже на старте.
+  // The DNS combo. We save only what actually changed and only what's valid:
+  // choosing the "Custom address…" item by itself writes nothing and doesn't restart
+  // the core, and broken manual input is rejected here rather than failing later at startup.
   function bindDnsSection(el, onChange) {
     el.querySelectorAll(".settings-dns").forEach(box => {
       const kind = box.dataset.dnsKind;
@@ -679,8 +679,8 @@ export function mountSettings(root, opts = {}) {
         errBox.hidden = !key;
         custom.classList.toggle("settings-input--bad", !!key);
       };
-      // «Как в системе» на remote — резолв уходит мимо туннеля; молча такое
-      // подсовывать нельзя, но и запрещать выбор не наше дело.
+      // "System default" on remote — resolving goes past the tunnel; silently
+      // slipping that in isn't allowed, but forbidding the choice isn't our business either.
       const syncWarn = (value) => {
         warnBox.hidden = !(kind === "remote" && isSystemDns(value));
       };
@@ -696,7 +696,7 @@ export function mountSettings(root, opts = {}) {
           custom.hidden = false;
           custom.focus();
           custom.select();
-          return; // раскрытие поля — ещё не смена адреса
+          return; // expanding the field isn't changing the address yet
         }
         custom.hidden = true;
         syncWarn(sel.value);
@@ -712,8 +712,8 @@ export function mountSettings(root, opts = {}) {
           return;
         }
         showError(null);
-        // Пустое поле = «вернуть как было по умолчанию»: normalizeOptions
-        // подставит дефолт, и селект должен показать его имя, а не «Свой адрес».
+        // An empty field = "restore the default": normalizeOptions
+        // will substitute the default, and the select must show its name, not "Custom address".
         apply(raw);
         const applied = getOption(loadOptions(), path);
         custom.value = raw ? applied : "";
@@ -744,15 +744,15 @@ export function mountSettings(root, opts = {}) {
     const registerBtn = el.querySelector("[data-action='warp-register']");
     const resetBtn = el.querySelector("[data-action='warp-reset']");
 
-    // Последний известный ответ warp_status: по нему решается, показывать ли
-    // кнопку регистрации.
+    // The last known warp_status response: it decides whether to show
+    // the registration button.
     let lastInfo = null;
 
-    // «Зарегистрировать» исчезает после успешной регистрации: раньше она
-    // оставалась на месте с той же подписью, и успех был неотличим от
-    // проглоченной ошибки. Возвращается она только когда есть что применить —
-    // введён новый 26-символьный ключ WARP+ (регистрация с ключом — это всегда
-    // новый device в CF, отдельной команды «применить лицензию» нет).
+    // "Register" disappears after a successful registration: previously it
+    // stayed in place with the same label, and success was indistinguishable from
+    // a swallowed error. It comes back only when there's something to apply —
+    // a new 26-character WARP+ key was entered (registration with a key is always
+    // a new device in CF, there's no separate "apply license" command).
     const syncRegisterBtn = () => {
       if (!registerBtn) return;
       const typed = licenseInput?.value?.trim() || "";
@@ -786,8 +786,8 @@ export function mountSettings(root, opts = {}) {
         syncRegisterBtn();
       } catch (e) {
         if (statusEl) statusEl.textContent = t("settings.warp.statusErr", { err: e?.message || e });
-        // Кнопка стартует скрытой, поэтому её обязательно нужно вернуть и на
-        // ошибке статуса — иначе зарегистрироваться станет нечем.
+        // The button starts hidden, so it must be brought back on a status
+        // error too — otherwise there's nothing to register with.
         syncRegisterBtn();
       }
     };
@@ -799,8 +799,8 @@ export function mountSettings(root, opts = {}) {
       registerBtn.textContent = t("settings.warp.registering");
       try {
         const license = licenseInput?.value?.trim() || null;
-        // Ключ WARP+ — ровно 26 символов; иная длина раньше молча регистрировала
-        // бесплатный WARP. Rust дублирует проверку, здесь — локализованно и до сети.
+        // A WARP+ key is exactly 26 characters; a different length used to silently register
+        // free WARP. Rust duplicates the check, here it's localized and before the network.
         if (license && license.length !== 26) {
           alert(t("settings.warp.licenseLen", { n: license.length }));
           return;
@@ -812,8 +812,8 @@ export function mountSettings(root, opts = {}) {
         alert(t("settings.warp.registerErr", { err: e?.message || e }));
       } finally {
         registerBtn.disabled = false;
-        // Подпись восстанавливает sync, а не сохранённая копия: после успеха
-        // кнопка обязана исчезнуть, а не вернуть прежний текст.
+        // The label is restored by sync, not by a saved copy: after success
+        // the button must disappear rather than restore the previous text.
         syncRegisterBtn();
       }
     });
@@ -863,14 +863,14 @@ export function mountSettings(root, opts = {}) {
       scanBtn.textContent = t("confirm.cancel");
       if (scanResults) scanResults.hidden = false;
       const deep = !!loadOptions().warp?.deepScan;
-      // mode=auto: WG handshake если warp.json есть, иначе TCP. Backend сам определит.
+      // mode=auto: WG handshake if warp.json exists, otherwise TCP. The backend decides itself.
       if (scanStatus) scanStatus.textContent = deep
         ? t("settings.warp.scanStatusDeep")
         : t("settings.warp.scanStatusNormal");
       if (scanList) scanList.innerHTML = "";
       let unlisten = null;
-      // Устанавливаем cleanup до первого await: уход со страницы или быстрый
-      // повторный клик не должны запустить скан после поздней event.listen.
+      // We set up cleanup before the first await: leaving the page or a quick
+      // repeated click must not start a scan after a late event.listen.
       warpScanCleanup = () => {
         if (epoch === scanEpoch) scanEpoch++;
         scanning = false;
@@ -935,12 +935,12 @@ export function mountSettings(root, opts = {}) {
       if (!btn) return;
       const endpoint = btn.dataset.scanPick;
       updateOption("warp.endpoint", endpoint);
-      // Перерисуем — input выше получит новое значение
+      // Redraw — the input above will get the new value
       onChange("warp.endpoint", endpoint);
       render();
     });
 
-    // История ротаций — читается из localStorage, обновляется по событию.
+    // Rotation history — read from localStorage, updated by an event.
     const historyList = el.querySelector("#warp-history-list");
     const historyCount = el.querySelector("#warp-history-count");
     const renderHistory = () => {
@@ -999,7 +999,7 @@ export function normalizeNumberOption(path, raw) {
   return n;
 }
 
-// ── Меню (главная settings) ────────────────────────────────
+// ── Menu (main settings) ────────────────────────────────
 function renderMenu() {
   return `
     <header class="settings-head settings-head--root">
@@ -1022,7 +1022,7 @@ function renderMenu() {
   `;
 }
 
-// ── Подраздел ──────────────────────────────────────────────
+// ── Subsection ──────────────────────────────────────────────
 function renderSection(sec) {
   const o = loadOptions();
   return `
@@ -1152,9 +1152,9 @@ function renderAppearance() {
   `;
 }
 
-// helpers — новые премиум-токены (.set-row, .switch[data-on], .seg)
+// helpers — the new premium tokens (.set-row, .switch[data-on], .seg)
 function row(_icon, label, hint, control) {
-  // _icon более не показываем — премиум-эстетика без декоративных иконок в строках
+  // _icon is no longer shown — premium aesthetics without decorative icons in rows
   return `
     <div class="set-row">
       <div class="set-row__lbl">
@@ -1182,9 +1182,9 @@ function inputText(path, value, type = "text", attrs = "") {
   return `<input class="${cls}" type="${escapeAttr(type)}" value="${escapeAttr(value ?? "")}" data-opt="${escapeAttr(path)}" ${attrs}/>`;
 }
 
-// DNS-комбо: список пресетов + пункт «Свой адрес…», раскрывающий поле ввода.
-// data-opt НЕ ставим намеренно — общий обработчик bindSection сохранял бы
-// сырой ввод без проверки; здесь нужна валидация до записи (bindDnsSection).
+// The DNS combo: a list of presets + a "Custom address…" item that expands an input field.
+// data-opt is deliberately NOT set — the shared bindSection handler would save
+// raw input without validation; here validation is needed before writing (bindDnsSection).
 function dnsCombo(kind, path, value) {
   const preset = findDnsPreset(kind, value);
   const custom = !preset;
@@ -1222,7 +1222,7 @@ function rangeRow(label, hint, fromPath, fromVal, toPath, toVal) {
   `;
 }
 
-// ── Разделы ────────────────────────────────────────────────
+// ── Sections ────────────────────────────────────────────────
 function renderGeneral(o) {
   const g = o.general || {};
   const portableCopy = {
@@ -1278,8 +1278,8 @@ function renderRouting(o) {
   `;
 }
 
-// Строка-ссылка в под-экран (визуально как row(...), но кликабельна и с шевроном
-// справа). Клик ловит bindRoutingSection по data-subsection.
+// A link row into a sub-screen (visually like row(...), but clickable and with a chevron
+// on the right). The click is caught by bindRoutingSection via data-subsection.
 function subNavRow(label, hint, subsection) {
   return `
     <button class="set-row set-row--nav" data-subsection="${escapeAttr(subsection)}" type="button">
@@ -1317,9 +1317,9 @@ function renderInbound(o) {
   `;
 }
 
-// Пароль для соседей по сети. Поля видны текстом: их переписывают на телефон
-// или в ТВ. Значения хранит бэкенд (lan_auth.rs), поэтому у полей нет data-opt:
-// общий обработчик записал бы их в настройки, то есть открытым текстом на диск.
+// Password for network neighbors. The fields are visible as text: they're copied to a phone
+// or a TV. The values are kept by the backend (lan_auth.rs), so the fields have no data-opt:
+// the shared handler would write them into settings, i.e. in plain text to disk.
 function renderLanAuth(inbound) {
   const credentialInput = (field) => `<input class="settings-input" type="text" value="" data-lan-auth="${field}"
     maxlength="64" spellcheck="false" autocomplete="off" autocapitalize="off" disabled/>`;
@@ -1365,15 +1365,15 @@ function renderMux(o) {
 const REPO_URL = "https://github.com/pathetixx/190x4-Ninety";
 const LICENSE_URL = "https://github.com/pathetixx/190x4-Ninety/blob/main/LICENSE";
 
-// Витрина протоколов. Обязана совпадать с ветками buildOutbound в singbox.js —
-// равенство проверяет tests/about-protocols.test.mjs. Раньше список отставал:
-// anytls, Hysteria v1 и SOCKS приложение уже проводило, а «О программе»
-// показывала восемь чипов, противореча абзацу описания над ними.
+// The protocol showcase. Must match the buildOutbound branches in singbox.js —
+// equality is checked by tests/about-protocols.test.mjs. Previously the list lagged behind:
+// the app already handled anytls, Hysteria v1 and SOCKS, while "About"
+// showed eight chips, contradicting the description paragraph above them.
 const ABOUT_PROTOCOLS = [
   "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria2", "Hysteria",
   "TUIC", "AnyTLS", "Mieru", "SOCKS", "NaiveProxy", "TrustTunnel", "WireGuard", "AmneziaWG", "OpenVPN",
 ];
-// Режимы переиспользуют каталог главной (mode.*), чтобы не дублировать переводы.
+// The modes reuse the home screen catalog (mode.*) to avoid duplicating translations.
 const aboutModes = () => [t("mode.proxy"), t("mode.systemProxy"), t("mode.tun")];
 export const ABOUT_MARK_ASSET = "/assets/samurai-mark-v2.webp";
 
@@ -1395,9 +1395,9 @@ function aboutComponentRow(name, value) {
 }
 
 /**
- * Подпись под карточкой «Обновления». Раньше здесь стояла неизменная фраза
- * «проверяются автоматически» — состояние подсистемы (когда проверяли, нашли
- * ли что-то) не было видно нигде, кроме тоста после ручного нажатия.
+ * The caption under the "Updates" card. Previously there was a fixed phrase here,
+ * "checked automatically" — the subsystem state (when it checked, whether it found
+ * anything) wasn't visible anywhere except a toast after a manual press.
  * @param {{checking?: boolean, pendingVersion?: string|null, lastSuccessAt?: number}|null} status
  */
 export function aboutUpdateStatusText(status) {
@@ -1411,8 +1411,8 @@ export function aboutUpdateStatusText(status) {
   return t("settings.about.updStatus");
 }
 
-// Паспорт сборки. Версия — из рантайма (bindAboutSection подставит в #about-*),
-// остальное — из build-info.js (commit/date/core/channel запекает CI).
+// The build passport. The version comes from the runtime (bindAboutSection fills in #about-*),
+// the rest from build-info.js (commit/date/core/channel are baked in by CI).
 function renderAbout() {
   const b = BUILD_INFO;
   const ver = b.version || "—";
@@ -1519,7 +1519,7 @@ function renderAbout() {
   `;
 }
 
-// Иконки экрана «О программе» — lucide-style, 1.5px stroke, currentColor.
+// "About" screen icons — lucide style, 1.5px stroke, currentColor.
 function aboutSvg(size, body) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 }
@@ -1643,12 +1643,12 @@ function renderWarpCustomNoise(cn) {
   `;
 }
 
-// ── Иконки: тонкая линия, 24×24, stroke 1.5 — единый стиль с sidebar/titlebar ──
+// ── Icons: thin line, 24×24, stroke 1.5 — a single style with the sidebar/titlebar ──
 function svgWrap(inner) {
   return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }
 
-// — Section icons (главный список Настроек) —
+// — Section icons (the main Settings list) —
 function iconGeneral()  { return svgWrap('<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="15" cy="6" r="2.2" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="17" cy="18" r="2.2" fill="currentColor" stroke="none"/>'); }
 function iconTheme()    { return svgWrap('<circle cx="12" cy="12" r="9"/><path d="M12 3 a9 9 0 0 1 0 18 Z" fill="currentColor" stroke="none"/>'); }
 function iconRouting()  { return svgWrap('<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M6 8.2 V10 a3 3 0 0 0 3 3 h6 a3 3 0 0 0 3 -3 V8.2"/><path d="M12 13 V15.8"/>'); }
@@ -1658,7 +1658,7 @@ function iconTls()      { return svgWrap('<path d="M14 3 L15.4 8 L20 9.5 L15.4 1
 function iconWarp()     { return svgWrap('<path d="M8 17 H17 a4 4 0 0 0 0 -8 a5.2 5.2 0 0 0 -9.7 -1.2 A3.8 3.8 0 0 0 8 17 Z"/><line x1="2" y1="20" x2="6" y2="20"/><line x1="3" y1="16" x2="5" y2="16"/>'); }
 function iconInfo()     { return svgWrap('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none"/>'); }
 
-// — Row icons (внутри set-row, banner, sub-section) —
+// — Row icons (inside set-row, banner, sub-section) —
 function iconUrl()       { return svgWrap('<path d="M10 14 a4 4 0 0 1 0 -5.66 l3 -3 a4 4 0 0 1 5.66 5.66 l-1.5 1.5"/><path d="M14 10 a4 4 0 0 1 0 5.66 l-3 3 a4 4 0 0 1 -5.66 -5.66 l1.5 -1.5"/>'); }
 function iconClock()     { return svgWrap('<circle cx="12" cy="12" r="9"/><path d="M12 7 V12 L15.5 14"/>'); }
 function iconLog()       { return svgWrap('<path d="M14 3 H6 a2 2 0 0 0 -2 2 V19 a2 2 0 0 0 2 2 H18 a2 2 0 0 0 2 -2 V9 Z"/><path d="M14 3 V9 H20"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/>'); }

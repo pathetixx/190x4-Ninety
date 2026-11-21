@@ -1,5 +1,5 @@
-// WebSocket-стрим clash-API через Rust: события "clash:traffic" приходят как { up, down }
-// (байт/сек). Также exposed legacy poll-функция для пинга /proxies.
+// clash API WebSocket stream through Rust: "clash:traffic" events arrive as { up, down }
+// (bytes/sec). A legacy poll function for pinging /proxies is also exposed.
 
 import { getProxies, lastDelay, pickEffectiveNode, refreshEffectiveDelay } from "/lib/clash-api.js";
 import { activityController } from "/lib/activity-controller.js";
@@ -13,9 +13,9 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
 const eventApi = window.__TAURI__?.event;
 
 const DEFAULT_PORT = 9090;
-const PING_POLL_MS = 3000;          // частый поллинг: пинг в UI должен быть свежим
-const DEAD_RETEST_MS = 4000;        // мёртвый/0 замер — оживляем тёплым тестом часто
-const WARM_REFRESH_MS = 10000;      // живой замер — периодически освежаем (auto-refresh)
+const PING_POLL_MS = 3000;          // frequent polling: the ping in the UI must be fresh
+const DEAD_RETEST_MS = 4000;        // a dead/0 measurement — revive it often with a warm test
+const WARM_REFRESH_MS = 10000;      // a live measurement — refresh it periodically (auto-refresh)
 
 let unlistenTraffic = null;
 let unlistenActivity = null;
@@ -65,8 +65,8 @@ async function reconcileStream(revision) {
   await stopCurrentStream();
   if (revision !== streamRevision || !desiredStream) return;
   const { port, token, onTraffic, onPing, onNodeChange } = desiredStream;
-  // подписка на WS-event остаётся активной в трее: она питает traffic meter и
-  // quality engine. Пауза относится только к визуальному ping-поллингу.
+  // the WS event subscription stays active in the tray: it feeds the traffic meter and
+  // the quality engine. The pause applies only to the visual ping polling.
   if (eventApi?.listen && onTraffic) {
     const unlisten = await eventApi.listen("clash:traffic", (ev) => {
       if (revision !== streamRevision) return;
@@ -81,7 +81,7 @@ async function reconcileStream(revision) {
     }
     unlistenTraffic = unlisten;
   }
-  // запускаем Rust-таску WS-pump
+  // start the Rust WS pump task
   try { await invoke("clash_traffic_start", { port }); } catch (e) {
     console.warn("clash_traffic_start failed", e);
   }
@@ -100,8 +100,8 @@ async function reconcileStream(revision) {
         const effective = pickEffectiveNode(data);
         const obj = effective ? data?.proxies?.[effective] : null;
         const d = lastDelay(obj);
-        // Авто-обновление: периодически в ФОНЕ перемеряем эффективную ноду.
-        // Когда окно скрыто, визуальная проба не нужна и не запускается.
+        // Auto-refresh: periodically re-measure the effective node in the BACKGROUND.
+        // When the window is hidden, the visual probe isn't needed and isn't started.
         const now = Date.now();
         const dead = !d || d <= 0 || d >= 65000;
         const due = effective && (now - lastForceTestTs) > (dead ? DEAD_RETEST_MS : WARM_REFRESH_MS);
@@ -153,7 +153,7 @@ export function stopClashStream() {
   return streamQueue;
 }
 
-// Bytes/sec → {value: string, unit: string} в КиБ/с или МиБ/с
+// Bytes/sec → {value: string, unit: string} in KiB/s or MiB/s
 export function formatRate(bytesPerSec) {
   const b = Math.max(0, Number(bytesPerSec) || 0);
   if (b < 1024) {

@@ -1,5 +1,5 @@
-// Единая транзакция смены активного источника. Зависимости передаются явно,
-// чтобы один и тот же порядок использовался UI и проверялся regression-тестами.
+// A single transaction for changing the active source. Dependencies are passed explicitly
+// so that the same order is used by the UI and checked by regression tests.
 export function applyActiveSourceTransaction(source, deps, options = {}) {
   const kind = source?.kind === "sub" ? "sub" : "single";
   const id = String(source?.id || "").trim();
@@ -44,10 +44,10 @@ export function sameSourceRef(left, right) {
   return !!a && !!b && a.kind === b.kind && a.id === b.id;
 }
 
-// Переключение активного источника — двухфазная операция. localStorage нужен
-// builder'у до старта нового runtime, но подтверждённым выбор становится только
-// после connect + dataplane readiness. При отказе восстанавливаем последний
-// рабочий источник. sequence guard не позволяет позднему завершению B откатить C.
+// Switching the active source is a two-phase operation. The builder needs localStorage
+// before the new runtime starts, but the choice becomes confirmed only
+// after connect + dataplane readiness. On failure we restore the last
+// working source. The sequence guard keeps a late completion of B from rolling back C.
 export function createSourceSwitchController({
   getActiveSource,
   applySource,
@@ -98,8 +98,8 @@ export function createSourceSwitchController({
       return { changed: false, ready: true, target };
     }
 
-    // Если B ещё не подтверждён и пользователь выбрал C, fallback остаётся A —
-    // последним доказанно рабочим источником, а не промежуточным B.
+    // If B isn't confirmed yet and the user picked C, the fallback stays A —
+    // the last provably working source, not the intermediate B.
     const superseded = pending;
     if (superseded?.operationToken) void cancelOperation(superseded.operationToken);
     const fallback = superseded?.fallback || selected;
@@ -136,9 +136,9 @@ export function createSourceSwitchController({
         phase: "target", target, fallback, operationToken,
       });
       if (!current(token, target)) return { changed: true, stale: true, target };
-      // Реконнект цели вытеснил другой (правка настройки, WARP-rescan): тот сам
-      // поднимет уже применённый источник. Это не отказ цели — B ещё ни разу
-      // не проверен, и откат на A молча отменил бы выбор пользователя.
+      // The target's reconnect was displaced by another one (a settings edit, WARP rescan): that one will
+      // bring up the already applied source itself. This isn't a target failure — B has never
+      // been checked, and rolling back to A would silently cancel the user's choice.
       if (connected?.preempted) {
         pending = null;
         await persist(target);

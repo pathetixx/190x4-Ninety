@@ -1,20 +1,20 @@
-// Ninety · флаги — единый источник: имя ноды → ISO-3166-1 alpha-2 (lowercase).
-// Раньше логика дублировалась в proxies-view.js и main.js; main-копия отстала
-// (без COUNTRY_NAME) → на главной и в трее флаги hysteria/naive не появлялись.
-// Теперь обе стороны импортируют отсюда.
+// Ninety · flags — a single source: node name → ISO-3166-1 alpha-2 (lowercase).
+// Previously the logic was duplicated in proxies-view.js and main.js; the main copy fell behind
+// (no COUNTRY_NAME) → hysteria/naive flags didn't appear on the home screen and in the tray.
+// Now both sides import from here.
 //
-// Порядок разбора имени:
-// 1) Regional-indicator pair в названии (🇫🇮, 🇩🇪) → конвертим в "fi", "de".
-// 2) Полное название страны словом ("Poland", "Финляндия") → ISO.
-// 3) Иначе ищем явный 2-буквенный токен на границе слова ("FI", "DE-Mobile").
-// 4) Маппинг частых не-ISO-сокращений в подписках (UK→gb, EN→gb и т.п.).
+// Name parsing order:
+// 1) A regional-indicator pair in the name (🇫🇮, 🇩🇪) → converted to "fi", "de".
+// 2) A full country name as a word ("Poland", "Финляндия") → ISO.
+// 3) Otherwise we look for an explicit 2-letter token at a word boundary ("FI", "DE-Mobile").
+// 4) Mapping of common non-ISO abbreviations in subscriptions (UK→gb, EN→gb, etc.).
 
 export const FLAGS_BASE = "/assets/flags";
 
 export const NON_ISO_ALIAS = { uk: "gb", en: "gb", uae: "ae", usa: "us", rus: "ru" };
 
-// Полные названия стран (англ. + рус.) → ISO. Для нод без эмодзи/кода в имени
-// (hysteria/naive от EOFVPN: «Poland», «Germany», «Netherlands»…).
+// Full country names (English + Russian) → ISO. For nodes without an emoji/code in the name
+// (hysteria/naive from EOFVPN: "Poland", "Germany", "Netherlands"…).
 export const COUNTRY_NAME = {
   poland: "pl", польша: "pl",
   germany: "de", deutschland: "de", германия: "de",
@@ -70,10 +70,10 @@ export const COUNTRY_NAME = {
   malaysia: "my", малайзия: "my",
   philippines: "ph", филиппины: "ph",
 };
-// Ключи, отсортированные по длине (убыв.) — многословные («united states»)
-// матчатся раньше, чем их части.
+// Keys sorted by length (descending) — multi-word ones ("united states")
+// match before their parts.
 const COUNTRY_NAME_KEYS = Object.keys(COUNTRY_NAME).sort((a, b) => b.length - a.length);
-// Экранируем для regex; ищем по границе слова, чтобы «romania» не дала «oman».
+// Escape for regex; search at a word boundary so that "romania" doesn't yield "oman".
 const COUNTRY_NAME_RE = new RegExp(
   "(?:^|[^\\p{L}])(" + COUNTRY_NAME_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?![\\p{L}])",
   "iu"
@@ -89,14 +89,14 @@ export function flagIsoFromName(name) {
       return String.fromCharCode(97 + (a - 0x1F1E6)) + String.fromCharCode(97 + (b - 0x1F1E6));
     }
   }
-  // Полное название страны словом (англ./рус.) → ISO
+  // Full country name as a word (English/Russian) → ISO
   const cm = name.match(COUNTRY_NAME_RE);
   if (cm) return COUNTRY_NAME[cm[1].toLowerCase()];
-  // Fallback: 2-3-буквенный токен в начале или после нечислового границы.
-  // ТОЛЬКО верхний регистр («DE-1», «US East», «UK»): код страны в именах нод
-  // пишут капсом, а обычные слова («My», «Do», «Is») — нет. Без этого гейта
-  // «My Server» ловил флаг Малайзии, «Do X» — Доминики (ложный флаг хуже, чем
-  // текстовый фолбэк). Полные названия/эмодзи обрабатываются ветками выше.
+  // Fallback: a 2-3 letter token at the start or after a non-digit boundary.
+  // ONLY uppercase ("DE-1", "US East", "UK"): country codes in node names
+  // are written in caps, while ordinary words ("My", "Do", "Is") aren't. Without this gate
+  // "My Server" caught Malaysia's flag, "Do X" Dominica's (a false flag is worse than
+  // a text fallback). Full names/emoji are handled by the branches above.
   const m = String(name).match(/(?:^|[\s|·,])([A-Za-z]{2,3})\b/);
   if (m && m[1] === m[1].toUpperCase()) {
     const tok = m[1].toLowerCase();

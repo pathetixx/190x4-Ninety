@@ -1,11 +1,11 @@
-// Ninety · ключ Amnezia (vpn://…) → профили.
+// Ninety · Amnezia key (vpn://…) → profiles.
 //
-// Формат — внутренний у AmneziaVPN: base64url от qCompress(JSON). qCompress —
-// это 4 байта длины (big endian) и следом обычный zlib-поток. Внутри JSON с
-// описанием сервера и контейнерами: у WireGuard/AmneziaWG в `last_config`
-// лежит готовый .conf, у Xray — готовый конфиг Xray. Их и разбираем теми же
-// парсерами, что и вставленный файл; остальное (Cloak, IKEv2…)
-// называем по имени.
+// The format is internal to AmneziaVPN: base64url of qCompress(JSON). qCompress
+// is 4 length bytes (big endian) followed by a regular zlib stream. Inside is JSON with
+// the server description and containers: for WireGuard/AmneziaWG `last_config`
+// holds a ready .conf, for Xray a ready Xray config. We parse them with the same
+// parsers as a pasted file; the rest (Cloak, IKEv2…)
+// we name.
 
 import { parseWireguardConf } from "/lib/protocol-parsers.js";
 import { parseOpenvpnConf } from "/lib/openvpn.js";
@@ -14,7 +14,7 @@ import { t } from "/lib/i18n/index.js";
 
 const KEY_RE = /^vpn:\/\/[A-Za-z0-9_\-+/=]+$/;
 
-/** Похоже ли на ключ Amnezia. Проверка дешёвая и синхронная — для окна добавления. */
+/** Whether it looks like an Amnezia key. The check is cheap and synchronous — for the add window. */
 export function looksLikeAmneziaKey(text) {
   return KEY_RE.test(String(text || "").trim());
 }
@@ -34,8 +34,8 @@ async function inflateZlib(bytes) {
 }
 
 /**
- * Ключ → JSON AmneziaVPN. Старые ключи бывают и без сжатия — тогда внутри
- * сразу JSON.
+ * Key → AmneziaVPN JSON. Old keys may also come without compression — then there's
+ * JSON right inside.
  * @returns {Promise<object>}
  */
 export async function decodeAmneziaKey(text) {
@@ -56,12 +56,12 @@ export async function decodeAmneziaKey(text) {
     try {
       const json = JSON.parse(await attempt());
       if (json && typeof json === "object" && !Array.isArray(json)) return json;
-    } catch { /* следующий вариант */ }
+    } catch { /* next variant */ }
   }
   throw new Error(t("add.errAmneziaKey"));
 }
 
-// Контейнеры AmneziaVPN, которые Ninety проводит, и где у них лежат настройки.
+// AmneziaVPN containers that Ninety handles, and where their settings live.
 const WIREGUARD_CONTAINERS = {
   "amnezia-awg": "awg",
   "amnezia-awg2": "awg",
@@ -92,7 +92,7 @@ function containerLabel(name) {
 }
 
 /**
- * Ключ Amnezia → профили Ninety.
+ * Amnezia key → Ninety profiles.
  * @returns {Promise<{profiles: object[], ignored: string[], unsupported: string[], name: string}>}
  */
 export async function parseAmneziaKey(text, displayName = "", credentials = {}) {
@@ -100,7 +100,7 @@ export async function parseAmneziaKey(text, displayName = "", credentials = {}) 
   const name = String(displayName || key.description || key.hostName || "Amnezia").trim();
   const containers = (Array.isArray(key.containers) ? key.containers : [])
     .filter((c) => c && typeof c === "object");
-  // Контейнер по умолчанию — первым: его пользователь и выбрал в Amnezia.
+  // The default container goes first: that's the one the user picked in Amnezia.
   containers.sort((a, b) => (b.container === key.defaultContainer) - (a.container === key.defaultContainer));
 
   const supported = containers.filter((c) => WIREGUARD_CONTAINERS[c.container]
@@ -143,8 +143,8 @@ export async function parseAmneziaKey(text, displayName = "", credentials = {}) 
     if (unsupported.length) {
       throw new Error(t("add.errAmneziaUnsupported", { list: unsupported.join(", ") }));
     }
-    // Ключи сервиса Amnezia (Premium/Free) хранят не сервер, а доступ к API:
-    // конфигурацию приложение получает уже после входа.
+    // Amnezia service keys (Premium/Free) store not a server but API access:
+    // the app gets the configuration only after signing in.
     if (withoutConfig || key.api_config || key.auth_data || !containers.length) {
       throw new Error(t("add.errAmneziaNoConfig"));
     }

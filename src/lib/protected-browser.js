@@ -1,10 +1,10 @@
-// Ninety · безопасная JS-граница для отдельного защищённого браузера.
+// Ninety · a safe JS boundary for the separate protected browser.
 //
-// Rust отвечает за поиск стабильного Mullvad Browser, безопасный запуск с
-// обычными правами пользователя и открытие официальной страницы загрузки.
-// Профили и настройки браузера Ninety не создаёт и не меняет. Здесь нет UI-логики:
-// модуль нормализует IPC-ответы и никогда не отдаёт пользователю сырую ошибку
-// ОС (она может содержать локальные пути и технические детали).
+// Rust is responsible for finding a stable Mullvad Browser, launching it safely with
+// regular user rights and opening the official download page.
+// Ninety doesn't create or change browser profiles and settings. There's no UI logic here:
+// the module normalizes IPC responses and never gives the user a raw OS
+// error (it may contain local paths and technical details).
 
 import { localizedInvoke } from "/lib/backend-errors.js";
 export const PROTECTED_BROWSER_COMMANDS = Object.freeze({
@@ -49,9 +49,9 @@ function cleanText(value, maxLength) {
   return text ? text.slice(0, maxLength) : null;
 }
 
-// Браузер найден, но забракован проверкой. Причина нужна интерфейсу: «не
-// найден» на установленном браузере — тупик, из которого пользователю некуда
-// идти. Набор закрытый: чужие строки в UI не пропускаем.
+// The browser was found but rejected by the check. The interface needs the reason: "not
+// found" with the browser installed is a dead end with nowhere for the user to
+// go. The set is closed: foreign strings aren't let into the UI.
 const REJECTION_REASONS = new Set(["signature", "link", "layout"]);
 
 export function normalizeProtectedBrowserStatus(raw) {
@@ -78,13 +78,13 @@ export function normalizeProtectedBrowserUrl(value) {
   if (typeof value !== "string") return { ok: false, value: null };
 
   const input = value.trim();
-  // Синхронно с backend оставляем консервативную границу для IPC и запуска.
+  // In sync with the backend we keep a conservative limit for IPC and launching.
   if (!input || input.length > 768) return { ok: false, value: null };
 
   try {
     const parsed = new URL(input);
     if (!["http:", "https:"].includes(parsed.protocol)) return { ok: false, value: null };
-    // Учётные данные в URL попали бы в аргументы процесса и историю браузера.
+    // Credentials in the URL would end up in the process arguments and the browser history.
     if (parsed.username || parsed.password) return { ok: false, value: null };
     return { ok: true, value: parsed.href };
   } catch {

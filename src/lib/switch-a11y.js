@@ -1,9 +1,9 @@
-// Ninety · доступность .switch-тумблеров. Тумблеры — <span class="switch"
-// data-on>, клик обрабатывает байндер каждого экрана (settings-view, main,
-// dpi-view); здесь только клавиатура и ARIA: role/tabindex, Space/Enter → click,
-// зеркало data-on → aria-checked. data-on пишут разные владельцы — наблюдатель
-// избавляет от патча каждого write-site; у MutationObserver слабая ссылка на
-// target, снятые с DOM узлы собираются GC вместе с ним.
+// Ninety · accessibility of .switch toggles. Toggles are <span class="switch"
+// data-on>, the click is handled by each screen's binder (settings-view, main,
+// dpi-view); here only the keyboard and ARIA: role/tabindex, Space/Enter → click,
+// mirroring data-on → aria-checked. data-on is written by different owners — the observer
+// saves us from patching every write site; MutationObserver holds a weak reference to
+// the target, nodes removed from the DOM are collected by GC together with it.
 export function a11ySwitch(sw) {
   if (!sw || sw.dataset.a11yBound === "1") return;
   sw.dataset.a11yBound = "1";
@@ -19,8 +19,8 @@ export function a11ySwitch(sw) {
   new MutationObserver(sync).observe(sw, { attributes: true, attributeFilter: ["data-on"] });
 }
 
-// Все .switch внутри контейнера — звать после innerHTML-рендера экрана.
-// НЕ для тумблеров внутри <button> (dpi-chip): вложенный tabbable — антипаттерн.
+// All .switch elements inside the container — call after the screen's innerHTML render.
+// NOT for toggles inside a <button> (dpi-chip): a nested tabbable is an antipattern.
 export function a11ySwitchAll(root) {
   if (!root) return;
   root.querySelectorAll(".switch").forEach((sw) => {

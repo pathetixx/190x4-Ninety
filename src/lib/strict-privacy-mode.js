@@ -1,8 +1,8 @@
-// Ninety · сохранение режима перед включением строгого туннеля.
+// Ninety · saving the mode before enabling the strict tunnel.
 //
-// Строгая политика временно переводит runtime в TUN, но пользовательский
-// режим должен пережить этот overlay. Храним только допустимые значения, чтобы
-// повреждённое или устаревшее значение не переключило приложение неожиданно.
+// The strict policy temporarily switches the runtime to TUN, but the user's
+// mode must survive this overlay. We store only allowed values so that
+// a damaged or outdated value doesn't switch the app unexpectedly.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 

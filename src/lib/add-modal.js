@@ -1,6 +1,6 @@
 // Ninety · Add Profile Modal controller
-// Одна карточка, которая растёт. Выбор режима убран: тип ввода определяется
-// сам и показывается ДО нажатия «Добавить».
+// One card that grows. The mode picker is gone: the input type is detected
+// automatically and shown BEFORE pressing "Add".
 
 import {
   detectAddInput,
@@ -58,10 +58,10 @@ DET_ICONS.url = DET_ICONS.empty;
 DET_ICONS.duplicate = DET_ICONS.unknown;
 DET_ICONS["ovpn-conf"] = DET_ICONS["wg-conf"];
 
-// Разбор конфига — это JSON.parse чужого файла, а полоса распознавания
-// пересчитывается на каждое нажатие клавиши. Держим результат последнего
-// разбора: пользователь конфиг вставляет, а не набирает, и повторный разбор
-// того же текста ничего не даёт.
+// Parsing a config means JSON.parse of a foreign file, and the recognition strip
+// is recomputed on every keystroke. We keep the result of the last
+// parse: the user pastes a config rather than typing it, and parsing
+// the same text again gives nothing.
 let lastConfigParse = { text: null, result: null };
 function parseConfigCached(text) {
   if (lastConfigParse.text === text) return lastConfigParse.result;
@@ -72,16 +72,16 @@ function parseConfigCached(text) {
   return result;
 }
 
-// Список подписок для проверки на повтор снимается при открытии окна: пока оно
-// открыто, он не меняется, а перечитывать хранилище на каждое нажатие клавиши
-// в поле адреса — это разбор всех сохранённых серверов на каждый символ.
+// The subscription list for the duplicate check is taken when the window opens: while it's
+// open, the list doesn't change, and rereading storage on every keystroke
+// in the address field means parsing all saved servers on every character.
 let knownSubscriptions = [];
 function refreshKnownSubscriptions() {
   try { knownSubscriptions = loadSubscriptions(); }
   catch { knownSubscriptions = []; }
 }
 
-// Полоса распознавания — сердце экрана: говорит, что именно будет создано.
+// The recognition strip is the heart of the screen: it says exactly what will be created.
 function setDetection(kind, kickerKey, infoHtml) {
   const box = $("add-modal-det");
   if (!box) return;
@@ -108,7 +108,7 @@ function describeInput(raw) {
   const d = detectAddInput(s);
   if (d.kind === "url") {
     const host = hostOf(d.url) || d.url;
-    // Повтор видно до нажатия «Добавить», а не после запроса к панели.
+    // A duplicate is visible before pressing "Add", not after the request to the panel.
     const duplicate = findSubscriptionByUrl(d.url, knownSubscriptions);
     if (duplicate) {
       const name = duplicate.name || t("subs.subFallback");
@@ -138,8 +138,8 @@ function describeInput(raw) {
     return { ok: true, kind: "list", host: "" };
   }
   if (d.kind === "client-config") {
-    // Формат, который прочитать нечем (Clash), называем прямо: пользователю
-    // нужно знать, какую из ссылок панели взять вместо этой.
+    // A format we have nothing to read with (Clash) is named directly: the user
+    // needs to know which of the panel's links to take instead of this one.
     const unreadable = unsupportedFormatMessage(d.format);
     if (unreadable) {
       setDetection("unknown", "add.detUnknownK", escapeHtml(unreadable));
@@ -150,8 +150,8 @@ function describeInput(raw) {
       setDetection("unknown", "add.detUnknownK", escapeHtml(t("add.errNoConfigs")));
       return { ok: false, kind: "client-config", host: "" };
     }
-    // Сколько нод не взяли, говорим уже после добавления (msgListSkipped):
-    // в полосе распознавания важно, что именно распозналось.
+    // How many nodes weren't taken is reported after adding (msgListSkipped):
+    // in the recognition strip what matters is what exactly was recognized.
     setDetection("client-config", "add.detSbConfigK",
       `<b>${escapeHtml(tn("add.detListN", profiles.length))}</b><s>·</s>${escapeHtml(configFormatName(d.format))}`);
     return { ok: true, kind: "client-config", host: "" };
@@ -165,7 +165,7 @@ function describeInput(raw) {
     return { ok: true, kind: "amnezia-key", host: "" };
   }
   if (d.kind === "wg-conf") {
-    // Показываем endpoint пира: по нему пользователь и узнаёт свой файл.
+    // We show the peer endpoint: that's how the user recognizes their file.
     const peer = s.match(/^\s*Endpoint\s*=\s*(\S+)/im)?.[1] || "";
     const amnezia = /^\s*(?:Jc|H1|I1|S1)\s*=/im.test(s);
     setDetection("wg-conf", amnezia ? "add.detWgAwgK" : "add.detWgK",
@@ -189,7 +189,7 @@ let credentialsText = "";
 function showOpenvpnCredentials(show, text = "") {
   const box = $("add-modal-credentials");
   if (box) box.hidden = !show;
-  // Пароль одного профиля не должен перейти в другой после замены текста.
+  // One profile's password must not carry over to another after the text is replaced.
   if (!show || credentialsText !== text) {
     for (const id of ["add-modal-username", "add-modal-password"]) {
       const input = $(id);
@@ -211,8 +211,8 @@ function refreshDetection() {
     showOpenvpnCredentials(openvpnNeedsCredentials(res.content), raw);
   } else if (res.kind === "amnezia-key") {
     if (credentialsText !== raw) showOpenvpnCredentials(false);
-    // Содержимое ключа распаковывается асинхронно: устаревший результат
-    // не должен менять поля после закрытия окна или вставки другого текста.
+    // The key contents are unpacked asynchronously: a stale result
+    // must not change the fields after the window is closed or different text is pasted.
     void parseAmneziaKey(raw).then(() => {
       if (probe === credentialsProbe) showOpenvpnCredentials(false);
     }).catch(err => {
@@ -283,7 +283,7 @@ function closeModal() {
   const n = $("add-modal-name"); if (n) { n.value = ""; delete n.dataset.touched; }
   credentialsProbe++;
   showOpenvpnCredentials(false);
-  // Интервал одной подписки не должен молча перейти на следующую.
+  // One subscription's interval must not silently carry over to the next one.
   const i = $("add-modal-interval"); if (i) i.value = "0";
   updateAdvancedHint();
 }
@@ -323,9 +323,9 @@ export async function importAddInput(raw, userOverride = {}) {
       type: "config",
       message: t("add.msgWg", { name: profile.name }),
       source: { kind: "single", id },
-      // Строки, которых нет в профиле, — это разница между тем, как файл
-      // работает здесь и в клиенте, откуда его принесли. Молчать о ней нельзя;
-      // показывает её вызывающий, как и счётчик пропущенных у списка.
+      // Lines that aren't in the profile are the difference between how the file
+      // works here and in the client it came from. Staying silent about it is not allowed;
+      // the caller shows it, just like the skipped counter for a list.
       ignored,
     };
   }
@@ -342,8 +342,8 @@ export async function importAddInput(raw, userOverride = {}) {
   }
 
   if (decision.kind === "amnezia-key") {
-    // Ключ AmneziaVPN: внутри готовые .conf / конфиг Xray. Непереносимые
-    // строки и неподдерживаемые протоколы показывает вызывающий, как у .conf.
+    // AmneziaVPN key: it contains ready .conf / Xray config files. Non-portable
+    // lines and unsupported protocols are shown by the caller, as with .conf.
     const { profiles, ignored, unsupported, name } = await parseAmneziaKey(decision.content, userOverride.name || "", userOverride);
     const added = profiles.map(profile => addParsedProfile(profile));
     return {
@@ -354,9 +354,9 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
-  // Готовый конфиг клиента: берём из него только серверы. Ноды приходят уже
-  // разобранными — часть из них (WireGuard) в ссылку не превращается вовсе,
-  // поэтому кладём объекты, а не raw.
+  // A ready client config: we take only the servers from it. The nodes arrive already
+  // parsed — some of them (WireGuard) can't be turned into a link at all,
+  // so we store objects, not raw.
   if (decision.kind === "client-config") {
     const unreadable = unsupportedFormatMessage(decision.format);
     if (unreadable) throw new Error(unreadable);
@@ -374,13 +374,13 @@ export async function importAddInput(raw, userOverride = {}) {
   }
 
   if (decision.kind === "list") {
-    // Счётчик пропущенных берём тем же путём, что и подписка: список ссылок
-    // отбраковывает записи по тем же правилам, и молчать о них — значит
-    // показывать «Импортировано 8 конфигов» там, где пользователь вставил 12.
+    // The skipped counter is taken the same way as for a subscription: the link list
+    // rejects entries by the same rules, and staying silent about them means
+    // showing "Imported 8 configs" where the user pasted 12.
     const { profiles, skipped } = parseSubscriptionEntries(decision.content);
     if (profiles.length === 0) throw new Error(t("add.errNoConfigs"));
     const added = profiles.map(p => addProfileFromVless(p.raw));
-    // Детерминированно активируем первый профиль именно этого импорта.
+    // Deterministically activate the first profile of exactly this import.
     return {
       type: "list",
       message: skipped
@@ -391,8 +391,8 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
-  // kind === "url" → подписка. Та же ссылка второй раз не создаёт вторую копию:
-  // показываем уже добавленную подписку и честно говорим, что нового ничего нет.
+  // kind === "url" → subscription. The same link a second time doesn't create a second copy:
+  // we show the already added subscription and honestly say there is nothing new.
   const already = findSubscriptionByUrl(decision.url);
   if (already) {
     return {
@@ -404,36 +404,36 @@ export async function importAddInput(raw, userOverride = {}) {
     };
   }
 
-  // intervalHours из слайдера «Авто-обновление»
-  // (0 = авто/по заголовку панели); передаётся только при ручном добавлении.
+  // intervalHours from the "Auto-update" slider
+  // (0 = auto/by the panel header); passed only when adding manually.
   setBusy(true, "add.detLoadingSub");
   let sub;
   try {
     sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours);
   } catch (err) {
-    // Панель с лимитом устройств без HWID отдаёт 404 или одну ноду-заглушку:
-    // подписка выглядит битой, хотя ей просто не хватает заголовка.
+    // A panel with a device limit returns a 404 or a single placeholder node without the HWID:
+    // the subscription looks broken, although it's simply missing the header.
     if (!err?.hwid?.required || !(await askEnableHwid())) throw err;
     sub = await addSubscriptionFromUrl(decision.url, userOverride.name || "", userOverride.intervalHours, { hwid: true });
   }
-  // Заглушка могла и разобраться как обычный сервер — тогда список «добавился»,
-  // но состоит из неё одной, и спросить всё равно нужно.
+  // The placeholder may also have parsed as a regular server — then the list "was added"
+  // but consists of it alone, and we still need to ask.
   if (!sub.hwid && sub.hwidSignal?.required && await askEnableHwid()) {
     updateSubscription(sub.id, { hwid: true, hwidPromptDismissed: true });
     sub = await refreshSubscription(sub.id);
   }
   if (sub.hwidSignal?.limitReached) toast(t("hwid.limitReached"), "warn", 7000);
-  // http:// — адрес и ключи подписки едут открытым текстом (виден провайдеру,
-  // и каждый рефреш тоже). Не блокируем (http-панели существуют), но предупреждаем.
+  // http:// — the subscription address and keys travel in plain text (visible to the ISP,
+  // and every refresh too). We don't block it (http panels exist), but we warn.
   if (/^http:\/\//i.test(decision.url)) toast(t("add.httpWarn"), "warn", 6000);
-  // Часть серверов панели ядро не принимает; они уже отброшены при разборе —
-  // говорим об этом прямо, иначе счётчик молча расходится с содержимым ссылки.
+  // Some of the panel's servers aren't accepted by the core; they were already dropped during parsing —
+  // we say so directly, otherwise the counter silently diverges from the link's contents.
   if (sub.skipped > 0) toast(t("subs.skippedNote", { n: sub.skipped }), "warn", 6000);
   return {
     type: "sub",
     message: t("add.msgSub", { name: sub.name, srv: tn("prof.srvN", sub.profiles.length) }),
     source: { kind: "sub", id: sub.id },
-    // Добавление ≠ переключение: активную подписку меняет только пользователь.
+    // Adding ≠ switching: only the user changes the active subscription.
     activate: false,
   };
 }
@@ -454,14 +454,14 @@ export function mountAddModal({ onCommit } = {}) {
   $("add-modal-paste")?.addEventListener("click", () => void doClipboard());
   $("add-modal-file-btn")?.addEventListener("click", () => $("add-modal-file")?.click());
 
-  // Раскрытие «Название и автообновление» — на месте, без смены страницы.
+  // The "Name and auto-update" disclosure expands in place, without changing the page.
   $("add-modal-adv")?.addEventListener("click", (e) => {
     const b = e.currentTarget;
     b.setAttribute("aria-expanded", b.getAttribute("aria-expanded") === "true" ? "false" : "true");
   });
 
-  // Импорт файла: кладём текст в то же поле, чтобы
-  // пользователь увидел, что распозналось, до подтверждения.
+  // Importing a file: we put the text into the same field so that
+  // the user sees what was recognized before confirming.
   $("add-modal-file")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -530,8 +530,8 @@ async function readProfileFile(file) {
   }
 }
 
-// Буфер попадает в поле, а не сразу в импорт: пользователь видит, что
-// распозналось, и может поправить до подтверждения.
+// The clipboard goes into the field, not straight into the import: the user sees what
+// was recognized and can correct it before confirming.
 async function doClipboard() {
   let raw;
   try {

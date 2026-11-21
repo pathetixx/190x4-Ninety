@@ -1,6 +1,6 @@
-// Отслеживает нативный start_singbox, который уже ушёл через IPC. Generation
-// gate отменяет его результат, а barrier не даёт новому старту столкнуться с
-// Rust sentinel `starting`, пока старый вызов физически не завершился.
+// Tracks a native start_singbox that has already gone out through IPC. The generation
+// gate cancels its result, and the barrier keeps a new start from colliding with
+// the Rust `starting` sentinel until the old call has physically finished.
 export function createCoreStartBarrier() {
   let pending = null;
 

@@ -1,7 +1,7 @@
-// Ninety · крошечная pub/sub-шина (IV.1). Расцепляет кросс-модульные сигналы:
-// издатель emit'ит событие, подписчики on() его слушают — без прямого дёрганья
-// DOM/состояния друг у друга и без фреймворка. Поверх нативного EventTarget,
-// нулевые зависимости. on() возвращает функцию-отписку.
+// Ninety · a tiny pub/sub bus (IV.1). Decouples cross-module signals:
+// the publisher emits an event, subscribers listen with on() — without poking each other's
+// DOM/state directly and without a framework. On top of the native EventTarget,
+// zero dependencies. on() returns an unsubscribe function.
 const target = new EventTarget();
 
 export function on(type, fn) {

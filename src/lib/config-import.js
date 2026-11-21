@@ -1,15 +1,15 @@
-// Ninety · импорт готового конфига клиента → профили.
+// Ninety · importing a ready client config → profiles.
 //
-// Единая точка входа поверх импортёров формата: распознаёт, чей это конфиг, и
-// зовёт нужный. Вызывающие (тело подписки, окно добавления) про сами форматы
-// не знают — им нужен список серверов и честный счётчик того, что взять не
-// удалось.
+// A single entry point over the format importers: recognizes whose config it is and
+// calls the right one. Callers (subscription body, add window) don't know about the formats
+// themselves — they need a list of servers and an honest count of what couldn't be
+// taken.
 //
-// Одинаковые серверы схлопываются. Это не косметика: подписка-массив у панелей
-// перечисляет каждый сервер отдельным конфигом, а потом ещё раз — целиком, в
-// конфиге-балансировщике («Best Ping»). Без склейки пользователь получил бы
-// каждый сервер дважды. Отпечаток считается по содержимому ноды и не зависит
-// от имени, так что один и тот же сервер под двумя именами — это один сервер.
+// Identical servers are collapsed. This isn't cosmetic: a panel's array subscription
+// lists each server as a separate config, and then once more — all together, in
+// a balancer config ("Best Ping"). Without merging the user would get
+// every server twice. The fingerprint is computed from the node contents and doesn't depend
+// on the name, so the same server under two names is one server.
 
 import { CONFIG_FORMAT_NAMES, detectConfigFormat } from "/lib/config-format.js";
 import { parseSingboxConfig } from "/lib/singbox-config-import.js";
@@ -37,7 +37,7 @@ function dedupe(profiles) {
 }
 
 /**
- * Разбирает конфиг клиента, каким бы он ни был.
+ * Parses a client config, whatever it is.
  * @returns {{format: string|null, profiles: object[], skipped: number, unsupported: string[]}}
  */
 export function parseClientConfig(text) {
@@ -49,19 +49,19 @@ export function parseClientConfig(text) {
 }
 
 /**
- * Сообщение для конфига, который Ninety прочитать не может.
- * @returns {string|null} null — формат читаемый либо это вообще не конфиг.
+ * Message for a config Ninety can't read.
+ * @returns {string|null} null — the format is readable, or it isn't a config at all.
  */
 export function unsupportedFormatMessage(format) {
   if (!format || PARSERS[format]) return null;
-  // Архив — не чужой формат, а нераспакованный файл: внутри лежит ровно то,
-  // что Ninety уже умеет читать, и сказать об этом надо именно так.
+  // An archive isn't a foreign format but an unpacked file: inside lies exactly
+  // what Ninety can already read, and that's exactly how it should be said.
   if (format === "archive") return t("subs.archiveBody");
   const name = CONFIG_FORMAT_NAMES[format];
   return name ? t("subs.foreignConfig", { format: name }) : null;
 }
 
-/** Имя формата для показа: «sing-box», «Xray». */
+/** Format name for display: "sing-box", "Xray". */
 export function configFormatName(format) {
   return CONFIG_FORMAT_NAMES[format] || "";
 }

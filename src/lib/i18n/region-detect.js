@@ -1,8 +1,8 @@
-// Ninety · автоопределение региона маршрутизации по таймзоне (оффлайн, без сети).
-// Таблица город/таймзона → регион, сведённая к нашим 6:
-//   other · ru · cn · ir · tr · by  (см. REGIONS в options.js).
-// Регион = какой локальный трафик идёт напрямую (geosite/geoip), НЕ язык интерфейса.
-// Не определилось → "other" (весь трафик через прокси).
+// Ninety · auto-detecting the routing region by time zone (offline, no network).
+// A city/time zone → region table, reduced to our 6:
+//   other · ru · cn · ir · tr · by  (see REGIONS in options.js).
+// Region = which local traffic goes direct (geosite/geoip), NOT the interface language.
+// Not detected → "other" (all traffic through the proxy).
 
 const CITY_REGION = {
   tehran: "ir",
@@ -20,9 +20,9 @@ const LANG_REGION = { fa: "ir", tr: "tr", zh: "cn", ru: "ru", be: "by", uk: "ru"
 export function detectRegion() {
   try {
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toLowerCase();
-    const offset = -new Date().getTimezoneOffset(); // минуты, восток положительный
+    const offset = -new Date().getTimezoneOffset(); // minutes, east is positive
 
-    // Иран — UTC+3:30, уникальный сдвиг.
+    // Iran — UTC+3:30, a unique offset.
     if (offset === 210) return "ir";
 
     const city = tz.includes("/") ? tz.split("/").pop().replace(/\s+/g, "_") : tz;
@@ -34,7 +34,7 @@ export function detectRegion() {
     if (tz.includes("minsk") || tz.includes("belarus")) return "by";
     if (tz.includes("russia") || tz.includes("moscow")) return "ru";
 
-    // Фолбэк по языку системы.
+    // Fallback by system language.
     const l2 = (navigator.language || "").slice(0, 2).toLowerCase();
     if (LANG_REGION[l2]) return LANG_REGION[l2];
   } catch (e) {

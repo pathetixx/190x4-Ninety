@@ -1,11 +1,11 @@
-// Ninety · BuildOptions — пользовательские настройки, из которых собирается конфиг ядра.
-// Все настройки пользователя в одном объекте, сохраняется в localStorage.
+// Ninety · BuildOptions — user settings from which the core config is built.
+// All user settings in one object, saved to localStorage.
 
 import { perfObserver } from "/lib/performance-observer.js";
 import { STARTUP_CONNECT_MODES } from "/lib/startup-runtime-policy.js";
 
 const OPTIONS_KEY = "ninety.options.v1";
-// Флаг разовой миграции log.level info→warn (см. loadOptions).
+// Flag of the one-time log.level info→warn migration (see loadOptions).
 const LOG_WARN_MIGRATED_KEY = OPTIONS_KEY + ".logWarnMigrated";
 export const OPTIONS_SCHEMA_VERSION = 2;
 
@@ -22,20 +22,20 @@ export const DEFAULT_OPTIONS = {
   general: {
     autostart: false,
     startMinimized: false,
-    // Подключение при обычном запуске: off | restore | always. Автозапуск при
-    // входе в Windows подключается всегда, независимо от этой настройки.
+    // Connecting on a regular launch: off | restore | always. Autostart at
+    // Windows sign-in always connects, regardless of this setting.
     startupConnect: "off",
-    // Регистрировать Ninety как обработчик VPN-ссылок верхнего уровня:
+    // Register Ninety as the handler of top-level VPN links:
     // vless://, vmess://, ss://, trojan://, hysteria2://, hy2://, tuic://,
     // sub://, tt://, naive+https://, naive+quic://.
     linkHandlers: false,
-    // III.3: авто-включение TUN при подключении к ОТКРЫТОЙ (нешифрованной) Wi-Fi.
+    // III.3: auto-enabling TUN when connecting to an OPEN (unencrypted) Wi-Fi.
     autoProtectWifi: false,
-    // I.2 (ЭКСПЕРИМЕНТАЛЬНО): WFP kill switch.
+    // I.2 (EXPERIMENTAL): WFP kill switch.
     killSwitch: false,
-    // Приватность: не обращаться к внешним geo/ASN-сервисам.
+    // Privacy: don't contact external geo/ASN services.
     disableGeoLookup: false,
-    // Не повторять неудачный subscription refresh напрямую.
+    // Don't retry a failed subscription refresh directly.
     allowDirectSubscriptionFallback: false,
   },
   privacy: {
@@ -58,17 +58,17 @@ export const DEFAULT_OPTIONS = {
     autoRescanIntervalMin: 30,
     autoRescanThresholdMs: 300,
   },
-  // Дефолт warn, не info: info пишет историю доменов в singbox.log.
+  // Default warn, not info: info writes the domain history to singbox.log.
   log: { level: "warn", disabled: false },
   urlTest: {
     connectionTestUrl: "http://cp.cloudflare.com/generate_204",
     intervalSec: 600,
   },
   dns: {
-    // Google DoH обеими сторонами. Открытый UDP дефолтом быть не может: из РФ
-    // он отдаёт подделанный NXDOMAIN на фильтруемые домены (см. dns-presets.js).
-    // Прежний direct-дефолт (Yandex) искажал urltest — часть живых нод
-    // показывалась недоступной, см. комментарий к FALLBACKS в dns-guard.js.
+    // Google DoH on both sides. Open UDP can't be the default: from Russia
+    // it returns a forged NXDOMAIN for filtered domains (see dns-presets.js).
+    // The former direct default (Yandex) distorted urltest — some live nodes
+    // showed up as unreachable, see the comment on FALLBACKS in dns-guard.js.
     remoteAddress: "https://8.8.8.8/dns-query",
     directAddress: "https://8.8.8.8/dns-query",
     enableFakeDns: false,
@@ -78,12 +78,12 @@ export const DEFAULT_OPTIONS = {
     resolveDestination: false,
     ipv6Mode: "disable",
     tunSplitDiscord: false,
-    // Process lookup включён по умолчанию: socket→PID→exe нужен монитору
-    // соединений, чтобы показывать executable каждого процесса.
+    // Process lookup is on by default: socket→PID→exe is needed by the connection
+    // monitor to show each process's executable.
     processLookup: true,
     customRules: [],
-    // База региона перенесена в customRules («Сделать своими»): сам регион
-    // остаётся выбранным, но своих правил больше не выпускает.
+    // The region base was moved into customRules ("Make them mine"): the region itself
+    // stays selected, but no longer emits its own rules.
     regionDetached: false,
   },
   inbound: {
@@ -92,12 +92,12 @@ export const DEFAULT_OPTIONS = {
     tunStack: "mixed",
     strictRoute: false,
     allowConnectionFromLan: false,
-    // Пароль для соседей по сети. Повесить его на mixedPort нельзя: тем же
-    // портом пользуется системный прокси самого ПК, а приложения Windows не
-    // умеют отвечать на запрос пароля прокси. Поэтому соседи с паролем ходят
-    // на отдельный lanPort, а mixedPort остаётся только для этого ПК. Сами
-    // логин и пароль здесь не живут: localStorage лежит на диске открытым
-    // текстом, поэтому их хранит и подставляет в конфиг бэкенд (lan_auth.rs).
+    // Password for network neighbors. It can't be put on mixedPort: the same
+    // port is used by the PC's own system proxy, and Windows apps can't
+    // respond to a proxy password prompt. So password-protected neighbors go
+    // to a separate lanPort, and mixedPort stays for this PC only. The
+    // login and password themselves don't live here: localStorage sits on disk in plain
+    // text, so the backend stores them and substitutes them into the config (lan_auth.rs).
     lanAuth: false,
     lanPort: 7891,
   },
@@ -116,8 +116,8 @@ export const DEFAULT_OPTIONS = {
     padding: false,
   },
   experimental: {
-    // enableClashApi здесь больше нет: контроллер обязателен для рантайма
-    // (выбор ноды, пинги, трафик), и выключенный флаг просто ломал старт.
+    // enableClashApi is no longer here: the controller is mandatory for the runtime
+    // (node selection, pings, traffic), and a disabled flag simply broke the start.
     clashApiPort: 9090,
   },
   quality: {
@@ -131,21 +131,21 @@ export const DEFAULT_OPTIONS = {
       "https://speed.cloudflare.com/__down?bytes=262144",
     ],
   },
-  // Экран «Диагностика». regionPack — пакет локальных сервисов для матрицы
-  // доступности; он НЕ равен настройке region: та правит маршрутизацию и
-  // ограничена наборами geosite/geoip ядра, а пакетов стран в диагностике
-  // заведомо больше. Пустая строка = только глобальные цели.
+  // The "Diagnostics" screen. regionPack is the local services pack for the reachability
+  // matrix; it is NOT the same as the region setting: that one controls routing and
+  // is limited to the core's geosite/geoip sets, while diagnostics has
+  // many more country packs. An empty string = global targets only.
   diagnose: {
-    // "auto" — «ещё не выбирали», пакет угадывается по региону/языку. Пустая
-    // строка тут значит осознанное «только глобальный набор».
+    // "auto" means "not chosen yet", the pack is guessed by region/language. An empty
+    // string here means a deliberate "global set only".
     regionPack: "auto",
-    // Закреплённые пользователем адреса ([{ id, name, url }]) — проверяются
-    // при каждом прогоне наравне с остальными.
+    // Addresses pinned by the user ([{ id, name, url }]) — checked
+    // on every run along with the others.
     pinned: [],
   },
 };
 
-// Массивы НЕ мёржатся: сохранённый массив целиком побеждает дефолтный.
+// Arrays are NOT merged: a saved array wins over the default one entirely.
 function deepMerge(target, source) {
   if (typeof source !== "object" || source === null) return target;
   const out = Array.isArray(target) ? [...target] : { ...target };
@@ -224,10 +224,10 @@ function isHttpUrl(value) {
   catch { return false; }
 }
 
-// Список хостов, которые принимает проба качества в Rust (quality.rs,
-// ALLOWED_QUALITY_HOSTS). Держим тот же гейт здесь: адрес вне списка backend
-// отвергает целиком, движок качества уходит в вечный UNKNOWN и молча перестаёт
-// что-либо мерить — а настройка при этом выглядит применённой.
+// The list of hosts the Rust quality probe accepts (quality.rs,
+// ALLOWED_QUALITY_HOSTS). We keep the same gate here: the backend rejects an address outside the list
+// entirely, the quality engine goes into a permanent UNKNOWN and silently stops
+// measuring anything — while the setting looks applied.
 const QUALITY_ENDPOINT_HOSTS = new Set(["speed.cloudflare.com"]);
 
 function isQualityEndpoint(value) {
@@ -240,9 +240,9 @@ function isQualityEndpoint(value) {
   } catch { return false; }
 }
 
-// Версия 0.8.0 держала логин и пароль для соседей в этих настройках. Их
-// забираем до первого normalize (он эти поля выбрасывает) и отдаём бэкенду —
-// см. takeLegacyLanCredentials.
+// Version 0.8.0 kept the neighbors' login and password in these settings. We
+// take them before the first normalize (which throws these fields away) and hand them to the backend —
+// see takeLegacyLanCredentials.
 let legacyLanCredentials = (() => {
   try {
     const inbound = JSON.parse(localStorage.getItem(OPTIONS_KEY) || "{}")?.inbound;
@@ -252,7 +252,7 @@ let legacyLanCredentials = (() => {
   } catch { return null; }
 })();
 
-/** Логин и пароль, оставшиеся в настройках от 0.8.0; отдаются один раз. */
+/** Login and password left in settings from 0.8.0; handed out once. */
 export function takeLegacyLanCredentials() {
   const found = legacyLanCredentials;
   legacyLanCredentials = null;
@@ -279,26 +279,26 @@ export function normalizeOptions(input) {
     : [];
   if (!out.quality.endpoints.length) out.quality.endpoints = [...DEFAULT_OPTIONS.quality.endpoints];
   if (!Array.isArray(out.route.customRules)) out.route.customRules = [];
-  // Локальный inbound и clash-API слушают один и тот же loopback. Совпавшие
-  // порты (оба настраиваются вручную и диапазоны у них общие) давали отказ
-  // бинда уже внутри ядра — на экране это «не удалось подключиться» без
-  // единого намёка на причину. Уступает clash-API: mixed-порт юзер выбирает
-  // осознанно (в него ходят браузер и приложения), панель управления — нет.
+  // The local inbound and the clash API listen on the same loopback. Matching
+  // ports (both are set manually and share ranges) caused a bind
+  // refusal inside the core — on screen this is "failed to connect" without
+  // a single hint at the cause. The clash API yields: the user picks the mixed port
+  // deliberately (the browser and apps go to it), the control panel port — not.
   if (out.experimental.clashApiPort === out.inbound.mixedPort) {
     out.experimental.clashApiPort = DEFAULT_OPTIONS.experimental.clashApiPort;
     if (out.experimental.clashApiPort === out.inbound.mixedPort) {
       out.inbound.mixedPort = DEFAULT_OPTIONS.inbound.mixedPort;
     }
   }
-  // Порт для соседей тоже слушает это же ядро: совпадение с mixed или
-  // clash-API роняло бы старт на бинде. Уступает он — его выбирают реже всех.
+  // The neighbors' port is also listened on by this same core: a match with mixed or
+  // the clash API would bring down the start on bind. It yields — it's picked least often.
   const takenPorts = new Set([out.inbound.mixedPort, out.experimental.clashApiPort]);
   if (takenPorts.has(out.inbound.lanPort)) {
     let port = DEFAULT_OPTIONS.inbound.lanPort;
     while (takenPorts.has(port)) port++;
     out.inbound.lanPort = port;
   }
-  // Логин и пароль соседей хранит бэкенд, в настройках им не место.
+  // The neighbors' login and password are kept by the backend, they have no place in settings.
   delete out.inbound.lanUsername;
   delete out.inbound.lanPassword;
   for (const pair of [
@@ -341,12 +341,12 @@ function cloneOptions(value) {
 
 function commitCache(raw, normalized) {
   cachedRaw = raw;
-  // Морозим ТОЛЬКО собственную копию. normalized держит ссылки на структуры
-  // вызывающего: deepMerge кладёт массивы и объекты source как есть, поэтому
-  // updateOption("route.customRules", rules) отдавал сюда живой массив экрана
-  // правил — deepFreeze делал его неизменяемым, и следующая мутация (push
-  // второго правила, замена отредактированного, toggle, drag-reorder) падала
-  // TypeError в strict mode: кнопка «Сохранить» переставала отвечать.
+  // We freeze ONLY our own copy. normalized holds references to the caller's
+  // structures: deepMerge puts source arrays and objects in as is, so
+  // updateOption("route.customRules", rules) handed the rules screen's live array
+  // here — deepFreeze made it immutable, and the next mutation (pushing
+  // a second rule, replacing an edited one, toggle, drag-reorder) failed with
+  // a TypeError in strict mode: the "Save" button stopped responding.
   cachedOptions = deepFreeze(cloneOptions(normalized));
   cacheInitialized = true;
 }
@@ -402,8 +402,8 @@ function loadNormalizedSnapshot() {
   return cachedOptions;
 }
 
-// Совместимый API: callers получают независимый mutable clone, поэтому старый
-// паттерн `const o=loadOptions(); o.x=...; saveOptions(o)` остаётся безопасным.
+// Compatible API: callers get an independent mutable clone, so the old
+// pattern `const o=loadOptions(); o.x=...; saveOptions(o)` stays safe.
 export function loadOptions() {
   try {
     return cloneOptions(loadNormalizedSnapshot());
@@ -413,14 +413,14 @@ export function loadOptions() {
   }
 }
 
-// Read-only shared snapshot для горячих путей, которым не нужна локальная мутация.
+// A read-only shared snapshot for hot paths that don't need local mutation.
 export function getOptionsSnapshot() {
   try { return loadNormalizedSnapshot(); }
   catch {
     invalidateOptionsCache();
-    // Тоже через клон: normalizeOptions отдаёт out со ссылками на массивы
-    // DEFAULT_OPTIONS (route.customRules, diagnose.pinned) — без копии этот
-    // фолбэк заморозил бы сам модульный дефолт.
+    // Also through a clone: normalizeOptions returns out with references to the arrays of
+    // DEFAULT_OPTIONS (route.customRules, diagnose.pinned) — without a copy this
+    // fallback would freeze the module default itself.
     return deepFreeze(cloneOptions(normalizeOptions(DEFAULT_OPTIONS)));
   }
 }
@@ -437,8 +437,8 @@ export function saveOptions(opts) {
 // controlled path into a prototype-pollution primitive even when it filters a
 // few well-known property names.
 const OPTION_SETTERS = new Map([
-  // Другой регион — другая база: перенесённые правила прежнего региона остаются
-  // у пользователя, а новый регион снова работает своей базой.
+  // Another region — another base: the migrated rules of the previous region stay
+  // with the user, and the new region works with its own base again.
   ["region", (opts, value) => {
     if (opts.region !== value) opts.route.regionDetached = false;
     opts.region = value;

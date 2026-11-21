@@ -1,14 +1,14 @@
-// Ninety · DPI-обход (DPI bypass) — экран раздела + чип на главной.
-// UI подключён к движку winws через
-// Rust-команды dpi_* (см. src-tauri/src/dpi.rs). State и persistence реальные.
+// Ninety · DPI bypass — the section screen + the chip on the home screen.
+// The UI is connected to the winws engine through
+// the dpi_* Rust commands (see src-tauri/src/dpi.rs). State and persistence are real.
 //
-// Публичное API:
-//   mountDpiView({ onToast, switchView, ensureElevated }) — навесить на DOM
-//   prepareDpiVpnMode(mode) — fail-closed подготовка перед входом в TUN
-//   setDpiVpnMode(mode, { reevaluate }) — синхронизировать режим VPN (TUN→пауза)
-//   setVpnNodesProvider(fn) — источник адресов всех нод запущенного конфига
-//   refreshVpnNodeExclusion() — переписать исключение нод (после подключения)
-//   excludeVpnNode(host) / clearVpnNodeExclusion() — совместимые обёртки
+// Public API:
+//   mountDpiView({ onToast, switchView, ensureElevated }) — attach to the DOM
+//   prepareDpiVpnMode(mode) — fail-closed preparation before entering TUN
+//   setDpiVpnMode(mode, { reevaluate }) — sync the VPN mode (TUN→pause)
+//   setVpnNodesProvider(fn) — source of the addresses of all nodes in the running config
+//   refreshVpnNodeExclusion() — rewrite the node exclusion (after connecting)
+//   excludeVpnNode(host) / clearVpnNodeExclusion() — compatible wrappers
 
 import { loadOptions, getOptionsSnapshot } from "/lib/options.js";
 import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
@@ -24,8 +24,8 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 const tauriListen = window.__TAURI__?.event?.listen;
 
-// Split-routing Discord разрешает оставить winws в TUN: он десинхрит
-// direct-Discord на реальном интерфейсе (голос low-ping).
+// Discord split routing allows keeping winws in TUN: it desyncs
+// direct Discord on the real interface (low-ping voice).
 function splitDiscordAllowedInTun() {
   try {
     const options = getOptionsSnapshot();
@@ -38,7 +38,7 @@ function splitDiscordActive() {
   return S.vpnMode === "tun" && splitDiscordAllowedInTun();
 }
 
-/* ═══════════ ICONS (inner SVG, стиль Lucide 1.5px) ═══════════ */
+/* ═══════════ ICONS (inner SVG, Lucide 1.5px style) ═══════════ */
 const I = {
   dpi:      '<path d="M12 22c5-2.2 8-5.5 8-10V5l-8-3-8 3v7c0 4.5 3 7.8 8 10z"/><path d="M12.8 7 9.8 12.2h2.5L11 16"/>',
   shield:   '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
@@ -65,25 +65,25 @@ function ic(name, size = 16, stroke = 1.5) {
 }
 
 /* ═══════════ DATA ═══════════ */
-// Реальный список приходит из dpi_strategies() (strategies.json движка).
-// Фолбэк — на случай web-preview / ошибки чтения.
+// The real list comes from dpi_strategies() (the engine's strategies.json).
+// A fallback for web preview / a read error.
 const DEFAULT_STRATEGY = "ALT11";
 let STRATEGIES = [{ id: "alt11", name: DEFAULT_STRATEGY, desc: "Самый стойкий профиль." }];
-// Описания стратегий — данные из канала (по-русски), через t() НЕ идут. Для
-// не-русского интерфейса прячем их, оставляя только имя стратегии (вариант B).
+// Strategy descriptions are channel data (in Russian), they DON'T go through t(). For
+// a non-Russian interface we hide them, leaving only the strategy name (option B).
 const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
-// Точный поиск — без фолбэка: он нужен, чтобы отличить «стратегия исчезла из
-// набора» от «нашлась». stratByName с фолбэком оставлен для мест, где нужен
-// гарантированно валидный объект.
+// Exact lookup — without a fallback: it's needed to tell "the strategy vanished from
+// the set" from "found". stratByName with a fallback is kept for places that need
+// a guaranteed valid object.
 const stratExact = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || null;
 const stratByName = (n) => stratExact(n) || STRATEGIES[0];
 const autopickCount = () => STRATEGIES.filter((s) => !s.experimental).length;
 
-// Какую стратегию помечать как рекомендованную и на каком основании.
-// measured=true — это результат авто-подбора на сети пользователя; false —
-// профиль по умолчанию, с которым приложение поставляется. Имя из прошлых
-// замеров проверяем по текущему набору: канал мог его переименовать или убрать.
+// Which strategy to mark as recommended and on what basis.
+// measured=true is the result of auto-tuning on the user's network; false is
+// the default profile the app ships with. A name from past
+// measurements is checked against the current set: the channel may have renamed or removed it.
 export function recommendedStrategy(strategies, stored) {
   const list = Array.isArray(strategies) ? strategies : [];
   const measured = list.find((s) => s.name === stored);
@@ -91,7 +91,7 @@ export function recommendedStrategy(strategies, stored) {
   return { name: DEFAULT_STRATEGY, measured: false };
 }
 
-// kicker — декоративный английский (не локализуем); title/desc — через t() в рантайме.
+// kicker is decorative English (not localized); title/desc go through t() at runtime.
 const MASTER = {
   off:      { kicker: () => "OFF · STAND-BY",     icon: "dpi",
               title: () => t("dpi.master.offTitle"),      desc: () => t("dpi.master.offDesc") },
@@ -108,9 +108,9 @@ const MASTER = {
 const modeTxt = () => ({ proxy: t("dpi.modeTxt.proxy"), systemProxy: t("dpi.modeTxt.systemProxy"), tun: t("dpi.modeTxt.tun") });
 const chipStatus = () => ({ off: t("dpi.chip.off"), starting: t("dpi.chip.starting"), running: t("dpi.chip.running"), error: t("dpi.chip.error"), paused: t("dpi.chip.paused") });
 
-/* ═══════════ STATE (persisted в localStorage) ═══════════ */
-// Имена ключей — из политики хранения: она решает, что уходит в бэкап и что
-// стирает «очистить данные», и собственный литерал от неё незаметно отъезжает.
+/* ═══════════ STATE (persisted in localStorage) ═══════════ */
+// Key names come from the storage policy: it decides what goes into the backup and what
+// "clear data" wipes, and a literal of our own would silently drift away from it.
 const LS = {
   enabled: STORAGE_KEYS.dpiEnabled,
   strategy: STORAGE_KEYS.dpiStrategy,
@@ -120,26 +120,26 @@ const LS = {
   recommended: STORAGE_KEYS.dpiRecommended,
 };
 const lsGet = (k, d) => { const v = localStorage.getItem(k); return v == null ? d : v; };
-// Область применения обхода. Значение уходит в dpi_start и в t("dpi.scope.<id>"),
-// поэтому чужую строку (старый бэкап, правка руками) сводим к безопасному режиму,
-// а не тащим в аргументы winws и в ключи перевода.
+// Bypass scope. The value goes into dpi_start and into t("dpi.scope.<id>"),
+// so a foreign string (an old backup, a manual edit) is reduced to a safe mode
+// rather than dragged into winws arguments and translation keys.
 const SCOPES = ["auto", "any", "loaded", "off"];
 
-// Дефолт области применения. Чистая установка получает «Только заблокированным»:
-// оно не трогает сайты, которые и так открываются, а Discord с YouTube лежат в
-// хостлистах и обходятся с первой попытки независимо от режима.
+// Default bypass scope. A clean install gets "Blocked only":
+// it doesn't touch sites that open anyway, and Discord and YouTube are in
+// the hostlists and get bypassed on the first try regardless of the mode.
 //
-// Установке, которая уже пользовалась обходом (есть след в ninety.dpi.*), режим
-// закрепляется прежний — «Всем сайтам». Человек настроил рабочую конфигурацию под
-// старый дефолт и о смене не просил; молча переводить его на режим, где
-// заблокированный сайт открывается только со второй-третьей попытки, нельзя.
-// Записываем выбор сразу, чтобы он не переигрывался при будущих сменах дефолта.
+// An installation that has already used the bypass (there's a trace in ninety.dpi.*) keeps
+// its previous mode — "All sites". The person set up a working configuration for
+// the old default and didn't ask for a change; silently switching them to a mode where
+// a blocked site opens only on the second or third try is not allowed.
+// We record the choice right away so it isn't replayed on future default changes.
 function initialScope() {
   const saved = localStorage.getItem(LS.ipset);
   if (saved != null) return SCOPES.includes(saved) ? saved : "any";
   const usedBefore = localStorage.getItem(LS.enabled) != null || localStorage.getItem(LS.strategy) != null;
   const scope = usedBefore ? "any" : "auto";
-  try { localStorage.setItem(LS.ipset, scope); } catch { /* приватный режим — просто работаем с дефолтом */ }
+  try { localStorage.setItem(LS.ipset, scope); } catch { /* private mode — just work with the default */ }
   return scope;
 }
 
@@ -150,7 +150,7 @@ const S = {
   gameFilter: lsGet(LS.gameFilter, "off"),
   ipset: initialScope(),
   monkey: lsGet(LS.monkey, "false") === "true",
-  // Победитель последнего авто-подбора. Пусто — замеров ещё не было.
+  // Winner of the last auto-tuning. Empty — no measurements yet.
   recommended: lsGet(LS.recommended, ""),
   hasUpdate: false,
   lastError: "",
@@ -159,8 +159,8 @@ const S = {
   hosts: { applied: false, entries: 0, busy: false },
   ipsetList: { count: null, busy: false },
   ipsetOpen: false,
-  // Автосписок заблокированных доменов (режим «Только заблокированным»):
-  // domains=null — ещё не читали, [] — winws пока ничего не нашёл.
+  // Autolist of blocked domains ("Blocked only" mode):
+  // domains=null — not read yet, [] — winws hasn't found anything yet.
   auto: { domains: null, busy: false, acting: "" },
   fakes: {
     options: [],
@@ -174,27 +174,27 @@ const S = {
   updateCheck: "idle", // idle | checking | ok | error
   updateError: "",
   autopick: { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" },
-  updating: null,       // id строки, которая сейчас обновляется
+  updating: null,       // id of the row currently being updated
 };
 let dpiOperationEpoch = 0;
 let dpiAutopickEpoch = 0;
-// id сеанса winws, который вернул последний успешный dpi_start. Событие
-// dpi:exited чужого (старого) сеанса состояние не трогает.
+// id of the winws session returned by the last successful dpi_start. A
+// dpi:exited event of another (old) session doesn't touch the state.
 let dpiRuntimeGeneration = null;
 
-// В TUN весь трафик идёт через туннель → движок реально остановлен (pauseEngineForTun),
-// но если DPI логически включён (LS.enabled) — показываем «На паузе», а не «Выключен»:
-// при выходе из TUN он восстановится. Вне TUN — реальное состояние движка.
+// In TUN all traffic goes through the tunnel → the engine is actually stopped (pauseEngineForTun),
+// but if DPI is logically enabled (LS.enabled) we show "Paused", not "Off":
+// it will be restored on leaving TUN. Outside TUN — the actual engine state.
 function effState() {
   if (S.base === "error") return "error";
-  // В split-Discord движок реально работает и в TUN → отдаём реальное S.base.
+  // In split Discord the engine actually runs in TUN too → return the real S.base.
   if (S.vpnMode === "tun" && !splitDiscordActive() && lsGet(LS.enabled, "false") === "true") return "paused";
   return S.base;
 }
 
 let toast = () => {};
 let goView = () => {};
-let ensureElevated = async () => true; // из main.js; true = можно продолжать (мы elevated)
+let ensureElevated = async () => true; // from main.js; true = we can continue (we're elevated)
 
 /* ═══════════ RENDER: SCREEN BODY ═══════════ */
 function renderBody() {
@@ -277,9 +277,9 @@ function renderBody() {
       </div>`;
   }).join("");
 
-  // Область применения обхода: одна опция = заголовок + человеческое объяснение,
-  // что именно она делает. Сегменты из трёх слов этого не объясняли, а разница
-  // между режимами определяет, будет ли обход ломать незаблокированные сайты.
+  // Bypass scope: one option = a title + a human explanation
+  // of what exactly it does. Three-word segments didn't explain that, and the difference
+  // between the modes determines whether the bypass will break non-blocked sites.
   const scopeOpt = (id, recommended) => `
         <button class="dpi-scope__opt" data-on="${S.ipset === id}" data-dpi-ipset="${id}"
                 role="radio" aria-checked="${S.ipset === id}">
@@ -319,9 +319,9 @@ function renderBody() {
               <div class="dpi-scope__auto-note">${t("dpi.scope.autoNote")}</div>
               ${autoDomains && autoDomains.length ? `<ul class="dpi-scope__list">${autoDomains.map(autoItem).join("")}</ul>` : ""}
             </div>`;
-  // Панель списка IP видна во всех режимах: база тянется из подписанного канала и
-  // её обновляют заранее, а не в момент переключения режима. В режимах, где список
-  // не участвует, честно говорим об этом строкой ниже, а не прячем кнопку.
+  // The IP list panel is visible in all modes: the base is pulled from the signed channel and
+  // updated in advance, not at the moment the mode is switched. In modes where the list
+  // doesn't take part, we honestly say so in the line below rather than hiding the button.
   const ipsetPanel = `
             <div class="dpi-ipset__upd" data-idle="${S.ipset !== "loaded"}">
               <div class="dpi-ipset__upd-info">
@@ -525,23 +525,23 @@ function renderBadge() {
 
 function renderAll() { renderBody(); renderChip(); renderBadge(); }
 
-// Живой ре-рендер при смене языка (зовётся из onLangChange в main.js).
+// Live re-render on language change (called from onLangChange in main.js).
 export function rerenderDpiView() { renderAll(); }
 
-// Сообщить остальному приложению (трею), что DPI-обход вкл/выкл изменился.
+// Tell the rest of the app (the tray) that DPI bypass on/off has changed.
 function emitDpiChanged() {
   try { window.dispatchEvent(new CustomEvent("ninety:dpi-changed")); } catch {}
 }
 
-/* ═══════════ ACTIONS (реальный движок) ═══════════ */
+/* ═══════════ ACTIONS (real engine) ═══════════ */
 async function startEngine() {
   const epoch = ++dpiOperationEpoch;
   S.base = "starting";
   renderAll();
   S.lastError = "";
-  // Перед каждым запуском winws — свежий набор нод запущенного конфига, с
-  // резолвом доменов: исключение по IP — единственное, что реально защищает
-  // зашифрованный трафик к серверу. Сбой здесь запуск не блокирует.
+  // Before every winws launch — a fresh set of the running config's nodes, with
+  // domains resolved: the IP exclusion is the only thing that really protects
+  // encrypted traffic to the server. A failure here doesn't block the launch.
   await syncVpnNodeExclusion({ resolve: true });
   if (epoch !== dpiOperationEpoch) return false;
   try {
@@ -563,10 +563,10 @@ async function startEngine() {
   }
 }
 
-// winws умер сам посреди сессии (событие dpi:exited от сторожа в Rust).
-// Плановые stop/restart события не дают; старый сеанс и уже выключенный или
-// перезапускающийся движок его игнорируют. Желание «DPI включён» не трогаем:
-// это сбой, а не решение пользователя, — баннер ошибки ведёт в логи.
+// winws died on its own mid-session (the dpi:exited event from the Rust watchdog).
+// Planned stop/restart don't produce the event; an old session and an engine that's already off or
+// restarting ignore it. We don't touch the "DPI enabled" wish:
+// it's a failure, not the user's decision — the error banner leads to the logs.
 function onDpiExited(payload) {
   if (S.base !== "running") return;
   const generation = Number(payload?.generation);
@@ -609,13 +609,13 @@ async function stopEngine() {
   return stopDpiRuntime({ disableDesired: true });
 }
 
-// Пауза движка при входе в TUN: реально глушим winws, НО LS.enabled оставляем
-// "true" — это «логическое желание», по которому восстановимся при выходе.
-// Пауза и возврат движка идут по одной очереди. Без неё быстрый цикл
-// «выключить split → включить обратно» разъезжался: resume проверяет S.base, а
-// stopDpiRuntime ставит "off" только ПОСЛЕ await, поэтому второй вызов видел
-// ещё живой процесс, выходил с успехом, а первый следом гасил winws — split
-// оставался включённым в настройках при выключенном движке.
+// Engine pause on entering TUN: we actually kill winws, BUT keep LS.enabled
+// "true" — it's the "logical wish" by which we'll recover on exit.
+// Pausing and resuming the engine go through one queue. Without it, a quick cycle of
+// "turn split off → turn it back on" got out of sync: resume checks S.base, while
+// stopDpiRuntime sets "off" only AFTER the await, so the second call saw
+// a still live process and returned success, and the first then killed winws — split
+// stayed enabled in settings with the engine off.
 let dpiModeQueue = Promise.resolve(true);
 function queueDpiModeChange(run) {
   const next = dpiModeQueue.then(run, run);
@@ -627,21 +627,21 @@ async function pauseEngineForTun() {
   return stopDpiRuntime();
 }
 
-// Возврат из TUN: поднять движок, если DPI был включён до паузы. Процесс в этот
-// момент уже elevated (TUN требовал прав), поэтому UAC обычно не всплывёт.
+// Returning from TUN: bring the engine up if DPI was enabled before the pause. The process at this
+// point is already elevated (TUN required rights), so UAC usually won't pop up.
 let dpiResumeInFlight = null;
 async function resumeEngineAfterTun() {
   if (lsGet(LS.enabled, "false") !== "true") return true;
   if (S.base === "running" || S.base === "starting") return true;
-  // Автоподбор сам владеет движком: dpi_start поверх него упал бы с «занято».
-  // Движок вернёт restoreEngineAfterAutopick, уже по актуальному режиму.
+  // Auto-tuning owns the engine itself: dpi_start on top of it would fail with "busy".
+  // restoreEngineAfterAutopick will bring the engine back, according to the current mode.
   if (S.autopick.phase === "running") { autopickResume = true; return true; }
   if (dpiResumeInFlight) return dpiResumeInFlight;
   const run = (async () => {
     const ok = await ensureElevated();
-    // Пока ждали UAC, strict/split или пользовательское намерение могли
-    // измениться. Повторная проверка не даёт позднему resume запустить winws
-    // в обычном TUN и одновременно закрывает двойной dpi_start.
+    // While we waited for UAC, strict/split or the user's intent may have
+    // changed. A repeated check keeps a late resume from launching winws
+    // in regular TUN and at the same time prevents a double dpi_start.
     if (!ok) return false;
     if (lsGet(LS.enabled, "false") !== "true") return true;
     if (S.base === "running" || S.base === "starting") return true;
@@ -657,8 +657,8 @@ async function resumeEngineAfterTun() {
 }
 
 export async function toggleDpi() {
-  // В TUN движок на паузе — тоггл меняет лишь «хотим ли DPI после выхода из TUN».
-  // Исключение — split-Discord: там движок реально работает в TUN, тоггл = старт/стоп.
+  // In TUN the engine is paused — the toggle only changes "do we want DPI after leaving TUN".
+  // The exception is split Discord: there the engine actually runs in TUN, the toggle = start/stop.
   if (S.vpnMode === "tun" && !splitDiscordActive()) {
     const want = lsGet(LS.enabled, "false") !== "true";
     localStorage.setItem(LS.enabled, want ? "true" : "false");
@@ -667,33 +667,33 @@ export async function toggleDpi() {
     toast(want ? t("dpi.toast.willEnable") : t("dpi.toast.disabled"), "info", 2200);
     return;
   }
-  // После неподтверждённого stop backend сохраняет живой child, а UI находится
-  // в error. Повторный клик должен ещё раз остановить его, а не запускать второй
-  // winws поверх первого. Ошибка старта, напротив, не выставляет desired=true.
+  // After an unconfirmed stop the backend keeps the live child, and the UI is
+  // in error. A repeated click must stop it once more, not launch a second
+  // winws on top of the first. A start error, on the other hand, doesn't set desired=true.
   if (S.base === "error" && lsGet(LS.enabled, "false") === "true") {
     await stopEngine();
     return;
   }
   if (S.base === "running" || S.base === "starting") { await stopEngine(); return; }
-  // включение требует админ-прав (winws грузит драйвер). Та же инфра, что у TUN.
+  // enabling requires admin rights (winws loads a driver). The same infra as TUN.
   const ok = await ensureElevated();
-  if (!ok) return; // идёт перезапуск с UAC или отказ — текущий процесс не продолжает
+  if (!ok) return; // a restart with UAC or a refusal is in progress — the current process doesn't continue
   await startEngine();
 }
 
-// Автозапуск DPI при старте приложения (Windows-логин), если был включён.
-// Вызывается из main.js только в should_autoconnect-ветке. Процесс к этому
-// моменту уже elevated (см. единый автозапуск в main.js) → стартуем без confirm.
+// DPI autostart at app start (Windows login), if it was enabled.
+// Called from main.js only in the should_autoconnect branch. By this point the process
+// is already elevated (see the unified autostart in main.js) → start without confirm.
 export async function autostartDpiIfEnabled() {
   if (lsGet(LS.enabled, "false") !== "true") return;
-  if (S.vpnMode === "tun" && !splitDiscordActive()) return; // в TUN без split обход на паузе
+  if (S.vpnMode === "tun" && !splitDiscordActive()) return; // in TUN without split the bypass is paused
   try { if (await invoke("dpi_running")) { S.base = "running"; renderAll(); return; } } catch {}
   const ok = await ensureElevated();
   if (!ok) return;
   await startEngine();
 }
 
-// Применить смену настройки на лету: если движок запущен — перезапустить.
+// Apply a settings change on the fly: if the engine is running — restart it.
 async function restartIfRunning() {
   if (S.base === "running" || S.base === "starting") {
     if (!(await stopDpiRuntime())) return false;
@@ -702,10 +702,10 @@ async function restartIfRunning() {
   return true;
 }
 
-// Смена режима драйвера (WinDivert↔Monkey): меняется имя kernel-службы и файла
-// .sys → перед стартом нового надо снять уже загруженный драйвер старого имени,
-// иначе в ядре повиснут обе службы. Аппа elevated (DPI запущен) → dpi_unload_driver
-// снимает WinDivert/WinDivert14/Monkey. Если выключен — просто применится при старте.
+// Driver mode change (WinDivert↔Monkey): the kernel service name and the
+// .sys file name change → before starting the new one, the already loaded driver with the old name must be removed,
+// otherwise both services would hang in the kernel. The app is elevated (DPI is running) → dpi_unload_driver
+// removes WinDivert/WinDivert14/Monkey. If it's off, it simply applies at start.
 async function restartWithDriverSwap() {
   if (S.base !== "running" && S.base !== "starting") return true;
   if (!(await stopDpiRuntime())) return false;
@@ -731,12 +731,12 @@ async function loadStrategies() {
     const raw = await invoke("dpi_strategies");
     const arr = JSON.parse(raw);
     if (Array.isArray(arr) && arr.length) STRATEGIES = arr;
-    // Канал мог переименовать или убрать стратегию. Чинить надо ИМЕННО здесь и
-    // сохранять в localStorage: чип и кикер печатают сырое S.strategy, а
-    // dpi_start уходит с id фолбэка — иначе на экране два разных имени, а
-    // запускается то, которое пользователь не выбирал. Раньше условие было
-    // написано через stratByName, у которого фолбэк на STRATEGIES[0], поэтому
-    // оно никогда не срабатывало.
+    // The channel may have renamed or removed the strategy. The fix must happen EXACTLY here and
+    // be saved to localStorage: the chip and kicker print the raw S.strategy, while
+    // dpi_start goes out with the fallback's id — otherwise there are two different names on screen, and
+    // what launches is something the user didn't pick. Previously the condition was
+    // written via stratByName, which falls back to STRATEGIES[0], so
+    // it never fired.
     if (!stratExact(S.strategy)) {
       S.strategy = STRATEGIES[0].name;
       try { localStorage.setItem(LS.strategy, S.strategy); } catch {}
@@ -768,8 +768,8 @@ async function loadFakePayloads() {
 let updateCheckPromise = null;
 let lastUpdateCheckAt = 0;
 async function checkUpdate(force = false) {
-  // port>0 при активном VPN (proxy/systemProxy) → проверка версии канала идёт
-  // через туннель: version.txt на github, из РФ напрямую режется ТСПУ.
+  // port>0 with an active VPN (proxy/systemProxy) → the channel version check goes
+  // through the tunnel: version.txt is on GitHub, which TSPU cuts from Russia when accessed directly.
   if (updateCheckPromise) return updateCheckPromise;
   if (!force && lastUpdateCheckAt && Date.now() - lastUpdateCheckAt < 60_000) return;
   S.updateCheck = "checking";
@@ -846,17 +846,17 @@ async function loadIpsetCount() {
 }
 
 
-/* ── Автосписок заблокированных доменов (режим «Только заблокированным») ── */
-// Файл ведёт сам winws, поэтому список читаем заново при каждом заходе в раздел
-// и после каждой правки: между рендерами он мог пополниться без нашего участия.
+/* ── Autolist of blocked domains ("Blocked only" mode) ── */
+// winws maintains the file itself, so we reread the list on every visit to the section
+// and after every edit: between renders it may have grown without our involvement.
 async function loadAutoDomains() {
   try { S.auto.domains = await invoke("dpi_auto_domains"); }
   catch { S.auto.domains = null; }
 }
 
-// «Забыть» = убрать из автосписка. Обход к домену больше не применяется, но
-// если он и правда заблокирован, winws найдёт его снова — для окончательного
-// отказа есть «в исключения».
+// "Forget" = remove from the autolist. The bypass no longer applies to the domain, but
+// if it really is blocked, winws will find it again — for a final
+// refusal there's "to exclusions".
 async function forgetAutoDomain(domain) {
   S.auto.acting = domain; renderBody();
   try {
@@ -868,9 +868,9 @@ async function forgetAutoDomain(domain) {
   S.auto.acting = ""; renderBody();
 }
 
-// «В исключения» = дописать домен в пользовательский список исключений и убрать
-// из автосписка: winws больше не занесёт его туда (hostlist-exclude гасит и
-// детект, и обход). Перезапуск движка не нужен — хостлисты перечитываются сами.
+// "To exclusions" = append the domain to the user exclusion list and remove it
+// from the autolist: winws won't put it there again (hostlist-exclude suppresses both
+// detection and bypass). An engine restart isn't needed — hostlists are reread on their own.
 async function excludeAutoDomain(domain) {
   S.auto.acting = domain; renderBody();
   try {
@@ -901,23 +901,23 @@ async function clearAutoDomains() {
   S.auto.busy = false; renderBody();
 }
 
-// Порт для загрузки списков (hosts/ipset): вход живого runtime — mixed-in, а в TUN
-// probe-in на том же порту; сам Ninety.exe в TUN идёт напрямую по bypass-правилу.
-// 0 = прямой запрос, когда VPN выключен. Прямой запрос к github raw из РФ режется
-// ТСПУ, поэтому при активном обходе тянем через прокси; Rust сам падает на direct,
-// если прокси молчит.
+// Port for downloading lists (hosts/ipset): the live runtime's inbound is mixed-in, and in TUN
+// probe-in on the same port; Ninety.exe itself goes direct in TUN via the bypass rule.
+// 0 = a direct request, when the VPN is off. A direct request to GitHub raw from Russia is cut by
+// TSPU, so with an active bypass we fetch through the proxy; Rust itself falls back to direct
+// if the proxy is silent.
 async function listFetchPort() {
-  // Порт берём у ЖИВОГО runtime, а не из настроек: `inbound.mixedPort` меняют
-  // без реконнекта, и тогда запрос уходил в порт, которого ядро не слушает —
-  // оставался только прямой путь, ровно тот, который и режут.
+  // The port is taken from the LIVE runtime, not from settings: `inbound.mixedPort` is changed
+  // without a reconnect, and then the request went to a port the core doesn't listen on —
+  // only the direct path remained, exactly the one that gets cut.
   try { return runtimeProbeProxyPort(await invoke("runtime_snapshot")); }
   catch { return 0; }
 }
 
-/* ── Файл hosts (правка системного hosts — нужны админ-права) ── */
+/* ── hosts file (editing the system hosts — admin rights needed) ── */
 async function applyHosts() {
   const ok = await ensureElevated();
-  if (!ok) return; // идёт перезапуск с UAC или отказ
+  if (!ok) return; // a restart with UAC or a refusal is in progress
   S.hosts.busy = true; renderBody();
   try {
     const r = await invoke("dpi_hosts_apply", { port: await listFetchPort() });
@@ -942,14 +942,14 @@ async function clearHosts() {
   S.hosts.busy = false; renderBody();
 }
 
-/* ── Обновление базы ipset (пишется в app_data — без админ-прав) ── */
+/* ── ipset base update (written to app_data — no admin rights) ── */
 async function updateIpset() {
   S.ipsetList.busy = true; renderBody();
   try {
     const n = await invoke("dpi_update_ipset", { port: await listFetchPort() });
     S.ipsetList.count = n;
     toast(t("dpi.scope.toastDone", { n: n.toLocaleString("ru-RU") }), "info", 2400);
-    if (S.ipset === "loaded") await restartIfRunning(); // применить свежий набор к winws
+    if (S.ipset === "loaded") await restartIfRunning(); // apply the fresh set to winws
   } catch (e) {
     toast(t("dpi.scope.toastErr", { err: e?.message || e }), "error", 4500);
   }
@@ -961,19 +961,19 @@ async function runUpdate(id) {
   S.updating = id;
   renderBody();
   try {
-    // Канал данных: стратегии + списки + .bin одним подписанным бандлом
-    // (подпись проверяется в Rust до применения). Версия — тег Flowseal.
-    // port>0 при активном VPN → бандл тянется через туннель (github + ТСПУ).
+    // Data channel: strategies + lists + .bin in one signed bundle
+    // (the signature is verified in Rust before applying). The version is a Flowseal tag.
+    // port>0 with an active VPN → the bundle is pulled through the tunnel (GitHub + TSPU).
     const r = await invoke("dpi_sync_channel", { port: await listFetchPort() });
     if (r?.version) S.versions.strategies = r.version;
     S.hasUpdate = false;
     S.updateCheck = "ok";
-    await loadStrategies(); // перечитать обновлённые определения стратегий
+    await loadStrategies(); // reread the updated strategy definitions
     await loadFakePayloads();
     await loadVersions();
     await loadDomains();
-    await loadIpsetCount(); // база ipset приезжает тем же бандлом — счётчик мог измениться
-    await restartIfRunning(); // применить свежий набор к запущенному winws
+    await loadIpsetCount(); // the ipset base arrives in the same bundle — the counter may have changed
+    await restartIfRunning(); // apply the fresh set to the running winws
     const reset = Array.isArray(r?.fake_selection_reset)
       ? r.fake_selection_reset.filter((kind) => kind === "discord" || kind === "game")
       : [];
@@ -990,20 +990,20 @@ async function runUpdate(id) {
   renderAll();
 }
 
-/* ── Авто-подбор ── */
-// Прогон физически глушит текущий winws и поднимает по одному на стратегию.
-// Пока он идёт, движок выключен — состояние возвращаем сами, иначе чип врёт, а
-// «Применить» не перезапустит движок, считая его живым.
+/* ── Auto-tuning ── */
+// The run physically kills the current winws and brings one up per strategy.
+// While it runs, the engine is off — we restore the state ourselves, otherwise the chip lies, and
+// "Apply" won't restart the engine, thinking it's alive.
 let autopickResume = false;
 
 async function restoreEngineAfterAutopick() {
   if (!autopickResume) return;
   autopickResume = false;
   S.base = "off";
-  // Решение — в той же очереди, что смены режима VPN. Пока шёл подбор, VPN мог
-  // уйти в TUN: setDpiVpnMode тогда видел выключенный движок, и ставить на
-  // паузу было нечего. Значит, здесь действуют те же правила, что у обычного
-  // входа в TUN: без split Discord winws не поднимаем, остаётся пауза TUN.
+  // The decision goes through the same queue as VPN mode switches. While tuning was running, the VPN may have
+  // gone into TUN: setDpiVpnMode then saw the engine off, and there was nothing to
+  // pause. So the same rules apply here as on a regular
+  // TUN entry: without split Discord we don't bring winws up, the TUN pause stays.
   await queueDpiModeChange(async () => {
     if (lsGet(LS.enabled, "false") !== "true") return true;
     if (S.base === "running" || S.base === "starting") return true;
@@ -1014,8 +1014,8 @@ async function restoreEngineAfterAutopick() {
 
 async function pickStart() {
   if (S.autopick.phase === "running" || S.updating || S.fakes.busy) return;
-  // В TUN пробы уходят в туннель: «прошли» получат все стратегии подряд, а
-  // рекомендация будет случайной. Мерить можно только на реальном интерфейсе.
+  // In TUN the probes go into the tunnel: every single strategy would "pass", and
+  // the recommendation would be random. Measuring is only possible on the real interface.
   if (S.vpnMode === "tun") { toast(t("dpi.autopick.toastTun"), "warn", 5200); return; }
   const epoch = ++dpiAutopickEpoch;
   autopickResume = S.base === "running" || S.base === "starting";
@@ -1024,26 +1024,26 @@ async function pickStart() {
   renderAll();
   const ok = await ensureElevated();
   if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; autopickResume = false; return; }
-  // Подбор поднимает winws по разу на стратегию — ноды исключаются так же,
-  // как перед обычным запуском.
+  // Tuning brings winws up once per strategy — nodes are excluded the same way
+  // as before a regular launch.
   await syncVpnNodeExclusion({ resolve: true });
   if (epoch !== dpiAutopickEpoch) return;
   try {
     const r = await invoke("dpi_autotest", { monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
     if (epoch !== dpiAutopickEpoch) return;
-    // Движок, не поднявшийся из-за гонки за драйвер, — это не «стратегия не
-    // работает». Считаем отдельно и говорим отдельно, иначе цифра врёт.
+    // An engine that didn't come up because of a race for the driver isn't "the strategy doesn't
+    // work". We count it separately and report it separately, otherwise the number lies.
     const engineNote = r?.engine_failed
       ? " · " + t("dpi.autopick.metaEngine", { n: r.engine_failed })
       : "";
     if (r?.best_id) {
       const best = STRATEGIES.find((s) => s.id === r.best_id);
-      // Замер важнее дефолта: бейдж «рекоменд.» с этого момента стоит на том,
-      // что реально открылось на этой сети, а не на профиле из коробки.
+      // A measurement beats the default: from now on the "recommended" badge is on
+      // what actually opened on this network, not on the out-of-the-box profile.
       S.recommended = best?.name || r.best_name || "";
       localStorage.setItem(LS.recommended, S.recommended);
-      // passed — сколько стратегий открыли ВСЕ проверки. Если таких нет, но
-      // рекомендация есть, она частичная, и написать «0 из 20 прошли» нельзя.
+      // passed — how many strategies opened ALL checks. If there are none, but
+      // there is a recommendation, it's partial, and writing "0 of 20 passed" is not allowed.
       const meta = r.passed > 0
         ? t("dpi.autopick.metaOk", { passed: r.passed, total: r.total, ms: r.latency_ms })
         : t("dpi.autopick.metaPartial", { covered: r.best_targets, targets: r.targets });
@@ -1053,8 +1053,8 @@ async function pickStart() {
         meta: meta + engineNote,
       };
     } else {
-      // Прогон не нашёл ничего — прошлая рекомендация больше не подтверждена,
-      // держать её на карточке нельзя. Возвращаемся к профилю по умолчанию.
+      // The run found nothing — the previous recommendation is no longer confirmed,
+      // it must not stay on the card. We return to the default profile.
       S.recommended = "";
       localStorage.removeItem(LS.recommended);
       S.autopick = { phase: "done", i: r?.total || 0, total: r?.total || 0, best: null, meta: t("dpi.autopick.metaNone") + engineNote };
@@ -1070,7 +1070,7 @@ async function pickStart() {
 
 async function pickCancel() {
   dpiAutopickEpoch++;
-  // Стоп не подтверждён — winws может быть ещё жив, поднимать второй нельзя.
+  // Stop not confirmed — winws may still be alive, bringing up a second one is not allowed.
   if (!(await stopDpiRuntime({ markOff: false }))) { autopickResume = false; return; }
   S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
   await restoreEngineAfterAutopick();
@@ -1081,13 +1081,13 @@ async function pickApply(name) {
   const s = stratByName(name);
   S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" };
   await setStrategy(s);
-  // Если движок не работает — поднимаем его с выбранной стратегией. Именно
-  // поднимаем, а не «переключаем»: toggleDpi в состоянии error при desired=true
-  // трактует клик как «останови застрявший процесс», и «Применить» после
-  // авто-подбора выключало обход вместо запуска.
+  // If the engine isn't running — bring it up with the selected strategy. Exactly
+  // bring it up, not "toggle": toggleDpi in the error state with desired=true
+  // treats a click as "stop the stuck process", and "Apply" after
+  // auto-tuning turned the bypass off instead of starting it.
   if (S.base === "off" || S.base === "error") {
     if (S.vpnMode === "tun" && !splitDiscordActive()) {
-      // В TUN движок на паузе — фиксируем намерение, как это делает toggleDpi.
+      // In TUN the engine is paused — record the intent, as toggleDpi does.
       localStorage.setItem(LS.enabled, "true");
       emitDpiChanged();
       renderAll();
@@ -1095,8 +1095,8 @@ async function pickApply(name) {
       return;
     }
     if (S.base === "error" && lsGet(LS.enabled, "false") === "true") {
-      // Прошлый stop не подтвердился — сначала честно останавливаем, потом
-      // стартуем заново уже с новой стратегией.
+      // The previous stop wasn't confirmed — first stop it properly, then
+      // start again with the new strategy.
       if (!(await stopDpiRuntime())) return;
     }
     const ok = await ensureElevated();
@@ -1105,7 +1105,7 @@ async function pickApply(name) {
   }
 }
 
-/* ═══════════ STRATEGY DRAWER (динамический) ═══════════ */
+/* ═══════════ STRATEGY DRAWER (dynamic) ═══════════ */
 let drawerEl = null;
 function openDrawer() {
   if (drawerEl) return;
@@ -1151,9 +1151,9 @@ function renderStratList(query) {
       </div>`).join("");
 }
 
-/* ═══════════ DOMAIN LIST EDITOR (динамический) ═══════════ */
+/* ═══════════ DOMAIN LIST EDITOR (dynamic) ═══════════ */
 let editorEl = null;
-// kicker — декоративный английский; title/hint — через t(). file — имя на диске.
+// kicker is decorative English; title/hint go through t(). file is the name on disk.
 function editorMeta(kind) {
   const map = {
     user:    { kicker: "MY DOMAINS · HOSTLIST", title: t("dpi.editor.userTitle"),
@@ -1168,8 +1168,8 @@ async function openListEditor(kind) {
   if (editorEl) return;
   const meta = editorMeta(kind);
   let content;
-  // Без содержимого редактор не открываем: пустое поле и «Сохранить» стёрли бы
-  // список, который просто не удалось прочитать.
+  // We don't open the editor without contents: an empty field and "Save" would wipe
+  // a list that simply couldn't be read.
   try {
     content = await invoke("dpi_read_list", { kind });
   } catch (e) {
@@ -1222,7 +1222,7 @@ async function saveListEditor(kind) {
     await invoke("dpi_write_list", { kind, content: area.value });
     await loadDomains();
     closeListEditor();
-    await restartIfRunning(); // применить свежий список к движку
+    await restartIfRunning(); // apply the fresh list to the engine
     toast(kind === "exclude" ? t("dpi.editor.toastExclude") : t("dpi.editor.toastUser"), "info", 1800);
   } catch (e) {
     toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 3500);
@@ -1250,8 +1250,8 @@ function onClick(e) {
     S.ipset = ips.dataset.dpiIpset;
     localStorage.setItem(LS.ipset, S.ipset);
     renderBody();
-    // Список автообхода мог пополниться, пока режим был другим: показываем
-    // актуальный, а не тот, что прочли при входе в раздел.
+    // The auto-bypass list may have grown while the mode was different: we show
+    // the current one, not the one read on entering the section.
     if (S.ipset === "auto") loadAutoDomains().then(renderBody);
     restartIfRunning();
     return;
@@ -1294,10 +1294,10 @@ function onChange(e) {
 export function prepareDpiVpnMode(mode) {
   return queueDpiModeChange(async () => {
     if (mode !== "tun" || splitDiscordAllowedInTun()) return true;
-    // Автоподбор выставляет «выключен» ещё до остановки winws и ждёт UAC и DNS:
-    // в это окно вход в TUN не останавливал ничего, и тестовые winws работали
-    // поверх TUN, а пробы мерили туннель. Отменяем подбор вместе с движком;
-    // включённый обход вернёт resumeEngineAfterTun при выходе из TUN.
+    // Auto-tuning sets "off" even before stopping winws and waits for UAC and DNS:
+    // in this window entering TUN stopped nothing, and the test winws ran
+    // on top of TUN, while the probes measured the tunnel. We cancel tuning together with the engine;
+    // an enabled bypass will be restored by resumeEngineAfterTun on leaving TUN.
     if (S.autopick.phase === "running") {
       dpiAutopickEpoch++;
       autopickResume = false;
@@ -1320,12 +1320,12 @@ async function applyDpiVpnMode(mode, { reevaluate = false } = {}) {
   const prev = S.vpnMode;
   S.vpnMode = mode;
   renderAll();
-  // Реальная пауза/возврат движка по режиму VPN (риск из спайка: в TUN весь
-  // трафик в туннеле, winws иначе жуёт зашифрованный VLESS).
+  // Actual engine pause/resume by VPN mode (the risk from the spike: in TUN all
+  // traffic is in the tunnel, otherwise winws chews on encrypted VLESS).
   if (mode === "tun") {
-    // split-Discord: оставляем winws работать (десинхрит direct-Discord в TUN).
-    // Повторный вызов с тем же TUN нужен при выключении strict: сохранённый
-    // split снова становится активным и должен реально вернуть winws.
+    // split Discord: keep winws running (it desyncs direct Discord in TUN).
+    // A repeated call with the same TUN is needed when strict is turned off: the saved
+    // split becomes active again and must actually bring winws back.
     if (reevaluate && splitDiscordActive()) {
       return resumeEngineAfterTun();
     } else if (["running", "starting", "error"].includes(S.base)) {
@@ -1337,15 +1337,15 @@ async function applyDpiVpnMode(mode, { reevaluate = false } = {}) {
   return true;
 }
 
-// ── Исключение VPN-нод из winws ──
-// Главный риск из спайка: winws корёжит зашифрованный трафик к собственному
-// серверу. Исключаются ВСЕ ноды запущенного конфига (а не только первая): в
-// группе с автовыбором ядро может уйти на любую. Набор отдаёт провайдер из
-// main.js; Rust пишет его одним пакетом и сам резолвит домены, но только
-// когда winws работает или вот-вот стартует (resolve: true) — иначе DNS на
-// каждое подключение ждали бы зря.
+// ── Excluding VPN nodes from winws ──
+// The main risk from the spike: winws mangles encrypted traffic to our own
+// server. ALL nodes of the running config are excluded (not just the first one): in
+// an auto-select group the core may switch to any of them. The set is provided by a provider from
+// main.js; Rust writes it as one batch and resolves domains itself, but only
+// when winws is running or about to start (resolve: true) — otherwise DNS would be
+// awaited in vain on every connection.
 let vpnNodesProvider = null;
-// Хост из старого excludeVpnNode(host): учитывается вместе с провайдером.
+// Host from the old excludeVpnNode(host): taken into account together with the provider.
 let legacyEndpointHost = null;
 let activeEndpointRevision = 0;
 let activeEndpointQueue = Promise.resolve();
@@ -1354,8 +1354,8 @@ export function setVpnNodesProvider(fn) {
   vpnNodesProvider = typeof fn === "function" ? fn : null;
 }
 
-// У WARP адрес хранится как «ip:port», а исключению нужен только хост: такая
-// строка не проходила проверку в Rust, и оставалось исключение прошлой ноды.
+// For WARP the address is stored as "ip:port", while the exclusion needs only the host: such
+// a string failed the Rust check, and the previous node's exclusion stayed.
 function endpointHost(host) {
   const s = String(host).trim();
   const m = /^\[([^\]]+)\](?::\d+)?$/.exec(s) || /^([^:\s]+):\d+$/.exec(s);
@@ -1365,9 +1365,9 @@ function endpointHost(host) {
 async function collectVpnNodes() {
   const ips = [];
   const domains = [];
-  // Различение «адрес или имя» — через тот же валидатор, что у правил
-  // маршрутизации. Прежняя проверка (/^[0-9a-fA-F:.]+$/ + наличие точки)
-  // объявляла IP-адресом любой домен из hex-букв: abc.def, dead.cf, de.ad.
+  // Telling "address or name" apart uses the same validator as the routing
+  // rules. The old check (/^[0-9a-fA-F:.]+$/ + the presence of a dot)
+  // declared any domain made of hex letters an IP address: abc.def, dead.cf, de.ad.
   const add = (raw) => {
     if (raw == null || raw === "") return;
     const host = endpointHost(raw);
@@ -1375,8 +1375,8 @@ async function collectVpnNodes() {
     const target = normalizeIp(host) ? ips : domains;
     if (!target.includes(host)) target.push(host);
   };
-  // Фактическая нода — первой: Rust резолвит ограниченное число имён, и она не
-  // должна оказаться за этим порогом на большой подписке.
+  // The actual node goes first: Rust resolves a limited number of names, and it must not
+  // end up past that threshold on a large subscription.
   add(legacyEndpointHost);
   let provided;
   try { provided = await vpnNodesProvider?.(); } catch { provided = null; }
@@ -1385,9 +1385,9 @@ async function collectVpnNodes() {
   return { ips, domains };
 }
 
-// Отправить текущий набор нод. Запросы идут по очереди, а устаревший (его
-// обогнал более новый) в Rust не уходит; Rust дополнительно отбрасывает ответ
-// запроса, который дождался DNS уже после более нового.
+// Send the current set of nodes. Requests go one after another, and an outdated one (overtaken
+// by a newer one) isn't sent to Rust; Rust additionally discards the response of
+// a request that got its DNS after a newer one.
 function syncVpnNodeExclusion({ resolve = false, clear = false } = {}) {
   const revision = ++activeEndpointRevision;
   const apply = async () => {
@@ -1401,18 +1401,18 @@ function syncVpnNodeExclusion({ resolve = false, clear = false } = {}) {
   return activeEndpointQueue.catch(() => false);
 }
 
-// После подключения или смены источника. Пока winws не работает (выключен или
-// на паузе TUN), домены не резолвим: уходят только литералы, а резолв
-// случится перед запуском движка.
+// After connecting or switching the source. While winws isn't running (off or
+// paused for TUN), domains aren't resolved: only literals go out, and resolving
+// happens before the engine launches.
 export function refreshVpnNodeExclusion() {
-  // Во время автоподбора состояние «выключен», но тестовые winws работают:
-  // без резолва пакет стёр бы уже найденные IP нод.
+  // During auto-tuning the state is "off", but the test winws are running:
+  // without resolving, the batch would erase already found node IPs.
   return syncVpnNodeExclusion({
     resolve: S.base === "running" || S.base === "starting" || S.autopick.phase === "running",
   });
 }
 
-// Совместимая обёртка: host активной ноды дополняет набор провайдера.
+// Compatible wrapper: the active node's host supplements the provider's set.
 export function excludeVpnNode(host) {
   if (!host) return Promise.resolve(false);
   legacyEndpointHost = endpointHost(host);
@@ -1433,9 +1433,9 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   if (typeof switchView === "function") goView = switchView;
   if (typeof ee === "function") ensureElevated = ee;
 
-  // Делегирование на document (не #app-root): дравер добавляется в document.body
-  // вне #app-root, поэтому его клики — закрытие/фон/выбор стратегии — должны
-  // ловиться на уровне документа.
+  // Delegation on document (not #app-root): the drawer is appended to document.body
+  // outside #app-root, so its clicks — close/backdrop/strategy selection — must
+  // be caught at the document level.
   document.addEventListener("click", onClick);
   document.addEventListener("change", onChange);
   document.addEventListener("keydown", (e) => {
@@ -1444,7 +1444,7 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
     else if (drawerEl) closeDrawer();
   });
 
-  // Прогресс авто-подбора (событие из Rust dpi_autotest).
+  // Auto-tuning progress (event from Rust dpi_autotest).
   if (tauriListen) {
     tauriListen("dpi:autotest", (ev) => {
       const d = ev?.payload || {};
@@ -1455,15 +1455,15 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
         renderBody();
       }
     }).catch(() => {});
-    // winws упал сам посреди сессии — сторож в Rust сообщает об этом сразу.
+    // winws crashed on its own mid-session — the Rust watchdog reports it immediately.
     tauriListen("dpi:exited", (ev) => onDpiExited(ev?.payload)).catch(() => {});
   }
 
   renderAll();
   await loadStrategies();
-  // Реальное состояние движка после перезапуска приложения (UI поверх живого
-  // winws). Синхронизируем в обе стороны: жив → running + чиним LS.enabled;
-  // мёртв, но локально считались running → сбрасываем в off (чип не врёт).
+  // Actual engine state after the app restarts (UI on top of a live
+  // winws). We sync both ways: alive → running + fix LS.enabled;
+  // dead but locally considered running → reset to off (so the chip doesn't lie).
   try {
     if (await invoke("dpi_running")) {
       S.base = "running";

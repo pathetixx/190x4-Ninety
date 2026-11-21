@@ -1,7 +1,7 @@
-// «Когда это было» человеческим языком. Жило внутри subscriptions.js, но той же
-// формулировкой пользуется и «О программе» (время последней проверки обновлений),
-// а тянуть ради одной строки весь модуль подписок — это профили, хранилище и
-// HWID в придачу.
+// "When it was" in human language. Lived inside subscriptions.js, but the same
+// wording is used by "About" too (the time of the last update check),
+// and pulling in the whole subscriptions module for one line means profiles, storage and
+// HWID on top.
 
 import { t } from "/lib/i18n/index.js";
 

@@ -1,5 +1,5 @@
-// Ninety · маленькие URL/base64 helpers для парсеров конфигов.
-// Ошибки parsePort остаются локализованными через i18n, как раньше в singbox.js.
+// Ninety · small URL/base64 helpers for config parsers.
+// parsePort errors stay localized via i18n, as they used to be in singbox.js.
 
 import { t } from "/lib/i18n/index.js";
 
@@ -16,7 +16,7 @@ export function safeAtob(s) {
   } catch { return ""; }
 }
 
-// Пробуем decode как base64/base64url; если не вышло — пусто.
+// We try to decode as base64/base64url; if that fails — empty.
 export function safeDecodeBase64(s) {
   try {
     const bin = safeAtob(s);
@@ -37,9 +37,9 @@ export function parsePort(value, errKey = "sb.err.badPort") {
   return port;
 }
 
-// Адрес заканчивается на первом «/» (RFC 3986): дальше путь. Ссылки вида
-// vless://id@host:443/?type=ws — официальная форма Hysteria 2 и частый вывод
-// панелей — раньше не разбирались ни в одной схеме: «/» попадал в порт.
+// The address ends at the first "/" (RFC 3986): the path follows. Links like
+// vless://id@host:443/?type=ws — the official Hysteria 2 form and a common panel
+// output — used to fail to parse in every scheme: the "/" ended up in the port.
 export function withoutUrlPath(hostPort) {
   const value = String(hostPort ?? "");
   const slash = value.indexOf("/");
@@ -65,9 +65,9 @@ export function splitHostPort(rawHostPort, errKey = "sb.err.badPort") {
   };
 }
 
-// base64url -> Uint8Array (для бинарного TLV-пейлоада tt:// deep-link).
+// base64url -> Uint8Array (for the binary TLV payload of the tt:// deep link).
 export function bytesFromB64url(s) {
-  const bin = safeAtob(s); // safeAtob уже умеет url-алфавит (- _) и паддинг
+  const bin = safeAtob(s); // safeAtob already handles the url alphabet (- _) and padding
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;

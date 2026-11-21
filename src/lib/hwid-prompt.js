@@ -1,15 +1,15 @@
-// Ninety · реакция на ответ панели про лимит устройств.
+// Ninety · reaction to the panel's response about the device limit.
 //
-// Панель с включённым лимитом на запрос без HWID отдаёт вместо серверов
-// заглушку или 404. Без объяснения это выглядит как сломанная подписка,
-// поэтому предлагаем включить отправку идентификатора для неё — и только
-// один раз: отказ запоминается, чтобы не спрашивать при каждом обновлении.
+// A panel with the limit enabled returns, instead of servers, a placeholder or a 404
+// to a request without a HWID. Without an explanation this looks like a broken subscription,
+// so we offer to enable sending the identifier for it — and only
+// once: a refusal is remembered so we don't ask on every update.
 
 import { openConfirmModal } from "/lib/confirm-modal.js";
 import { loadSubscriptions, updateSubscription } from "/lib/subscriptions.js";
 import { t } from "/lib/i18n/index.js";
 
-/** Единый вопрос про отправку HWID — задаётся и при добавлении, и при обновлении. */
+/** A single question about sending the HWID — asked both when adding and when updating. */
 export function askEnableHwid() {
   return openConfirmModal({
     title: t("hwid.promptTitle"),
@@ -21,11 +21,11 @@ export function askEnableHwid() {
 
 /**
  * @param {object} params
- * @param {string} params.subId — подписка, которой ответила панель
+ * @param {string} params.subId — the subscription the panel responded for
  * @param {{required?: boolean, limitReached?: boolean}|undefined} params.signal
  * @param {(msg: string, kind?: string, ms?: number) => void} [params.toast]
- * @param {() => Promise<any>} [params.onEnabled] — повторная загрузка после включения
- * @returns {Promise<boolean>} включён ли HWID этим ответом
+ * @param {() => Promise<any>} [params.onEnabled] — reload after enabling
+ * @returns {Promise<boolean>} whether the HWID was enabled by this response
  */
 export async function handleHwidSignal({ subId, signal, toast, onEnabled } = {}) {
   if (!signal) return false;

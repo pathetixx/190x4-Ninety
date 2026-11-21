@@ -1,4 +1,4 @@
-// Ninety · katalog TR (Türkçe). EN/RU'dan makine çevirisi — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (ana dili konuşan biri tarafından redaksiyon gerekli).
+// Ninety · katalog TR (Türkçe). EN/RU'dan makine çevirisi — NEEDS NATIVE PROOFREADING (ana dili konuşan biri tarafından redaksiyon gerekli).
 // Anahtarlar ru.js ile aynı (parite 771); bir anahtar eksikse çalışma zamanı en'e döner.
 export const tr = {
   titlebar: { min: "Simge durumuna küçült", max: "Ekranı kapla", close: "Kapat" },
@@ -64,7 +64,7 @@ export const tr = {
     channelTitle: "Kanal kalitesi",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Ninety'yi göster",
     connect: "Bağlan",

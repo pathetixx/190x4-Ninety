@@ -1,4 +1,4 @@
-// Ninety · catálogo PT (Português). Tradução automática a partir de EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (necessária revisão de um falante nativo).
+// Ninety · catálogo PT (Português). Tradução automática a partir de EN/RU — NEEDS NATIVE PROOFREADING (necessária revisão de um falante nativo).
 // As chaves espelham ru.js (paridade 771); se faltar uma chave, o runtime recorre a en.
 export const pt = {
   titlebar: { min: "Minimizar", max: "Maximizar", close: "Fechar" },
@@ -64,7 +64,7 @@ export const pt = {
     channelTitle: "Qualidade do canal",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Mostrar Ninety",
     connect: "Conectar",

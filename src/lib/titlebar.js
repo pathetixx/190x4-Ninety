@@ -1,6 +1,6 @@
-// Ninety · кнопки титулбара (свернуть/развернуть/закрыть). Вынесено из main.js.
-// tauriWin инжектится — тот же дескриптор окна, что использует весь main; окна
-// без Tauri (web-preview) просто ничего не делают.
+// Ninety · titlebar buttons (minimize/maximize/close). Moved out of main.js.
+// tauriWin is injected — the same window handle the whole of main uses; windows
+// without Tauri (web preview) simply do nothing.
 export function initTitlebar(tauriWin) {
   document.querySelectorAll("[data-window-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {

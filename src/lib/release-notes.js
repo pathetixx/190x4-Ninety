@@ -1,9 +1,9 @@
-// Заметки релиза приходят из аннотации тега — это Markdown, потому что тот же
-// текст показывает GitHub Release. Окно обновления рисует их как обычный текст
-// (textContent, без HTML — заметки приходят из сети и разметке не доверяем),
-// поэтому пользователь видел «## English» вместе с решётками. Здесь Markdown
-// сводится к читаемому плоскому тексту: заголовки без решёток, списки маркером,
-// выделения без звёздочек.
+// Release notes come from the tag annotation — this is Markdown, because the same
+// text is shown by the GitHub Release. The update window draws them as plain text
+// (textContent, no HTML — the notes come from the network and we don't trust markup),
+// so the user saw "## English" together with the hashes. Here Markdown
+// is reduced to readable plain text: headings without hashes, lists with a bullet,
+// emphasis without asterisks.
 
 const HEADING_RE = /^\s{0,3}#{1,6}\s+/;
 const BULLET_RE = /^(\s*)[-*+]\s+/;

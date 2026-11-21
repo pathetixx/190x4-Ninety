@@ -1,5 +1,5 @@
-// Ninety · нативные уведомления Windows через tauri-plugin-notification.
-// Используем глобальные __TAURI__.notification (withGlobalTauri:true).
+// Ninety · native Windows notifications via tauri-plugin-notification.
+// We use the global __TAURI__.notification (withGlobalTauri:true).
 
 const api = () => window.__TAURI__?.notification;
 

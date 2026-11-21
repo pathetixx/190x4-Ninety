@@ -1,7 +1,7 @@
-// Ninety · ошибки бэкенда на языке интерфейса. Язык знает только фронтенд, поэтому
-// Rust отдаёт не текст, а токен с ключом каталога: [[ключ {"имя":"значение"}]]
-// (см. i18n_error в util.rs). Токен может стоять внутри строки с техническими
-// подробностями, поэтому заменяем его на месте, а остальное не трогаем.
+// Ninety · backend errors in the interface language. Only the frontend knows the language, so
+// Rust returns not text but a token with a catalog key: [[key {"name":"value"}]]
+// (see i18n_error in util.rs). The token may sit inside a string with technical
+// details, so we replace it in place and leave the rest untouched.
 import { t } from "/lib/i18n/index.js";
 
 const TOKEN = /\[\[([\w.]+)(?: (\{.*?\}))?\]\]/g;
@@ -17,8 +17,8 @@ export function localizeBackendText(text) {
   });
 }
 
-// Обёртка над invoke: отказ команды приходит уже переведённым. Тип отказа прежний
-// (строка), так что места показа ошибок менять не нужно.
+// A wrapper over invoke: a command failure arrives already translated. The failure type is the same
+// (a string), so the places that show errors don't need to change.
 export function localizedInvoke(invoke) {
   if (typeof invoke !== "function") return invoke;
   return async (...args) => {

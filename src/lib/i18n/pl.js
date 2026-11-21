@@ -1,4 +1,4 @@
-// Ninety · katalog PL (Polski). Tłumaczenie maszynowe z EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (wymagana korekta native speakera).
+// Ninety · katalog PL (Polski). Tłumaczenie maszynowe z EN/RU — NEEDS NATIVE PROOFREADING (wymagana korekta native speakera).
 // Klucze odzwierciedlają ru.js (parytet 771); jeśli klucza brakuje, runtime używa en.
 export const pl = {
   titlebar: { min: "Minimalizuj", max: "Maksymalizuj", close: "Zamknij" },
@@ -64,7 +64,7 @@ export const pl = {
     channelTitle: "Jakość kanału",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Pokaż Ninety",
     connect: "Połącz",

@@ -1,15 +1,15 @@
-// Ninety · экран «Диагностика» — UI.
+// Ninety · the "Diagnostics" screen — UI.
 //
-// Собирает три проверки в одну картину: матрица доступности (каждая цель
-// пробуется напрямую и через туннель), трасса до сервера и утечки. Сверху —
-// вердикт одной фразой с кнопкой-действием; справа, третьей вкладкой, живёт
-// лента инцидентов (её пишет incident-log.js, независимо от этого экрана).
+// Combines three checks into one picture: the reachability matrix (each target
+// is probed directly and through the tunnel), the trace to the server and leaks. At the top —
+// a one-sentence verdict with an action button; on the right, as the third tab, lives
+// the incident feed (written by incident-log.js, independently of this screen).
 //
-// Разделение ответственности: правила вывода — в diagnose-verdict.js, наборы
-// целей — в probe-sets.js, замеры — в Rust (diagnose.rs). Здесь только DOM,
-// состояние прогона и перевод результатов в человеческие подписи.
+// Separation of responsibilities: inference rules are in diagnose-verdict.js, target
+// sets in probe-sets.js, measurements in Rust (diagnose.rs). Here only the DOM,
+// the run state and turning results into human-readable labels.
 //
-// Точка входа: mountDiagnoseView(root, deps) → { run, refreshFeed, destroy }.
+// Entry point: mountDiagnoseView(root, deps) → { run, refreshFeed, destroy }.
 
 import {
   buildVerdict, countFindings, matchesDirectRule, verdictFacts,
@@ -29,8 +29,8 @@ import { forwardingAliases, forwardingFixCommand, forwardingProblem } from "/lib
 import { localizeBackendText } from "/lib/backend-errors.js";
 
 const TABS = ["trace", "leaks", "feed"];
-// Выбранная вкладка переживает уход с экрана: человек, который вчера смотрел
-// ленту инцидентов, завтра открывает экран ради неё же.
+// The selected tab survives leaving the screen: a person who looked at
+// the incident feed yesterday opens the screen for it again tomorrow.
 const TAB_KEY = STORAGE_KEYS.diagnoseTab;
 
 function loadTab() {
@@ -45,7 +45,7 @@ function loadTab() {
 function saveTab(tab) {
   try {
     localStorage.setItem(TAB_KEY, tab);
-  } catch { /* приватное окно/заблокированные site data — не повод падать */ }
+  } catch { /* a private window/blocked site data is no reason to fail */ }
 }
 
 const el = (tag, cls, html) => {
@@ -64,9 +64,9 @@ const I = {
   search: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
 };
 
-// Бэкенд отдаёт стабильные коды, а не готовый текст: подпись собираем здесь,
-// на языке интерфейса. Незнакомый код показываем как есть — техническая строка
-// полезнее пустого места.
+// The backend returns stable codes, not ready text: we build the label here,
+// in the interface language. An unfamiliar code is shown as is — a technical string
+// is more useful than an empty space.
 function errText(err) {
   const code = String(err?.message || err || "").trim();
   if (!code) return "";
@@ -75,8 +75,8 @@ function errText(err) {
   return text === key ? code : text;
 }
 
-// Состояние пробы → класс пилюли. Всё, что не «открылось» и не «ответ сервиса»,
-// показываем как ошибку: пользователю не нужен зоопарк оттенков.
+// Probe state → pill class. Everything that isn't "opened" or "service response"
+// is shown as an error: the user doesn't need a zoo of shades.
 function pillClass(state) {
   if (state === "ok") return "dg-pill--ok";
   if (state === "http") return "dg-pill--warn";
@@ -90,12 +90,12 @@ function pillText(outcome) {
   return t(`dg.state.${outcome.state}`);
 }
 
-// Короткий вывод по строке матрицы — тот же язык, что и в вердикте.
+// A short conclusion for a matrix row — the same language as in the verdict.
 function rowVerdict(row, direct2 = false) {
   const direct = row.direct?.state;
   const tunnel = row.tunnel?.state;
-  // Адрес, который правило отправляет мимо туннеля: колонка «через Ninety»
-  // меряет прямое соединение, и «работает везде» здесь ничего не объясняет.
+  // An address the rule sends past the tunnel: the "through Ninety" column
+  // measures a direct connection, and "works everywhere" explains nothing here.
   if (direct2 && tunnel === "ok") return t("dg.row.byRule");
   if (direct === "skipped" && tunnel === "ok") return t("dg.row.tunnelOk");
   if (tunnel === "ok" && direct !== "ok" && direct !== "skipped") return t("dg.row.rescued");
@@ -149,7 +149,7 @@ export function mountDiagnoseView(root, {
   wrap.append(verdictBox, grid);
   root.appendChild(wrap);
 
-  // ── Настройки экрана ────────────────────────────────────
+  // ── Screen settings ────────────────────────────────────
   function options() {
     const opts = getOptions() || {};
     return opts.diagnose || { regionPack: "", pinned: [] };
@@ -171,7 +171,7 @@ export function mountDiagnoseView(root, {
     return buildProbeSet({ regionPack: regionPack(), pinned: pinned() });
   }
 
-  // ── Прогон ──────────────────────────────────────────────
+  // ── Run ──────────────────────────────────────────────
   async function run() {
     if (state.running) return;
     state.running = true;
@@ -181,10 +181,10 @@ export function mountDiagnoseView(root, {
     const includeDirect = !!allowDirect();
     const set = targets();
 
-    // Движок качества и верификация источника делят с диагностикой один шлюз
-    // датаплейна: пока идёт их проба, наша получает отказ. Это норма, а не
-    // сбой — поэтому один раз ждём и повторяем, и только потом показываем
-    // ошибку в самой матрице, а не одним исчезающим тостом.
+    // The quality engine and source verification share one dataplane gate with diagnostics:
+    // while their probe is running, ours gets a refusal. That's normal, not
+    // a failure — so we wait once and retry, and only then show
+    // the error in the matrix itself rather than as a single vanishing toast.
     state.reachError = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -208,8 +208,8 @@ export function mountDiagnoseView(root, {
       }
     }
 
-    // Трасса имеет смысл только когда известен адрес сервера. Без активного
-    // источника (или до подключения) её просто нет — это не ошибка.
+    // The trace only makes sense when the server address is known. Without an active
+    // source (or before connecting) there simply isn't one — that's not an error.
     const endpoint = getNodeEndpoint();
     if (endpoint?.host) {
       try {
@@ -227,7 +227,7 @@ export function mountDiagnoseView(root, {
       state.traceError = t("dg.trace.noEndpoint");
     }
 
-    // Локальная проба без сети: сбой или «не знаем» просто не дают вердикта.
+    // A local probe without the network: a failure or "don't know" simply give no verdict.
     try {
       state.forwarding = await invoke("system_forwarding_status");
     } catch {
@@ -275,7 +275,7 @@ export function mountDiagnoseView(root, {
   function unpin(id) {
     const list = pinned().filter((entry) => entry?.id !== id);
     saveOption("diagnose.pinned", list);
-    // Строка закреплённой цели больше не относится к набору — убираем и её.
+    // The row of a pinned target no longer belongs to the set — remove it too.
     state.reach = state.reach.filter((row) => row.id !== id);
     onToast(t("dg.probe.unpinnedToast", { host: id.replace(/^pin-/, "") }), "info", 2200);
     render();
@@ -292,10 +292,10 @@ export function mountDiagnoseView(root, {
     render();
   }
 
-  // ── Отчёт в буфер ───────────────────────────────────────
-  // Обезличенный: адреса нод и внешний IP маскируем (maskAddresses) — отчёт
-  // уезжает в чат поддержки, а там ему не место рядом с настоящим адресом
-  // сервера.
+  // ── Report to clipboard ───────────────────────────────────────
+  // Anonymized: node addresses and the external IP are masked (maskAddresses) — the report
+  // goes to a support chat, and it has no place there next to the real server
+  // address.
 
   function report() {
     const verdict = currentVerdict();
@@ -316,8 +316,8 @@ export function mountDiagnoseView(root, {
       lines.push(`  control: ${state.trace.control?.state || "—"}`);
     }
     if (isTunMode() && forwardingProblem(state.forwarding)) {
-      // Имена адаптеров — не адреса: маскировать нечего, а без них не понять,
-      // где выключать.
+      // Adapter names aren't addresses: there's nothing to mask, and without them you can't tell
+      // where to turn things off.
       lines.push("", `forwarding: ${forwardingAliases(state.forwarding)}${state.forwarding.routerEnabled ? " · IPEnableRouter=1" : ""}`);
     }
     if (state.leaks) {
@@ -355,13 +355,13 @@ export function mountDiagnoseView(root, {
       forwarding: state.forwarding,
       tunMode: !!isTunMode(),
       connected: !!isConnected(),
-      // Без матрицы «сеть чистая» — необоснованное утверждение: половина
-      // проверки не отработала, а вердикт звучал бы как полный.
+      // Without the matrix, "the network is clean" is an unfounded claim: half
+      // of the check didn't run, and the verdict would sound complete.
       reachFailed: !!state.reachError,
     });
   }
 
-  // ── Рендер: вердикт ─────────────────────────────────────
+  // ── Render: verdict ─────────────────────────────────────
   function renderVerdict() {
     const verdict = currentVerdict();
     const ok = verdict.severity === "ok";
@@ -371,14 +371,14 @@ export function mountDiagnoseView(root, {
     const main = el("div");
     main.appendChild(el("div", "dg-verdict__kicker", esc(t("dg.verdict.kicker"))));
     main.appendChild(el("h3", "dg-verdict__title", esc(t(`dg.v.${verdict.kind}.title`, verdict.params))));
-    // Текст вставляется разметкой, а в параметрах бывают имена, пришедшие
-    // снаружи: закреплённый адрес, имя сетевого адаптера.
+    // The text is inserted as markup, and the parameters may contain names that came
+    // from outside: a pinned address, a network adapter name.
     const textParams = Object.fromEntries(Object.entries(verdict.params || {}).map(([key, value]) => [key, esc(String(value))]));
     main.appendChild(el("div", "dg-verdict__text", t(`dg.v.${verdict.kind}.text`, textParams)));
 
-    // Кнопка здесь — только действие по вердикту («включить обход», «сменить
-    // сервер», «пустить напрямую»). Глобальные «Проверить» и «Скопировать
-    // отчёт» живут в шапке экрана и не дублируются.
+    // The button here is only the verdict action ("enable bypass", "switch
+    // server", "send direct"). The global "Check" and "Copy
+    // report" live in the screen header and aren't duplicated.
     const cta = el("div", "dg-verdict__cta");
     if (verdict.action) {
       const primary = el("button", "btn btn--primary", esc(t(`dg.action.${verdict.action}`)));
@@ -397,7 +397,7 @@ export function mountDiagnoseView(root, {
       const cell = el("div", "dg-fact");
       cell.appendChild(el("div", "dg-fact__k", esc(t(`dg.fact.${fact.key}`))));
       const stateClass = fact.state === "err" ? " is-err" : fact.state === "warn" ? " is-warn" : "";
-      // Голое число без единицы («41») в плитке фактов не читается.
+      // A bare number without a unit ("41") isn't readable in the facts tile.
       const value = fact.key === "trace" && fact.value
         ? `${fact.value} ${t("units.ms")}`
         : fact.value || t(`dg.factState.${fact.state}`);
@@ -411,7 +411,7 @@ export function mountDiagnoseView(root, {
     verdictBox.appendChild(card);
   }
 
-  // ── Рендер: матрица ─────────────────────────────────────
+  // ── Render: matrix ─────────────────────────────────────
   function renderMatrix() {
     leftCard.innerHTML = "";
     const head = el("div", "dg-card__head");
@@ -420,7 +420,7 @@ export function mountDiagnoseView(root, {
     head.appendChild(state.running ? el("div", "dg-spinner") : regionPackSelect());
     leftCard.appendChild(head);
 
-    // Поле ручной проверки — над заголовками колонок: это вход, а не строка.
+    // The manual check field is above the column headers: it's an input, not a row.
     const probeRow = el("div", "dg-probe");
     const field = el("label", "dg-probe__field", I.search);
     const input = el("input");
@@ -457,8 +457,8 @@ export function mountDiagnoseView(root, {
       return;
     }
 
-    // Подписи берём из общего каталога, а не из текущего набора: смена пакета
-    // между прогоном и отрисовкой оставляла строки без имени.
+    // Labels are taken from the shared catalog, not from the current set: switching the pack
+    // between the run and rendering left rows without a name.
     const known = targetsById(pinned());
     for (const row of state.reach) {
       const meta = known.get(row.id) || { name: row.id, scope: "global" };
@@ -510,7 +510,7 @@ export function mountDiagnoseView(root, {
     }
   }
 
-  // Ручная проверка: строка + пошаговый разбор.
+  // Manual check: a row + a step-by-step breakdown.
   function probeBlock() {
     const probe = state.probe;
     const row = el("div", "dg-row dg-row--own");
@@ -608,10 +608,10 @@ export function mountDiagnoseView(root, {
     return t("dg.probe.noteDown");
   }
 
-  // Выбор странового пакета. Свой попап, а не нативный <select>: WebView2
-  // рисует системный список, который не поддаётся стилизации и рядом с тёмным
-  // интерфейсом выглядит чужеродно. Заодно в списке видно название страны, а не
-  // только код.
+  // Country pack selection. A custom popup, not a native <select>: WebView2
+  // draws a system list that can't be styled and looks alien next to
+  // the dark interface. On top of that, the list shows the country name, not
+  // just the code.
   function regionPackSelect() {
     const current = regionPack();
     const btn = el("button", "dg-pack");
@@ -672,8 +672,8 @@ export function mountDiagnoseView(root, {
       const item = el("button", "dg-packmenu__item");
       item.type = "button";
       item.setAttribute("role", "option");
-      // Текущий пакет — уже разрешённое значение (""), поэтому пункт
-      // «Глобальный» сверяем с ним по смыслу, а не по коду.
+      // The current pack is an already resolved value (""), so the
+      // "Global" item is compared with it by meaning, not by code.
       const isCurrent = entry.code === GLOBAL_PACK ? current === "" : entry.code === current;
       item.setAttribute("aria-selected", String(isCurrent));
       if (isCurrent) item.dataset.on = "true";
@@ -683,8 +683,8 @@ export function mountDiagnoseView(root, {
       item.addEventListener("click", () => {
         closePackMenu();
         if (!isCurrent) {
-          // Результаты прошлого прогона относятся к прежнему набору: оставлять
-          // их рядом с новым списком целей — значит показывать чужую матрицу.
+          // The previous run's results belong to the previous set: leaving
+          // them next to the new list of targets means showing someone else's matrix.
           state.reach = [];
           state.ranAt = 0;
         }
@@ -696,7 +696,7 @@ export function mountDiagnoseView(root, {
 
     document.body.appendChild(menu);
     const rect = anchor.getBoundingClientRect();
-    // Попап держим в пределах окна: у правого края он иначе уезжает за экран.
+    // The popup is kept within the window: at the right edge it would otherwise go off screen.
     const width = menu.getBoundingClientRect().width;
     const left = Math.min(rect.right - width, window.innerWidth - width - 8);
     menu.style.top = `${Math.round(rect.bottom + 6)}px`;
@@ -708,7 +708,7 @@ export function mountDiagnoseView(root, {
     document.addEventListener("keydown", onPackKey, true);
   }
 
-  // ── Рендер: правая колонка ──────────────────────────────
+  // ── Render: right column ──────────────────────────────
   function renderSide() {
     rightCard.innerHTML = "";
     const head = el("div", "dg-card__head");
@@ -758,8 +758,8 @@ export function mountDiagnoseView(root, {
       rightCard.appendChild(line);
     }
 
-    // Соединение на порт — отдельной плашкой под хопами: путь и соединение это
-    // разные вопросы, и ответы на них не обязаны совпадать.
+    // The connection to the port gets a separate badge under the hops: the path and the connection are
+    // different questions, and their answers don't have to match.
     const tcp = state.trace.tcp || {};
     const control = state.trace.control || {};
     const tcpLine = state.trace.tcpOpen
@@ -815,8 +815,8 @@ export function mountDiagnoseView(root, {
 
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const minutes = Math.round(degradedMs(groups, { since: weekAgo }) / 60000);
-    // Инциденты без исхода недосчитаны по времени (см. degradedMs), поэтому
-    // сводка говорит «не менее» и показывает, сколько записей не домерено.
+    // Incidents without an outcome are undercounted in time (see degradedMs), so
+    // the summary says "at least" and shows how many records weren't fully measured.
     const unmeasured = unmeasuredIncidents(groups, { since: weekAgo });
     rightCard.appendChild(el("div", "dg-feed__summary",
       unmeasured
@@ -838,8 +838,8 @@ export function mountDiagnoseView(root, {
       }
       if (steps.childElementCount) item.appendChild(steps);
 
-      // Одиночная заметка («переключил сервер») ничем не «кончается» — футер ей
-      // не нужен; раньше она получала «чем закончилось — неизвестно».
+      // A single note ("switched the server") doesn't "end" with anything — it doesn't need
+      // a footer; previously it got "how it ended — unknown".
       const foot = incidentFoot(group);
       if (foot) item.appendChild(el("div", "dg-inc__foot", esc(foot)));
       feed.appendChild(item);
@@ -851,8 +851,8 @@ export function mountDiagnoseView(root, {
     return incidentText(group.events[0]);
   }
 
-  // Исход инцидента. «Неизвестно» осталось только там, где оно и правда
-  // неизвестно: замеры прекратились, а почему — говорит последний шаг внутри.
+  // Incident outcome. "Unknown" remains only where it really is
+  // unknown: measurements stopped, and why — the last step inside says.
   function incidentFoot(group) {
     if (group.ongoing) return t("dg.feed.ongoing");
     if (group.outcome === "resolved") {
@@ -866,9 +866,9 @@ export function mountDiagnoseView(root, {
   }
 
   function incidentText(event) {
-    // Ключ подписи = вид события; параметры подставляются каталогом. Незнакомый
-    // вид (запись осталась от прошлой версии) показываем как есть, а не пустой
-    // строкой — иначе история выглядела бы дырявой.
+    // Label key = event kind; parameters are substituted by the catalog. An unfamiliar
+    // kind (an entry left over from a previous version) is shown as is, not as an empty
+    // string — otherwise the history would look full of holes.
     const key = `dg.feed.kind.${event.kind}`;
     const text = t(key, event.params || {});
     return text === key ? event.kind : text;
@@ -884,8 +884,8 @@ export function mountDiagnoseView(root, {
     renderVerdict();
     renderMatrix();
     renderSide();
-    // Счётчик находок в меню: до первого прогона его быть не должно, иначе
-    // «0» выглядит как утверждение «всё проверено и всё хорошо».
+    // Findings counter in the menu: it must not exist before the first run, otherwise
+    // "0" looks like the claim "everything was checked and everything is fine".
     onFindings(state.ranAt ? countFindings({ ...state, tunMode: !!isTunMode() }) : null);
   }
 

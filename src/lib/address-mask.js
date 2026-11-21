@@ -1,33 +1,33 @@
-// Ninety · маскировка адресов в тексте, который видит не только пользователь.
+// Ninety · masking addresses in text that not only the user sees.
 //
-// Два потребителя с разными задачами: главный экран прячет собственный
-// публичный адрес до клика (maskIp), а отчёт диагностики уезжает в чат
-// поддержки и не должен нести ни адрес сервера, ни адрес выхода
-// (maskAddresses). Раньше у каждого была своя реализация, и IPv6 знала только
-// первая — из-за чего отчёт обещал обезличивание, но выполнял его лишь для IPv4.
+// Two consumers with different tasks: the main screen hides your own
+// public address until clicked (maskIp), while the diagnostics report goes to a support
+// chat and must carry neither the server address nor the exit address
+// (maskAddresses). Previously each had its own implementation, and only the first one
+// knew IPv6 — because of which the report promised anonymization but performed it only for IPv4.
 
-// Похожее на IPv6: несколько групп через двоеточия, возможно с хвостом IPv4
-// (::ffff:1.2.3.4). Кандидата проверяем разбором, а не регуляркой: время
-// «12:34:56» выглядит так же, но адресом не является и портиться не должно.
+// IPv6-like: several groups separated by colons, possibly with an IPv4 tail
+// (::ffff:1.2.3.4). The candidate is checked by parsing, not by a regex: a time like
+// "12:34:56" looks the same but isn't an address and must not be mangled.
 const IPV6_CANDIDATE_RE = /(?:[0-9A-Fa-f]{0,4}:){2,}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4})/g;
 const IPV4_RE = /\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g;
 
-/** Валидный IPv6 → нормализованная форма; всё остальное → null. */
+/** Valid IPv6 → normalized form; everything else → null. */
 function parseIpv6(candidate) {
   try {
-    // Разбор заодно нормализует адрес: ::ffff:1.2.3.4 возвращается уже в
-    // hex-виде, поэтому встроенный IPv4 не остаётся открытым.
+    // Parsing also normalizes the address: ::ffff:1.2.3.4 comes back already in
+    // hex form, so the embedded IPv4 doesn't stay exposed.
     return new URL(`http://[${candidate}]/`).hostname.replace(/^\[|\]$/g, "");
   } catch {
     return null;
   }
 }
 
-/** 1.2.3.4 → 1.2.*.* (маскируем два последних октета). */
+/** 1.2.3.4 → 1.2.*.* (we mask the last two octets). */
 export function maskIp(ip) {
   if (!ip || typeof ip !== "string") return "—";
   if (ip.includes(":")) {
-    // IPv6: первые две группы оставляем, остальное — *
+    // IPv6: keep the first two groups, the rest becomes *
     const parts = ip.split(":");
     return `${parts.slice(0, 2).join(":")}:·:·`;
   }
@@ -37,10 +37,10 @@ export function maskIp(ip) {
 }
 
 /**
- * Маскирует все адреса внутри произвольной строки — строк отчёта, где адрес
- * стоит рядом с номером хопа, задержкой и причиной.
- * IPv6 обрабатываем первым: иначе правило для IPv4 срежет только хвост
- * ::ffff-адреса, а сам он останется в тексте.
+ * Masks all addresses inside an arbitrary string — report lines where an address
+ * sits next to the hop number, latency and reason.
+ * IPv6 is handled first: otherwise the IPv4 rule would cut only the tail of
+ * a ::ffff address, while the address itself would stay in the text.
  */
 export function maskAddresses(value) {
   const text = String(value || "");

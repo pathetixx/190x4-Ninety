@@ -1,18 +1,18 @@
-// Ninety · решение «как показать найденный апдейт».
+// Ninety · deciding "how to show a found update".
 //
-// Вынесено из main.js, потому что именно эта развилка отвечает за единственный
-// видимый признак OTA, когда окно свёрнуто в трей. Пока она жила инлайном среди
-// четырёх await'ов, её нельзя было ни прогнать тестом, ни доказать, что в трее
-// пользователь вообще что-то увидит.
+// Moved out of main.js because exactly this branch is responsible for the only
+// visible sign of OTA when the window is minimized to the tray. While it lived inline among
+// four awaits, it could neither be run in a test nor proven that the user
+// would see anything at all in the tray.
 //
-// Инварианты:
-//   * найденный апдейт ВСЕГДА становится pending — то есть попадает в меню и
-//     подсказку трея. Ни «Позже», ни неудачная уборка Rust-ресурса, ни повторная
-//     проверка не имеют права стереть этот пассивный признак: он ничего не
-//     навязывает и стоит один пункт меню;
-//   * модалку разрешаем только когда окно реально перед пользователем либо он
-//     сам нажал «Проверить обновления»;
-//   * OS-уведомление — один раз на версию за сессию и только в фоне.
+// Invariants:
+//   * a found update ALWAYS becomes pending — i.e. gets into the menu and
+//     the tray tooltip. Neither "Later", nor a failed cleanup of the Rust resource, nor a repeated
+//     check has the right to erase this passive sign: it imposes nothing
+//     and costs one menu item;
+//   * the modal is allowed only when the window is actually in front of the user or they
+//     pressed "Check for updates" themselves;
+//   * the OS notification — once per version per session and only in the background.
 
 export const UPDATE_NOTICE = {
   MODAL: "modal",
@@ -22,11 +22,11 @@ export const UPDATE_NOTICE = {
 
 /**
  * @param {object} input
- * @param {boolean} input.interactive   — пользователь сам нажал «Проверить».
- * @param {boolean} input.skipped       — по этой версии уже нажимали «Позже».
- * @param {boolean} input.foreground    — окно видимо, не свёрнуто и в фокусе.
- * @param {boolean} input.alreadyNotified — OS-уведомление по этой версии уже слали.
- * @param {boolean} input.modalBusy     — модалка этой же версии уже открыта.
+ * @param {boolean} input.interactive   — the user pressed "Check" themselves.
+ * @param {boolean} input.skipped       — "Later" was already pressed for this version.
+ * @param {boolean} input.foreground    — the window is visible, not minimized and focused.
+ * @param {boolean} input.alreadyNotified — an OS notification for this version was already sent.
+ * @param {boolean} input.modalBusy     — the modal for this same version is already open.
  * @returns {{ pending: boolean, action: string, reason: string }}
  */
 export function planUpdateNotice({
@@ -36,12 +36,12 @@ export function planUpdateNotice({
   alreadyNotified = false,
   modalBusy = false,
 } = {}) {
-  // Ручная проверка старше всего: пользователь смотрит на окно и ждёт ответа,
-  // «Позже» по этой версии он только что сам и переспросил.
+  // A manual check outranks everything: the user is looking at the window and waiting for an answer,
+  // they have just re-asked about the version they said "Later" to.
   if (interactive) return { pending: true, action: UPDATE_NOTICE.MODAL, reason: "interactive" };
   if (modalBusy) return { pending: true, action: UPDATE_NOTICE.TRAY, reason: "modal_open" };
-  // «Позже» гасит навязчивую часть (модалку и уведомление), но не пассивную:
-  // случайный Esc не должен делать вид, что обновления нет.
+  // "Later" mutes the intrusive part (the modal and the notification), but not the passive one:
+  // an accidental Esc must not pretend there's no update.
   if (skipped) return { pending: true, action: UPDATE_NOTICE.TRAY, reason: "skipped" };
   if (foreground) return { pending: true, action: UPDATE_NOTICE.MODAL, reason: "foreground" };
   if (alreadyNotified) return { pending: true, action: UPDATE_NOTICE.TRAY, reason: "already_notified" };

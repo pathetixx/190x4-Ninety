@@ -1,13 +1,13 @@
-// Ninety · учёт реально измеренного трафика по источникам (подписка/профиль).
+// Ninety · tracking actually measured traffic per source (subscription/profile).
 //
-// Зачем: плитка на главной показывала трафик из заголовка подписки
-// (subscription-userinfo) — провайдер часто шлёт 0/total=0 или редко обновляет,
-// а у одиночных профилей (hysteria/naive/tt) заголовка нет вовсе. Реальный
-// трафик считает sing-box (всё идёт через него) — clash-API /connections отдаёт
-// кумулятивные uploadTotal/downloadTotal. Но они сбрасываются при каждом
-// перезапуске ядра (любой реконнект), поэтому копим дельты сами в localStorage
-// по каждому источнику — «использовано за N дней» переживает реконнекты и
-// перезапуски приложения.
+// Why: the home screen tile showed traffic from the subscription header
+// (subscription-userinfo) — the provider often sends 0/total=0 or rarely updates it,
+// and single profiles (hysteria/naive/tt) have no header at all. The real
+// traffic is counted by sing-box (everything goes through it) — clash API /connections returns
+// cumulative uploadTotal/downloadTotal. But they reset on every
+// core restart (any reconnect), so we accumulate deltas ourselves in localStorage
+// per source — "used over N days" survives reconnects and
+// app restarts.
 
 import { getTrafficTotal } from "/lib/clash-api.js";
 import { TRAFFIC_PREFIX } from "/lib/storage-policy.js";
@@ -24,7 +24,7 @@ function save(sourceKey, v) {
   try { localStorage.setItem(KEY_PREFIX + sourceKey, JSON.stringify({ up: v.up, down: v.down })); } catch {}
 }
 
-// Накопленный измеренный трафик источника. { up, down, total } в байтах.
+// Accumulated measured traffic of a source. { up, down, total } in bytes.
 export function getMeasured(sourceKey) {
   if (!sourceKey) return { up: 0, down: 0, total: 0 };
   const v = load(sourceKey);
@@ -36,10 +36,10 @@ export function resetMeasured(sourceKey) {
   try { localStorage.removeItem(KEY_PREFIX + sourceKey); } catch {}
 }
 
-// Ключ источника для getActiveSource()-объекта.
-// Ключ обязан быть либо конкретным, либо отсутствовать. Раньше источник без id
-// давал строку "sub:undefined", и трафик всех таких источников копился в один
-// общий счётчик, а «Сбросить» чистил его сразу у всех.
+// Source key for a getActiveSource() object.
+// The key must either be specific or absent. Previously a source without an id
+// produced the string "sub:undefined", and the traffic of all such sources piled into one
+// shared counter, and "Reset" cleared it for all of them at once.
 export function sourceKeyOf(src) {
   if (!src) return null;
   if (src.kind === "sub") return src.subscription?.id ? `sub:${src.subscription.id}` : null;
@@ -50,8 +50,8 @@ export function sourceKeyOf(src) {
 
 let timer = null;
 let curKey = null;
-let lastUp = 0, lastDown = 0;   // последний снимок кумулятивных тоталов ядра
-let haveBaseline = false;       // получили ли первый снимок (точку отсчёта дельт)
+let lastUp = 0, lastDown = 0;   // the last snapshot of the core's cumulative totals
+let haveBaseline = false;       // whether we got the first snapshot (the baseline for deltas)
 let onUpdate = null;
 let meterRunId = 0;
 let runtimeToken = null;
@@ -70,14 +70,14 @@ async function poll() {
   if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
   let t;
   try { t = await getTrafficTotal(clashPort, { token }); }
-  catch { return; } // ядро ещё не подняло clash-API / уже умерло — пропускаем тик
+  catch { return; } // the core hasn't brought up the clash API yet / already died — skip the tick
   if (runId !== meterRunId || key !== curKey || token !== runtimeToken) return;
   if (token && runtimeProvider?.isCurrent && !runtimeProvider.isCurrent(token)) return;
   const up = Number(t?.up) || 0, down = Number(t?.down) || 0;
-  // Первый снимок после старта ядра — только точка отсчёта, дельту не пишем.
+  // The first snapshot after the core starts is only a baseline, we don't write a delta.
   if (!haveBaseline) { lastUp = up; lastDown = down; haveBaseline = true; return; }
-  // Дельта с прошлого тика. Если тотал упал — ядро перезапустилось, текущее
-  // значение и есть «новый» трафик с момента рестарта.
+  // Delta since the last tick. If the total dropped, the core restarted, and the current
+  // value is the "new" traffic since the restart.
   let dU = up - lastUp, dD = down - lastDown;
   if (dU < 0) dU = up;
   if (dD < 0) dD = down;
@@ -90,7 +90,7 @@ async function poll() {
   }
 }
 
-// Запустить опрос для активного источника. Зовётся при переходе в connected.
+// Start polling for the active source. Called on the transition to connected.
 export function startMeter({ sourceKey, intervalMs = 3000, onUpdate: cb, token, port } = {}) {
   stopMeter();
   curKey = sourceKey || null;

@@ -1,5 +1,5 @@
-// Последовательный bootstrap сетевого runtime. Reconcile и autoconnect должны
-// иметь одного владельца: параллельные IIFE на старте гоняли state/runtime.
+// Sequential bootstrap of the network runtime. Reconcile and autoconnect must
+// have a single owner: parallel IIFEs at startup raced over state/runtime.
 export function createBootstrapCoordinator({ reconcile, autostart, setBusy } = {}) {
   let inFlight = null;
 

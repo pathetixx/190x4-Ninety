@@ -1,10 +1,10 @@
-// Всплывающее меню действий (.pmenu) — одно на всё приложение: у кнопки «⋯»,
-// у курсора (правый клик) или у строки (клавиша Menu / Shift+F10), и правила,
-// когда WebView2 должен показать своё меню вместо нашего.
-// Меню страницы WebView2 (Назад, Обновить, Сохранить как, Печать) для
-// приложения бесполезно и опасно: «Обновить» перезапускает интерфейс посреди
-// живого подключения. Поэтому оно остаётся только там, где нужно
-// копирование и вставка, — в полях ввода и на выделенном тексте.
+// Popup action menu (.pmenu) — one for the whole app: at the "⋯" button,
+// at the cursor (right click) or at a row (the Menu key / Shift+F10), plus the rules
+// for when WebView2 should show its own menu instead of ours.
+// The WebView2 page menu (Back, Reload, Save as, Print) is useless and dangerous
+// for the app: "Reload" restarts the interface in the middle of
+// a live connection. So it stays only where
+// copy and paste are needed — in input fields and on selected text.
 
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 
@@ -13,12 +13,12 @@ const EDGE = 8;
 const MARGIN = 12;
 
 /**
- * Координаты меню: под якорем (или от точки курсора), с переворотом вверх у
- * нижнего края и прижатием к правому краю окна.
- * @param {{top:number,bottom:number,left:number}} anchor прямоугольник якоря; у точки top === bottom
- * @param {{width:number,height:number}} size размер меню
- * @param {{width:number,height:number}} viewport размер окна
- * @param {number} gap отступ от якоря
+ * Menu coordinates: under the anchor (or from the cursor point), flipped up at
+ * the bottom edge and pushed in at the right edge of the window.
+ * @param {{top:number,bottom:number,left:number}} anchor the anchor rectangle; for a point top === bottom
+ * @param {{width:number,height:number}} size menu size
+ * @param {{width:number,height:number}} viewport window size
+ * @param {number} gap offset from the anchor
  */
 export function placeMenu(anchor, size, viewport, gap = 6) {
   let top = anchor.bottom + gap;
@@ -28,21 +28,21 @@ export function placeMenu(anchor, size, viewport, gap = 6) {
   return { top: Math.max(EDGE, top), left: Math.max(EDGE, left) };
 }
 
-/** Правый клик здесь должен открыть меню WebView2 (копировать/вставить). */
+/** A right click here must open the WebView2 menu (copy/paste). */
 export function wantsNativeContextMenu(target, selection) {
   if (target?.closest?.(EDITABLE)) return true;
   return Boolean(selection && !selection.isCollapsed && String(selection).trim());
 }
 
-/** Клавиша открытия контекстного меню с клавиатуры: Menu или Shift+F10. */
+/** The key that opens the context menu from the keyboard: Menu or Shift+F10. */
 export function isContextMenuKey(e) {
   return e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey);
 }
 
 /**
- * Сочетания, которыми WebView2 перезагружает страницу, уходит по истории или
- * открывает печать. В приложении у них нет смысла, а перезагрузка сбрасывает
- * интерфейс при живом подключении.
+ * Shortcuts with which WebView2 reloads the page, navigates history or
+ * opens printing. They make no sense in the app, and a reload resets
+ * the interface during a live connection.
  */
 export function isPageNavigationShortcut(e) {
   const key = e.key;
@@ -54,14 +54,14 @@ export function isPageNavigationShortcut(e) {
   return false;
 }
 
-/** Боковые кнопки мыши «Назад»/«Вперёд». */
+/** The mouse's side "Back"/"Forward" buttons. */
 export function isHistoryMouseButton(e) {
   return e.button === 3 || e.button === 4;
 }
 
 /**
- * Глобальная защита документа: своё меню вместо меню страницы, без
- * перезагрузки и переходов по истории.
+ * Global document protection: our own menu instead of the page menu, no
+ * reloads and no history navigation.
  * @param {Document} doc
  */
 export function installPageGuards(doc) {
@@ -82,8 +82,8 @@ export function installPageGuards(doc) {
 }
 
 /**
- * Перемещение фокуса по пунктам меню стрелками, Home и End.
- * @returns {number|null} индекс следующего пункта или null, если клавиша не наша
+ * Moving focus through menu items with the arrows, Home and End.
+ * @returns {number|null} index of the next item, or null if the key isn't ours
  */
 export function nextMenuIndex(key, current, count) {
   if (count <= 0) return null;
@@ -95,8 +95,8 @@ export function nextMenuIndex(key, current, count) {
 }
 
 // ── DOM ──────────────────────────────────────────────────────
-// Одновременно открыто одно меню. Закрывается кликом или правым кликом мимо,
-// Escape, Tab, ресайзом окна; фокус возвращается туда, откуда меню открыли.
+// One menu is open at a time. It closes on a click or right click outside,
+// Escape, Tab, a window resize; focus returns to where the menu was opened from.
 let openMenu = null;
 let openMenuReturnFocus = null;
 
@@ -117,7 +117,7 @@ function onDocClick(e) {
   if (openMenu && !openMenu.contains(e.target)) closePMenu();
 }
 function onWindowResize() { closePMenu(); }
-// Меню открыто мышью, фокус остался снаружи — Escape всё равно закрывает.
+// The menu was opened with the mouse, focus stayed outside — Escape still closes it.
 function onDocKeydown(e) {
   if (e.key === "Escape") closePMenu({ restoreFocus: true });
 }
@@ -130,7 +130,7 @@ function onMenuKeydown(e) {
 }
 
 function itemHtml(it) {
-  // Пункт-состояние («Уже выбран») — не действие, нажать его нельзя.
+  // A state item ("Already selected") isn't an action, it can't be pressed.
   if (it.state) {
     return `<div class="pmenu__item pmenu__item--state" role="menuitem" aria-disabled="true">${it.icon || ""}<span>${escapeHtml(it.label)}</span></div>`;
   }
@@ -138,8 +138,8 @@ function itemHtml(it) {
 }
 
 /**
- * Открыть меню. Выбор пункта приходит в onSelect(id) после закрытия меню.
- * @param {Element|{x:number,y:number}} anchor кнопка/строка или точка курсора
+ * Open the menu. The item choice arrives in onSelect(id) after the menu closes.
+ * @param {Element|{x:number,y:number}} anchor a button/row or the cursor point
  * @param {Array<{id?:string,label:string,icon?:string,danger?:boolean,state?:boolean}>} items
  * @param {{onSelect?: (id:string)=>void, returnFocus?: Element|null, focusFirst?: boolean, align?: "start"|"end"}} [opts]
  */
@@ -153,7 +153,7 @@ export function openPMenu(anchor, items, { onSelect, returnFocus = null, focusFi
   const isPoint = !(anchor instanceof Element);
   const box = isPoint ? null : anchor.getBoundingClientRect();
   const m = menu.getBoundingClientRect();
-  // align: "end" — правый край меню по правому краю кнопки (кнопка у края строки).
+  // align: "end" — the menu's right edge at the button's right edge (the button is at the row edge).
   const rect = isPoint
     ? { top: anchor.y, bottom: anchor.y, left: anchor.x }
     : { top: box.top, bottom: box.bottom, left: align === "end" ? box.right - m.width : box.left };
@@ -164,7 +164,7 @@ export function openPMenu(anchor, items, { onSelect, returnFocus = null, focusFi
   menu.addEventListener("click", (e) => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (!act) return;
-    // Пункт забирает фокус при клике — возвращаем его на исходное место.
+    // The item takes focus on click — we return it to where it was.
     closePMenu({ restoreFocus: true });
     onSelect?.(act);
   });

@@ -1,7 +1,7 @@
 import { bumpSourceRevision, sourceFingerprint, sourceKey } from "/lib/runtime-identity.js";
 
-// Один controller для refresh/edit/delete. Он сравнивает именно runtime shape,
-// поэтому rename и служебный lastUpdate не роняют соединение, а смена нод — да.
+// One controller for refresh/edit/delete. It compares exactly the runtime shape,
+// so a rename and the service lastUpdate don't drop the connection, while a change of nodes does.
 export function createSourceMutationController(deps) {
   let queue = Promise.resolve();
 

@@ -37,8 +37,8 @@ export function createLatestWinsReconnectQueue({ run, canRun = () => true } = {}
   function enqueue(request) {
     const next = entry(request);
     if (inFlight) {
-      // Заменённый pending-запрос никогда не будет выполнен и обязан завершить
-      // именно свой Promise, а не ждать/наследовать результат текущего запуска.
+      // A replaced pending request will never run and must settle
+      // its own Promise rather than wait for/inherit the result of the current run.
       pending?.resolve({ status: "superseded" });
       pending = next;
       return next.completion;

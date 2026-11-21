@@ -3,9 +3,9 @@
 // Replaces the inline `toast()` in main.js and the #toast <div>.
 //
 //   import { toast } from "/lib/toast.js";
-//   toast("Подключено", "success");                       // title only
-//   toast("Ошибка", "error", 3500, { desc: "..." });      // + 2nd line
-//   toast("Подключаюсь…", "info", 0, { group: "conn" });  // ms:0 = sticky
+//   toast("Connected", "success");                        // title only
+//   toast("Error", "error", 3500, { desc: "..." });       // + 2nd line
+//   toast("Connecting…", "info", 0, { group: "conn" });   // ms:0 = sticky
 //
 // Signature stays backward-compatible with the old toast(msg, kind, ms):
 // every existing call site keeps working unchanged.

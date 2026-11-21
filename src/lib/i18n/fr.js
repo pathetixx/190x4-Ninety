@@ -1,4 +1,4 @@
-// Ninety · catalogue FR (Français). Traduction automatique depuis EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (relecture par un locuteur natif nécessaire).
+// Ninety · catalogue FR (Français). Traduction automatique depuis EN/RU — NEEDS NATIVE PROOFREADING (relecture par un locuteur natif nécessaire).
 // Les clés reflètent ru.js (parité 771) ; si une clé manque, le runtime retombe sur en.
 export const fr = {
   titlebar: { min: "Réduire", max: "Agrandir", close: "Fermer" },
@@ -64,7 +64,7 @@ export const fr = {
     channelTitle: "Qualité du canal",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Afficher Ninety",
     connect: "Se connecter",

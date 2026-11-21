@@ -220,7 +220,7 @@
             <div class="hero" id="hero" data-state="standby">
               <div class="hero__cell">
               <div class="hero__stage">
-                <!-- Обсидиановый HUD: слои — готовые рендеры, стили в styles/obsidian-hud.css -->
+                <!-- Obsidian HUD: the layers are ready-made renders, styles in styles/obsidian-hud.css -->
                 <div class="ob ob-corona" aria-hidden="true"><div class="ob-corona__glow"><i></i></div></div>
                 <img class="ob ob-stone" src="/assets/hud/obsidian.webp" alt="" aria-hidden="true" draggable="false" />
                 <div class="ob ob-lava ob--add" aria-hidden="true">
@@ -254,9 +254,9 @@
               </div>
             </div>
 
-            <!-- Location card: имя, флаг и протокол заполняет updateHeroForActive.
-                 Статических значений здесь быть не должно — карточка скрыта
-                 applyHomeBottom, и любой placeholder уехал бы в публичный исходник. -->
+            <!-- Location card: name, flag and protocol are filled in by updateHeroForActive.
+                 There must be no static values here — the card is hidden by
+                 applyHomeBottom, and any placeholder would end up in the public source. -->
             <article class="loc-card" tabindex="0" id="location-card">
               <span class="loc-card__flag" aria-hidden="true"></span>
               <div class="loc-card__main">
@@ -283,7 +283,7 @@
             </article>
 
             <div class="home-foot">
-              <!-- Телеметрия-полоса (secured) — session-уровень, мгновенная скорость живёт в сайдбаре -->
+              <!-- Telemetry strip (secured) — session level, the instant speed lives in the sidebar -->
               <div class="stats" id="stats-strip" hidden>
                 <div class="stats__cell">
                   <span class="stats__label" data-i18n="stats.server">Сервер</span>
@@ -327,7 +327,7 @@
                 </div>
               </div>
 
-              <!-- До подключения на месте полосы — куда пойдёт подключение (updateHomeReady) -->
+              <!-- Before connecting, the strip shows where the connection will go (updateHomeReady) -->
               <div class="home-ready" id="home-ready" hidden>
                 <span class="home-ready__k" data-i18n="stats.server">Сервер</span>
                 <span class="home-ready__flag" id="home-ready-flag" aria-hidden="true" hidden></span>
@@ -398,7 +398,7 @@
             </div>
           </section>
 
-          <!-- DPI BYPASS screen — рендерится из src/lib/dpi-view.js -->
+          <!-- DPI BYPASS screen — rendered from src/lib/dpi-view.js -->
           <section class="screen" data-view="dpi" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
@@ -412,7 +412,7 @@
             </div>
           </section>
 
-          <!-- DIAGNOSE screen ─ вердикт + матрица + трасса/утечки/лента -->
+          <!-- DIAGNOSE screen ─ verdict + matrix + trace/leaks/feed -->
           <section class="screen" data-view="diagnose" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
@@ -430,7 +430,7 @@
             </div>
           </section>
 
-          <!-- LOGS screen ─ структурный рендер log-line -->
+          <!-- LOGS screen ─ structured log-line rendering -->
           <section class="screen" data-view="logs" hidden>
             <div class="screen__head">
               <div class="screen__head-main">
@@ -482,7 +482,7 @@
             <div class="settings-root" id="settings-root"></div>
           </section>
 
-          <!-- Onboarding wizard: импорт → подключение → готово. -->
+          <!-- Onboarding wizard: import → connect → done. -->
           <section class="onboarding" id="onboarding-screen" data-step="1" hidden>
             <div class="onb-brand-panel" aria-hidden="true">
               <div class="onb-brand-panel__art"></div>
@@ -495,7 +495,7 @@
 
             <div class="onb-flow">
               <div class="onb-wizard">
-              <!-- Первый запуск: импорт → подключение → готово -->
+              <!-- First launch: import → connect → done -->
               <div class="onb-progress" aria-hidden="true">
                 <span class="onb-progress__dot" data-step="1"></span>
                 <span class="onb-progress__bar"></span>
@@ -504,7 +504,7 @@
                 <span class="onb-progress__dot" data-step="3"></span>
               </div>
 
-              <!-- Шаг 1 — Импорт подписки -->
+              <!-- Step 1 — Import a subscription -->
               <div class="onb-step" data-step="1">
                 <div class="onb">
                   <h1 class="onb__title" data-i18n="onb.import.title">Добавьте подписку</h1>
@@ -528,7 +528,7 @@
                 </div>
               </div>
 
-              <!-- Шаг 2 — Подключение -->
+              <!-- Step 2 — Connect -->
               <div class="onb-step" data-step="2" hidden>
                 <div class="onb">
                   <div class="onb-spinner" aria-hidden="true">
@@ -545,7 +545,7 @@
                 </div>
               </div>
 
-              <!-- Шаг 3 — Готово -->
+              <!-- Step 3 — Done -->
               <div class="onb-step" data-step="3" hidden>
                 <div class="onb">
                   <div class="onb-check" aria-hidden="true">
@@ -569,7 +569,7 @@
         </main>
       </div>
 
-      <!-- Legacy popovers ─── переделываются в Этапе 3 -->
+      <!-- Legacy popovers ─── being reworked in Stage 3 -->
       <div class="popover" id="mode-popover" role="dialog" aria-label="Режим подключения" data-i18n-aria-label="mode.popoverAria" hidden>
         <div class="popover__kicker" data-i18n="mode.kicker">РЕЖИМ ПОДКЛЮЧЕНИЯ</div>
         <div class="seg" role="tablist" id="mode-seg">
@@ -594,7 +594,7 @@
         </label>
       </div>
 
-      <!-- Add Profile Modal ── переделывается в Этапе 3 -->
+      <!-- Add Profile Modal ── being reworked in Stage 3 -->
       <div class="add-modal" id="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-modal-title" hidden>
         <div class="add-modal__backdrop" id="add-modal-backdrop"></div>
         <div class="add-modal__card">
@@ -670,7 +670,7 @@
         </div>
       </div>
 
-      <!-- Update Modal ── переделывается в Этапе 3 -->
+      <!-- Update Modal ── being reworked in Stage 3 -->
       <div class="update-modal" id="update-modal" role="dialog" aria-modal="true" aria-labelledby="update-kicker" hidden>
         <div class="update-modal__backdrop" id="update-backdrop"></div>
         <div class="update-modal__card">

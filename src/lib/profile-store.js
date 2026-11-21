@@ -1,15 +1,15 @@
-// Ninety · живое защищённое хранилище профилей и подписок.
+// Ninety · live protected storage for profiles and subscriptions.
 //
-// До миграции legacy-ключи читаются как fallback. После успешного commit в
-// Rust они удаляются из WebView localStorage; recovery backup получает копию
-// через state-backup.js и по-прежнему шифруется backend-политикой.
+// Before the migration, legacy keys are read as a fallback. After a successful commit in
+// Rust they're removed from the WebView localStorage; the recovery backup gets a copy
+// via state-backup.js and is still encrypted by the backend policy.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 import { localizedInvoke } from "/lib/backend-errors.js";
 
 const STORE_SCHEMA_VERSION = 1;
-// Тот же лимит, что MAX_STORE_BYTES в profile_store.rs (сверяет тест): заранее
-// отказать понятной ошибкой дешевле, чем гонять большой снимок через IPC.
+// The same limit as MAX_STORE_BYTES in profile_store.rs (checked by a test): refusing
+// in advance with a clear error is cheaper than sending a big snapshot through IPC.
 export const PROFILE_STORE_MAX_BYTES = 32 * 1024 * 1024;
 const PROFILE_KEYS = [
   STORAGE_KEYS.profiles,
@@ -136,9 +136,9 @@ function readLegacy(storage = storageOrNull(), { preserveDangling = false } = {}
     active: { kind, profileId, subscriptionId },
     proxySelection,
   });
-  // Старый фасад позволял помнить источник, даже если его запись уже была
-  // удалена. До старта миграции сохраняем это поведение для совместимости;
-  // при фактическом Rust commit normalizeStore очистит dangling-ссылки.
+  // The old facade allowed remembering a source even if its record had already been
+  // deleted. Until the migration starts we keep this behavior for compatibility;
+  // on the actual Rust commit normalizeStore clears dangling references.
   if (preserveDangling) {
     try {
       const rawProfile = storage?.getItem(STORAGE_KEYS.profileActive);
@@ -158,27 +158,27 @@ let invokeRef = localizedInvoke(globalThis.window?.__TAURI__?.core?.invoke) ?? n
 let state = readLegacy(storageRef, { preserveDangling: true }).store;
 let revision = 0;
 let initialized = false;
-// Мутация, пришедшая до ответа Rust-хранилища (deep-link/автоимпорт на старте).
-// Такая запись существует только в памяти: legacy-зеркало снимет
-// removeLegacySensitiveKeys(), а backend-снимок её не содержит.
+// A mutation that arrived before the Rust storage responded (deep link/auto-import at startup).
+// Such a record exists only in memory: the legacy mirror is removed by
+// removeLegacySensitiveKeys(), and the backend snapshot doesn't contain it.
 let pendingLocalMutation = false;
 let backendEnabled = typeof invokeRef === "function";
-// Защищённое хранилище БЫЛО доступно, но отвалилось (чтение или миграция).
-// Отличается от штатного legacy-режима (браузерное превью, тесты — там backend
-// не существовал вовсе): в деградации зеркалить состояние в localStorage
-// нельзя, иначе учётные данные нод, которые ушли в шифрованный стор, снова
-// оказались бы на диске открытым текстом. См. docs/PROFILE_STORE_MIGRATION.md:
+// The protected storage WAS available but dropped off (read or migration).
+// This differs from the regular legacy mode (browser preview, tests — there the backend
+// never existed at all): in degradation mirroring the state into localStorage
+// is not allowed, otherwise node credentials that went into the encrypted store would again
+// end up on disk in plain text. See docs/PROFILE_STORE_MIGRATION.md:
 // «A Rust write failure must not update the legacy mirror».
 let backendDegraded = false;
 let persistedStore = false;
-// Последняя запись в Rust не прошла: в памяти есть несохранённые изменения.
-// { code: "too_large" | "write", bytes?, limit? }; null после успешной записи.
+// The last write to Rust failed: memory holds unsaved changes.
+// { code: "too_large" | "write", bytes?, limit? }; null after a successful write.
 let writeFailure = null;
 let initPromise = null;
 let writeChain = Promise.resolve();
-// Сколько «Очистить» сейчас в полёте. Запись, поставленная в это время, несёт
-// состояние до очистки и, выполнившись после неё, вернула бы удалённые
-// подписки (с URL и токенами) обратно на диск.
+// How many "Clear" operations are in flight right now. A write queued during this time carries
+// the state from before the clear and, if it ran after it, would bring the deleted
+// subscriptions (with URLs and tokens) back to disk.
 let clearsInFlight = 0;
 
 function emit(name, detail = {}) {
@@ -266,8 +266,8 @@ function describeWriteError(error) {
   if (error?.code === "too_large") {
     return { code: "too_large", bytes: error.bytes, limit: error.limit };
   }
-  // Rust — окончательный арбитр: его отказ по размеру (строка из
-  // profile_store.rs) тоже должен откатывать и объясняться как too_large.
+  // Rust is the final arbiter: its size refusal (a string from
+  // profile_store.rs) must also roll back and be explained as too_large.
   const text = String(error?.message ?? error ?? "");
   if (text.includes("profile store exceeds") || text.includes("profile store is too large")) {
     return { code: "too_large", limit: PROFILE_STORE_MAX_BYTES };
@@ -278,12 +278,12 @@ function describeWriteError(error) {
 async function replaceBackend(payload, expectedRevision) {
   if (!backendEnabled || typeof invokeRef !== "function") return { revision: expectedRevision, persisted: false };
   const store = { ...clone(payload), revision: expectedRevision };
-  // Rust сериализует уже следующую ревизию: меряем с ней, чтобы граница не
-  // расходилась на лишнюю цифру.
+  // Rust serializes the already next revision: we measure with it so the boundary doesn't
+  // diverge by an extra digit.
   const bytes = encodedBytes({ ...store, revision: expectedRevision + 1 });
   if (bytes > PROFILE_STORE_MAX_BYTES) {
-    // До backend запрос не доходит, поэтому причину в файловый лог пишем сами:
-    // без неё по присланному логу отказ не разобрать.
+    // The request doesn't reach the backend, so we write the cause to the file log ourselves:
+    // without it the refusal can't be figured out from a submitted log.
     Promise.resolve()
       .then(() => invokeRef("record_frontend_runtime_event", {
         phase: "profile_store_write",
@@ -293,10 +293,10 @@ async function replaceBackend(payload, expectedRevision) {
       .catch(() => {});
     throw tooLargeError(bytes);
   }
-  // Ключи аргументов Tauri-команд — camelCase (макрос переводит имя параметра
-  // Rust в lowerCamelCase). snake_case здесь не находился, команда отвечала
-  // «missing required key expectedRevision», и защищённый store не записывался
-  // никогда: приложение молча работало на legacy-localStorage.
+  // Tauri command argument keys are camelCase (the macro converts the Rust parameter name
+  // to lowerCamelCase). snake_case wasn't found here, the command answered
+  // "missing required key expectedRevision", and the protected store was never
+  // written: the app silently ran on legacy localStorage.
   const response = await invokeRef("profile_store_replace", {
     expectedRevision,
     store,
@@ -309,8 +309,8 @@ async function replaceBackend(payload, expectedRevision) {
   return { revision: nextRevision, persisted: true };
 }
 
-// quietTooLarge — вызывающий сам объяснит отказ по размеру (окно добавления);
-// остальные отказы записи всё равно сообщаются общим уведомлением.
+// quietTooLarge — the caller will explain the size refusal itself (the add window);
+// other write refusals are still reported with the shared notification.
 function enqueuePersist({ notify = true, quietTooLarge = false } = {}) {
   if (clearsInFlight > 0) return Promise.resolve({ revision, persisted: false, superseded: true });
   const payload = storePayload();
@@ -331,8 +331,8 @@ function enqueuePersist({ notify = true, quietTooLarge = false } = {}) {
   return task;
 }
 
-// Результат записи для вызывающего кода; никогда не отклоняется, чтобы
-// неиспользованный промис не превращался в unhandledrejection.
+// The write result for the calling code; it's never rejected so that
+// an unused promise doesn't turn into an unhandledrejection.
 function settledPersist(options) {
   return enqueuePersist(options).then(
     result => result,
@@ -340,9 +340,9 @@ function settledPersist(options) {
   );
 }
 
-// Слияние снимка хранилища с локальными записями, сделанными до его загрузки.
-// Backend — база, локальные элементы дописываются по id; активный источник
-// берём локальный, если он ещё существует после слияния.
+// Merging the storage snapshot with local records made before it loaded.
+// The backend is the base, local items are appended by id; the active source
+// is taken from local if it still exists after the merge.
 function mergeStoreStates(backendState, localState, revision) {
   const mergeById = (base, local) => {
     const known = new Set(base.map(item => item.id));
@@ -370,8 +370,8 @@ function publish(next, { quietTooLarge = false } = {}) {
   if (initialized && backendEnabled) result = settledPersist({ quietTooLarge });
   else {
     if (!initialized) pendingLocalMutation = true;
-    // В деградации мутации остаются только в памяти: открытая копия секретов
-    // на диске — худший исход, чем потеря изменений до перезапуска.
+    // In degradation mutations stay in memory only: an open copy of secrets
+    // on disk is a worse outcome than losing changes until a restart.
     if (!backendDegraded) mirrorLegacyState();
   }
   emit("ninety:profile-store-changed", { revision });
@@ -386,20 +386,20 @@ export function profileStoreIsPersisted() {
   return persistedStore;
 }
 
-// Защищённое хранилище было доступно и отказало: изменения живут только в
-// памяти и исчезнут при перезапуске. UI обязан сказать об этом пользователю —
-// молча работающее приложение выглядит исправным, пока профили не пропадут.
+// The protected storage was available and failed: changes live only in
+// memory and will disappear on restart. The UI must tell the user —
+// a silently working app looks healthy until the profiles disappear.
 export function profileStoreIsDegraded() {
   return backendDegraded;
 }
 
-// Есть ли нативное хранилище вообще (desktop), независимо от его готовности.
-// На desktop профильные ключи в WebView-хранилище не возвращаются никогда.
+// Whether a native storage exists at all (desktop), regardless of its readiness.
+// On desktop profile keys never return to WebView storage.
 export function profileStoreHasBackend() {
   return typeof invokeRef === "function";
 }
 
-// Почему не прошла последняя запись (null — всё сохранено).
+// Why the last write failed (null — everything is saved).
 export function profileStoreWriteFailure() {
   return writeFailure ? { ...writeFailure } : null;
 }
@@ -434,9 +434,9 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
     if (loaded?.store) {
       revision = checkRevision(loaded.revision);
       const backendState = normalizeStore(loaded.store, revision);
-      // Профиль, добавленный до ответа хранилища, backend-снимок не содержит.
-      // Раньше он просто затирался, а removeLegacySensitiveKeys() удалял и
-      // зеркало в localStorage — запись исчезала бесследно.
+      // A profile added before the storage responded isn't in the backend snapshot.
+      // Previously it was simply overwritten, and removeLegacySensitiveKeys() also deleted
+      // the localStorage mirror — the record vanished without a trace.
       const merged = pendingLocalMutation
         ? mergeStoreStates(backendState, state, revision)
         : backendState;
@@ -461,8 +461,8 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
     // only usable copy of a user's profiles.
     revision = 0;
     persistedStore = false;
-    // Профиль, добавленный до ответа хранилища, есть только в памяти: без
-    // слияния он терялся, а следующая запись удаляла и его зеркало.
+    // A profile added before the storage responded exists only in memory: without
+    // merging it was lost, and the next write deleted its mirror too.
     const legacyState = normalizeStore(legacy.store, revision);
     const hadLocalMutation = pendingLocalMutation;
     state = hadLocalMutation ? mergeStoreStates(legacyState, state, revision) : legacyState;
@@ -487,17 +487,17 @@ export async function initializeProfileStore({ invoke = null, storage = null } =
   return initPromise;
 }
 
-// Читатели вызываются десятками сотен раз за один рендер списка серверов
-// (история задержки берётся на каждую строку), а глубокая копия подписки на
-// триста нод стоит миллисекунды — на большой подписке это давало секунды
-// заморозки интерфейса. Копию делаем один раз на версию состояния: publish()
-// и bootstrap всегда ставят НОВЫЙ объект state, поэтому сравнение по ссылке —
-// точный признак устаревшего кэша.
+// Readers are called hundreds and thousands of times in one server list render
+// (the latency history is taken for every row), and a deep copy of a subscription with
+// three hundred nodes costs milliseconds — on a big subscription this produced seconds
+// of interface freeze. We make the copy once per state version: publish()
+// and bootstrap always set a NEW state object, so comparison by reference is
+// an exact sign of a stale cache.
 //
-// Элементы snapshot'а общие между вызовами. Мутировать их на месте нельзя (это
-// и раньше не сохранялось бы: запись идёт только через save*ToStore), поэтому
-// вызывающий код заменяет записи целиком — массив отдаём копией, чтобы
-// push/filter/splice над результатом оставались безопасными.
+// Snapshot elements are shared between calls. Mutating them in place is not allowed (it
+// wouldn't have been saved before either: writing goes only through save*ToStore), so
+// calling code replaces records entirely — the array is returned as a copy so that
+// push/filter/splice on the result stay safe.
 let readCache = null;
 
 function readSnapshot() {
@@ -539,8 +539,8 @@ export function loadSubscriptionsFromStore() {
   return readSnapshot().subscriptions.slice();
 }
 
-// Возвращает промис с результатом записи ({ persisted, error? }); дожидаться
-// его не обязательно.
+// Returns a promise with the write result ({ persisted, error? }); waiting for
+// it isn't required.
 export function saveSubscriptionsToStore(list, options) {
   syncLegacyBeforeReady();
   return publish({ ...state, subscriptions: list }, options);
@@ -595,8 +595,8 @@ export function profileStoreBackupEntries() {
 }
 
 export async function restoreProfileStoreFromBackup(snapshot) {
-  // Хранилище не читается: восстановление жило бы только в памяти, а успех
-  // был бы ложным. Оставляем данные на диске и честно сообщаем об ошибке.
+  // The storage can't be read: the restore would live only in memory, and the success
+  // would be false. We leave the data on disk and honestly report the error.
   if (backendDegraded) {
     emit("ninety:profile-store-error", { stage: "restore" });
     return false;
@@ -640,9 +640,9 @@ export async function clearProfileStore() {
   const task = writeChain
     .catch(() => {})
     .then(async () => {
-      // Удаление подтверждает только нативный backend — и в деградации тоже.
-      // Rust удаляет файлы без чтения (expectedRevision: null), а раньше этот
-      // вызов пропускался: «Очистить» сообщала об успехе, файлы оставались.
+      // Only the native backend confirms deletion — in degradation too.
+      // Rust deletes files without reading (expectedRevision: null), and previously this
+      // call was skipped: "Clear" reported success while the files stayed.
       if (typeof invokeRef === "function") {
         await invokeRef("profile_store_clear", { expectedRevision: null });
         if (backendDegraded) {

@@ -1,5 +1,5 @@
 // Ninety · Update modal controller
-// Кастомная модалка вместо нативного dialog.ask — в стиле hub190x4-app Android.
+// A custom modal instead of the native dialog.ask — in the style of hub190x4-app Android.
 
 import { t } from "/lib/i18n/index.js";
 import { closeUpdateResource, snapshotUpdate } from "/lib/update-resource.js";
@@ -16,10 +16,10 @@ export function portableReleaseUrl(version) {
   return `${RELEASE_BASE_URL}/v${encodeURIComponent(String(version || ""))}`;
 }
 
-// Версия в latest.json сменилась между уведомлением и «Обновить»: Rust отвечает
-// токеном updModal.versionChanged с новой версией (portable_update.rs). Узнаём
-// его до перевода — иначе он стал бы обычной ошибкой, а запасная кнопка открыла
-// бы страницу релиза прежней версии.
+// The version in latest.json changed between the notification and "Update": Rust answers
+// with the updModal.versionChanged token with the new version (portable_update.rs). We recognize
+// it before translation — otherwise it would become a regular error, and the fallback button would open
+// the release page of the previous version.
 const VERSION_CHANGED_TOKEN = /\[\[updModal\.versionChanged (\{.*?\})\]\]/;
 
 export function portableVersionChange(error) {
@@ -90,7 +90,7 @@ export async function updateRecoveryRequired(journal, invoke, runtimeStopAttempt
     const dpiReady = !desired?.dpi || !!(await invoke("dpi_running"));
     return !(vpnReady && dpiReady);
   } catch {
-    // После начатой остановки неизвестное состояние нельзя выдавать за рабочее.
+    // Once a stop has started, an unknown state must not be passed off as a working one.
     return true;
   }
 }
@@ -141,11 +141,11 @@ function showError(msg) {
   }
 }
 
-// Закрытие по Escape/клику мимо окна — не решение «эту версию не показывать».
-// Раньше оба пути шли через «Позже» и писали версию в localStorage навсегда:
-// один случайный Esc — и модалка по этой версии не появлялась уже никогда,
-// хотя пользователь просто убрал окно с глаз. Держим такой отказ в памяти
-// процесса: до перезапуска не навязываемся, после — предлагаем снова.
+// Closing with Escape/a click outside the window isn't a "don't show this version" decision.
+// Previously both paths went through "Later" and wrote the version to localStorage forever:
+// one accidental Esc — and the modal for this version never appeared again,
+// although the user just moved the window out of sight. We keep such a refusal in the process's
+// memory: until a restart we don't impose, after it we offer again.
 const dismissedThisSession = new Set();
 
 export function shouldSkip(version) {
@@ -164,18 +164,18 @@ function markDismissed(version) {
 }
 
 /**
- * Открыть модалку для апдейта.
- * @param {object} update — объект Tauri updater (currentVersion, version, body, download/install)
+ * Open the modal for an update.
+ * @param {object} update — the Tauri updater object (currentVersion, version, body, download/install)
  * @param {object} opts
- * @param {boolean} opts.respectSkip — если true и юзер ранее нажал "Позже" на эту версию, не показывать
- * @param {function} opts.onInstalling — (bool) идёт скачивание/установка; main.js
- *   по нему глушит health-watchdog (иначе тот находил «труп» ядра, которое мы
- *   сами погасили перед установкой, и слал ложный «соединение закрыто»).
- * @param {function} opts.onBeforeInstall — async-хук перед остановкой ядер;
- *   main.js сохраняет через него профиль и resume-маркер одним OTA-снимком.
- * @param {function} opts.onBeforeRuntimeStop — синхронный хук перед остановкой
- *   ядер; main.js инвалидирует reconnect-намерение до ухода в updater.
- * @returns Promise<void> — резолвится после закрытия (либо relaunch — резолва не будет, app перезапустится)
+ * @param {boolean} opts.respectSkip — if true and the user previously pressed "Later" on this version, don't show
+ * @param {function} opts.onInstalling — (bool) downloading/installing is in progress; main.js
+ *   uses it to mute the health watchdog (otherwise it found the "corpse" of the core that we
+ *   stopped ourselves before installing, and sent a false "connection closed").
+ * @param {function} opts.onBeforeInstall — an async hook before stopping the cores;
+ *   main.js uses it to save the profile and the resume marker in one OTA snapshot.
+ * @param {function} opts.onBeforeRuntimeStop — a synchronous hook before stopping
+ *   the cores; main.js invalidates the reconnect intent before handing over to the updater.
+ * @returns Promise<void> — resolves after closing (or relaunch — there will be no resolve, the app restarts)
  */
 export function openUpdateModal(update, opts = {}) {
   if (!update) return Promise.resolve();
@@ -204,9 +204,9 @@ export function openUpdateModal(update, opts = {}) {
     if (typeof activeUpdate?.close !== "function") return true;
     const resource = activeUpdate;
     const metadata = snapshotUpdate(resource);
-    // updater.install()/downloadAndInstall() уже удаляют update RID на Rust-
-    // стороне. Повторный Resource.close() дал бы invalid-resource и ошибочно
-    // отравил cleanup quarantine.
+    // updater.install()/downloadAndInstall() already delete the update RID on the Rust
+    // side. A repeated Resource.close() would produce invalid-resource and wrongly
+    // poison the cleanup quarantine.
     if (activeUpdateConsumed) {
       activeUpdate = metadata;
       activeUpdateConsumed = false;
@@ -220,7 +220,7 @@ export function openUpdateModal(update, opts = {}) {
     currentEl.textContent = activeUpdate.currentVersion ?? "—";
     latestEl.textContent = activeUpdate.version ?? "—";
     const body = (activeUpdate.body || "").trim();
-    // Если notes — наш дефолт-заглушка из workflow, заменяем на дружелюбное
+    // If the notes are our default placeholder from the workflow, we replace them with a friendly
     changelogEl.textContent = body && !/См\. полные заметки в GitHub Release/.test(body)
       ? formatReleaseNotes(body)
       : t("updModal.notesUnavailable");
@@ -238,8 +238,8 @@ export function openUpdateModal(update, opts = {}) {
   return new Promise((resolve) => {
     let installing = false;
     let preparing = false;
-    // Portable обновляется сам; если не вышло — следующая кнопка ведёт на
-    // страницу релиза за ZIP, как раньше.
+    // Portable updates itself; if it didn't work, the next button leads to
+    // the release page for the ZIP, as before.
     let portableFallback = false;
 
     const cleanup = () => {
@@ -261,7 +261,7 @@ export function openUpdateModal(update, opts = {}) {
       close();
     };
 
-    // Esc/фон закрывают окно, но не отказываются от версии насовсем.
+    // Esc/the backdrop close the window, but don't give up on the version for good.
     const onDismiss = () => {
       if (installing || preparing) return;
       markDismissed(activeUpdate.version);
@@ -274,9 +274,9 @@ export function openUpdateModal(update, opts = {}) {
       if (e.key === "Escape" && !installing) onDismiss();
     };
 
-    // Подтверждали одну версию, а в latest.json уже другая: показываем новую и
-    // ждём повторного «Обновить», окно снова свободно. Общий путь для
-    // установщика и portable.
+    // One version was confirmed, but latest.json already has another: we show the new one and
+    // wait for "Update" again, the window is free again. A shared path for
+    // the installer and portable.
     const applyVersionChange = async (next) => {
       activeUpdate = next;
       activeUpdateConsumed = false;
@@ -293,12 +293,12 @@ export function openUpdateModal(update, opts = {}) {
       showError(t("updModal.versionChanged", { version: activeUpdate.version }));
     };
 
-    // Для portable версию сверяет Rust, а заметки новой версии берём свежей
-    // проверкой, как у установщика. Не вышло — новая версия без заметок: старые
-    // заметки под новым номером ввели бы в заблуждение.
+    // For portable Rust checks the version, and the new version's notes are taken with a fresh
+    // check, as for the installer. If that fails — the new version without notes: old
+    // notes under a new number would be misleading.
     const portableMetadata = async (version) => {
       try {
-        // Прежний Resource освобождаем в любом случае, до fresh-check.
+        // The previous Resource is released in any case, before the fresh check.
         const released = await releaseActiveResource();
         if (released && typeof opts.acquireUpdate === "function") {
           const acquired = await opts.acquireUpdate();
@@ -326,17 +326,17 @@ export function openUpdateModal(update, opts = {}) {
         return;
       }
 
-      // Pending в трее хранит только metadata. Настоящий Tauri Update получаем
-      // непосредственно перед download: его HTTP client тогда использует
-      // актуальное состояние VPN/proxy, а не маршрут часовой давности.
+      // The pending entry in the tray stores only metadata. The real Tauri Update is obtained
+      // right before the download: its HTTP client then uses
+      // the current VPN/proxy state, not an hour-old route.
       preparing = true;
       opts.onInstalling?.(true);
       installBtn.disabled = true;
       showError(null);
       try {
         if (!opts.portable && typeof opts.acquireUpdate === "function") {
-          // Retry никогда не переиспользует старый HTTP client/download buffer.
-          // Освобождаем его до fresh-check, сохраняя metadata для модалки.
+          // A retry never reuses the old HTTP client/download buffer.
+          // We release it before the fresh check, keeping the metadata for the modal.
           if (!(await releaseActiveResource())) {
             throw new Error(t("update.unavailable"));
           }
@@ -375,10 +375,10 @@ export function openUpdateModal(update, opts = {}) {
         try { return localStorage.getItem(STORAGE_KEYS.dpiEnabled) === "true"; } catch { return false; }
       })();
       const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
-      // Что было поднято — запоминаем ДО гашения: после перезапуска
-      // автоконнект-блок main.js читает ninety.update.resume и возвращает
-      // сессию (раньше флаг был только про DPI — юзер с апдейтом при
-      // выключенном DPI оставался отключённым, пока не нажмёт руками).
+      // What was up — we remember it BEFORE stopping: after the restart
+      // main.js's autoconnect block reads ninety.update.resume and restores
+      // the session (previously the flag was only about DPI — a user updating with
+      // DPI off stayed disconnected until they pressed it by hand).
       let vpnWasOn = false;
       if (invoke) { try { vpnWasOn = !!(await invoke("singbox_running")); } catch {} }
       let journal = null;
@@ -409,9 +409,9 @@ export function openUpdateModal(update, opts = {}) {
           return true;
         }
 
-        // Recovery получает journal аргументом, поэтому marker можно закрыть до
-        // хука. Тогда main.js::markUpdateRuntimeReady зафиксирует его отсутствие
-        // через state-backup. При провале recovery marker возвращаем.
+        // Recovery gets the journal as an argument, so the marker can be closed before
+        // the hook. Then main.js::markUpdateRuntimeReady records its absence
+        // via state-backup. If recovery fails, we restore the marker.
         let markerCleared = false;
         try {
           clearUpdateJournal();
@@ -428,20 +428,20 @@ export function openUpdateModal(update, opts = {}) {
         catch { return false; }
       };
 
-      // Гасим ядра ПЕРЕД установкой, но ПОСЛЕ скачивания: разлоченные бинарники
-      // нужны NSIS только на этапе install, а пока качаем — туннель жив (и
-      // download через check({proxy}) идёт по нему; гасить раньше = качать
-      // напрямую там, где напрямую не качается). stop_singbox снимает оба
-      // child'а; winws лочит свой бинарь И kernel-драйвер WinDivert (служба не
-      // выгружается со смертью процесса) → dpi_unload_driver гасит winws и
-      // снимает службу; аппа при запущенном DPI уже elevated, sc-команды пройдут.
+      // We stop the cores BEFORE installing but AFTER downloading: unlocked binaries
+      // are needed by NSIS only at the install stage, and while we download the tunnel is alive (and
+      // the download via check({proxy}) goes through it; stopping earlier = downloading
+      // directly where directly doesn't download). stop_singbox removes both
+      // children; winws locks its binary AND the WinDivert kernel driver (the service isn't
+      // unloaded with the process's death) → dpi_unload_driver kills winws and
+      // removes the service; with DPI running the app is already elevated, the sc commands will go through.
       const stopEngines = async () => {
         opts.onBeforeRuntimeStop?.();
         if (!invoke) return null;
-        // Состояние VPN перечитываем прямо здесь. Первый снимок берётся при
-        // клике «Обновить», а между ним и остановкой проходит всё скачивание:
-        // подключение, которое в тот момент только устанавливалось, попадало в
-        // журнал как выключенное и после перезапуска не возвращалось.
+        // We reread the VPN state right here. The first snapshot is taken on
+        // the "Update" click, and the whole download happens between it and the stop:
+        // a connection that was just being established at that moment ended up in
+        // the journal as off and didn't come back after the restart.
         try {
           if (!vpnWasOn && await invoke("singbox_running")) {
             vpnWasOn = true;
@@ -492,10 +492,10 @@ export function openUpdateModal(update, opts = {}) {
           timeout: opts.downloadTimeoutMs || UPDATE_DOWNLOAD_TIMEOUT_MS,
         };
         if (opts.portable) {
-          // ZIP качает и проверяет подписью updater-плагин на стороне Rust;
-          // файлы программы меняются только после остановки движков, и при
-          // успехе portable_update_apply не возвращается: процесс уже заменён
-          // новой версией.
+          // The ZIP is downloaded and signature-checked by the updater plugin on the Rust side;
+          // program files change only after the engines stop, and on
+          // success portable_update_apply doesn't return: the process has already been replaced
+          // by the new version.
           const Channel = window.__TAURI__?.core?.Channel;
           const rawInvoke = window.__TAURI__?.core?.invoke;
           if (typeof rawInvoke !== "function" || typeof Channel !== "function") {
@@ -504,9 +504,9 @@ export function openUpdateModal(update, opts = {}) {
           const channel = new Channel();
           channel.onmessage = onEvent;
           const version = String(activeUpdate.version);
-          // Без localizedInvoke: смену версии надо узнать по токену до перевода.
-          // Дедлайн тот же, что у установщика: пока идёт скачивание, окно
-          // заблокировано, и зависшее соединение не должно держать его вечно.
+          // Without localizedInvoke: the version change must be recognized by the token before translation.
+          // The same deadline as for the installer: while the download runs, the window
+          // is blocked, and a hung connection must not hold it forever.
           let changedTo = null;
           try {
             await rawInvoke("portable_update_download", {
@@ -544,12 +544,12 @@ export function openUpdateModal(update, opts = {}) {
           await stopEngines();
           writeResume("runtime_stopped");
           writeResume("installing");
-          // На Windows успешный install() не возвращается: plugin передаёт
-          // управление NSIS (/P /R) и завершает процесс. Всё durable уже записано.
+          // On Windows a successful install() doesn't return: the plugin hands
+          // control to NSIS (/P /R) and terminates the process. Everything durable is already written.
           await activeUpdate.install();
           activeUpdateConsumed = true;
         } else {
-          // Урезанный API (нет раздельных download/install) — прежний порядок.
+          // A trimmed API (no separate download/install) — the old order.
           writeResume("backup_ready");
           await opts.onBeforeInstall?.();
           await stopEngines();
@@ -565,10 +565,10 @@ export function openUpdateModal(update, opts = {}) {
           await a?.process?.relaunch();
           writeResume("relaunch_confirmed");
         } catch (e) {
-          // install уже завершён, поэтому повторная кнопка «Установить» не
-          // восстановит состояние. Сохраняем журнал и сразу отдаём управление
-          // recovery-хуку: он либо возвращает VPN/DPI в рабочее состояние, либо
-          // оставляет приложение в честном idle/cleanup_error.
+          // install has already finished, so a repeated "Install" button won't
+          // restore the state. We keep the journal and immediately hand control to
+          // the recovery hook: it either brings VPN/DPI back to a working state or
+          // leaves the app in an honest idle/cleanup_error.
           console.warn("relaunch failed, running recovery", e);
           writeResume("relaunch_failed");
           let recovered = false;
@@ -582,29 +582,29 @@ export function openUpdateModal(update, opts = {}) {
             return;
           }
           showError(t("updModal.failed", { err: e?.message || e }));
-          // Установка уже завершена: retry здесь не имеет смысла, а исходный
-          // onInstall нельзя оставлять рядом с кнопкой закрытия.
+          // The installation has already finished: a retry makes no sense here, and the original
+          // onInstall must not be left next to the close button.
           cleanup();
           installBtn.disabled = false;
           installBtn.textContent = t("updModal.done");
           installBtn.addEventListener("click", close, { once: true });
           return;
         }
-        // После подтверждённого relaunch старый процесс скоро завершится;
-        // journal будет закрыт новым bootstrap только после RuntimeReady.
+        // After a confirmed relaunch the old process will soon exit;
+        // the journal will be closed by the new bootstrap only after RuntimeReady.
         installBtn.textContent = t("updModal.done");
         installBtn.disabled = false;
         installBtn.addEventListener("click", close, { once: true });
       } catch (e) {
         console.error("update failed", e);
-        // До остановки runtime рабочую сессию не трогаем и закрываем только
-        // незавершённый OTA marker. После начатого stop recovery запускается лишь
-        // когда желаемые движки реально уже не готовы.
+        // Before the runtime stop we don't touch the working session and close only
+        // the unfinished OTA marker. After a stop has started, recovery runs only
+        // when the desired engines are actually no longer ready.
         try { await recoverOrCloseJournal(e); } catch (recoveryError) {
           console.warn("update recovery failed", recoveryError);
         }
-        // Retry всё равно делает fresh-check: не держим старый client и
-        // installer-sized DownloadedBytes между попытками.
+        // A retry still does a fresh check: we don't keep the old client and the
+        // installer-sized DownloadedBytes between attempts.
         await releaseActiveResource();
         installing = false;
         opts.onInstalling?.(false);

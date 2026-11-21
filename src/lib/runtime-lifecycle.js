@@ -25,14 +25,14 @@ export function runtimeSnapshotReadyForMode(snapshot, mode) {
     && snapshot.proxyServer === snapshot.probeProxyEndpoint.address;
 }
 
-// Порт локального инбаунда ЖИВОГО runtime. Настройка `inbound.mixedPort` для
-// этого не годится: её меняют без реконнекта, и запрос уходит в порт, которого
-// ядро не слушает. Возвращает 0, если снимок не описывает готовый runtime, —
-// вызывающий тогда идёт прямым запросом.
+// The local inbound port of the LIVE runtime. The `inbound.mixedPort` setting doesn't
+// work for this: it's changed without a reconnect, and the request goes to a port the
+// core doesn't listen on. Returns 0 if the snapshot doesn't describe a ready runtime —
+// the caller then makes a direct request.
 export function runtimeProbeProxyPort(snapshot) {
   if (!runtimeEndpointMatchesGeneration(snapshot) || snapshot.running !== true) return 0;
   const address = String(snapshot.probeProxyEndpoint?.address || "");
-  // IPv6-литерал приходит как [::1]:7890 — порт всегда после последнего ":".
+  // An IPv6 literal arrives as [::1]:7890 — the port is always after the last ":".
   const port = Number(address.slice(address.lastIndexOf(":") + 1));
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 0;
 }

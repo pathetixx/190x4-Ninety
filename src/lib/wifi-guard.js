@@ -1,11 +1,11 @@
-// Ninety · авто-защита на чужих Wi-Fi (III.3) — вынесено из main.js.
+// Ninety · auto-protection on foreign Wi-Fi (III.3) — moved out of main.js.
 //
-// Политика во фронте (Rust только отдаёт текущую сеть, wifi.rs::current_wifi):
-// на ОТКРЫТОЙ сети, не входящей в доверенные, при включённой опции — авто-включаем
-// TUN (changeMode сам поднимет UAC). Защищённые сети не трогаем. lastWifiHandled
-// гасит повтор на той же сети, чтобы не дёргать UAC по кругу. Прежний режим
-// запоминаем в WIFI_PREV_MODE_KEY и возвращаем, когда сеть снова безопасна;
-// ручная смена режима отменяет возврат (main.js::changeMode → forgetWifiAutoRestore).
+// The policy is in the frontend (Rust only returns the current network, wifi.rs::current_wifi):
+// on an OPEN network that isn't trusted, with the option on, we auto-enable
+// TUN (changeMode brings up UAC itself). Secured networks are left alone. lastWifiHandled
+// suppresses a repeat on the same network so as not to trigger UAC in a loop. The previous mode
+// is remembered in WIFI_PREV_MODE_KEY and restored when the network is safe again;
+// a manual mode change cancels the restore (main.js::changeMode → forgetWifiAutoRestore).
 
 import { getOptionsSnapshot } from "/lib/options.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
@@ -17,8 +17,8 @@ import { localizedInvoke } from "/lib/backend-errors.js";
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// Имена ключей — из политики хранения: она решает, что бэкапится и что
-// чистится, и литерал в модуле от неё незаметно отъезжает.
+// Key names come from the storage policy: it decides what gets backed up and what
+// gets cleared, and a literal in the module would silently drift away from it.
 const WIFI_TRUSTED_KEY = STORAGE_KEYS.wifiTrusted;
 const WIFI_PREV_MODE_KEY = STORAGE_KEYS.wifiPrevMode;
 
@@ -27,13 +27,13 @@ function wifiTrusted() {
   catch { return []; }
 }
 
-// Ручная смена режима юзером отменяет авто-возврат прежнего режима.
+// A manual mode change by the user cancels the auto-restore of the previous mode.
 export function forgetWifiAutoRestore() {
   try { localStorage.removeItem(WIFI_PREV_MODE_KEY); } catch {}
 }
 
-// changeMode инжектится из main.js (замыкает setMode/UI/реконнект) — так модуль
-// не тянет обратную зависимость на main.js.
+// changeMode is injected from main.js (it closes over setMode/UI/reconnect) — this way the module
+// doesn't pull a reverse dependency on main.js.
 export function initWifiGuard({ changeMode }) {
   let lastWifiHandled = null;
 
@@ -44,7 +44,7 @@ export function initWifiGuard({ changeMode }) {
       const onOpenUntrusted = !!w?.connected && !w.secured && !wifiTrusted().includes(w.ssid);
       if (!onOpenUntrusted) {
         lastWifiHandled = null;
-        // Сеть безопасна (или Wi-Fi отключён) — вернуть режим, который был до авто-TUN.
+        // The network is safe (or Wi-Fi is off) — restore the mode that was there before the auto-TUN.
         const prev = localStorage.getItem(WIFI_PREV_MODE_KEY);
         if (prev) {
           forgetWifiAutoRestore();
@@ -52,12 +52,12 @@ export function initWifiGuard({ changeMode }) {
             toast(t("wifi.autoRestore"), "info", 3500);
             changeMode(prev, { auto: true });
           }
-          // getMode() !== "tun": юзер сам ушёл из TUN — просто забываем ключ.
+          // getMode() !== "tun": the user left TUN themselves — just forget the key.
         }
         return;
       }
-      if (getMode() === "tun") return; // уже защищены
-      if (lastWifiHandled === w.ssid) return; // уже отреагировали на эту сеть
+      if (getMode() === "tun") return; // already protected
+      if (lastWifiHandled === w.ssid) return; // already reacted to this network
       lastWifiHandled = w.ssid;
       try { localStorage.setItem(WIFI_PREV_MODE_KEY, getMode()); } catch {}
       toast(t("wifi.openProtect", { ssid: w.ssid || t("wifi.noName") }), "warn", 4000);

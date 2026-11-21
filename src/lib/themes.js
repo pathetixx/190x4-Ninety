@@ -1,5 +1,5 @@
 // Ninety · theme registry
-// Единый источник тем для main, onboarding и settings.
+// A single source of themes for main, onboarding and settings.
 
 export const DEFAULT_THEME_ID = "kurogane";
 

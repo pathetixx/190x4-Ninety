@@ -1,9 +1,9 @@
-// Immutable identity реально запущенной конфигурации. Любая долгая операция
-// захватывает token и обязана убедиться, что после await он всё ещё текущий.
+// Immutable identity of the actually running configuration. Any long operation
+// captures a token and must make sure after an await that it's still current.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
-// Ключ политики хранения: она решает, что бэкапится и что чистится.
+// The storage policy key: it decides what gets backed up and what gets cleared.
 const REVISION_KEY = STORAGE_KEYS.sourceRevisions;
 
 export class StaleRuntimeError extends Error {
@@ -20,8 +20,8 @@ export function stableStringify(value) {
   return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
 }
 
-// Не криптографическая подпись, а компактный детерминированный identity hash.
-// Секреты никогда не попадают в tag/storage: в идентификатор уходит только hash.
+// Not a cryptographic signature but a compact deterministic identity hash.
+// Secrets never get into the tag/storage: only the hash goes into the identifier.
 export function hashRuntimeValue(value) {
   const s = typeof value === "string" ? value : stableStringify(value);
   let a = 0x811c9dc5, b = 0x9e3779b9;
@@ -48,9 +48,9 @@ function runtimeNodeShape(node) {
     .filter(([key, value]) => !DISPLAY_ONLY_FIELDS.has(key) && key !== "id" && value !== undefined));
 }
 
-// Сопоставление нод между refresh подписки не должно зависеть от исходной
-// ссылки или служебного stableId. Панель может поменять #имя, порядок query-
-// параметров или нормализовать URL, не меняя реально используемый outbound.
+// Matching nodes between subscription refreshes must not depend on the original
+// link or the service stableId. The panel may change the #name, the order of query
+// parameters or normalize the URL without changing the actually used outbound.
 function semanticNodeShape(node) {
   if (!node || typeof node !== "object") return {};
   return Object.fromEntries(Object.entries(node)
@@ -58,9 +58,9 @@ function semanticNodeShape(node) {
       && key !== "id" && key !== "raw" && key !== "stableId" && value !== undefined));
 }
 
-// Отпечаток зависит только от самой ноды и считается хешем по её содержимому.
-// Карантин спрашивает его для каждой ноды при каждой сборке списка серверов,
-// поэтому результат держим при объекте.
+// The fingerprint depends only on the node itself and is a hash of its contents.
+// The quarantine asks for it for every node on every server list build,
+// so the result is kept with the object.
 const semanticFingerprintCache = new WeakMap();
 
 export function nodeSemanticFingerprint(node) {
@@ -90,7 +90,7 @@ export function sourceFingerprint(source) {
   const nodes = source.kind === "sub" ? (source.nodes || source.subscription?.profiles || [])
     : source.kind === "single" ? [source.profile]
       : [source.profile || { proto: "wireguard", host: "warp" }];
-  // Порядок и display name не являются identity. Runtime-поля и credentials — да.
+  // Order and display name are not identity. Runtime fields and credentials are.
   const ids = nodes.map(node => ({
     id: stableNodeId(node, key),
     runtime: nodeRuntimeFingerprint(node),

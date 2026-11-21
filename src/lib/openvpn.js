@@ -1,5 +1,5 @@
-// Ninety · перенос однофайловых OpenVPN-профилей в endpoint ядра.
-// Внешние файлы не читаем: профиль должен оставаться переносимым между ПК.
+// Ninety · converting single-file OpenVPN profiles into a core endpoint.
+// External files aren't read: the profile must stay portable between PCs.
 import { t } from "/lib/i18n/index.js";
 
 const INLINE = new Set(["ca", "cert", "key", "tls-auth", "tls-crypt", "tls-crypt-v2", "secret", "auth-user-pass"]);
@@ -18,8 +18,8 @@ function profileError(key, directive) {
   return new Error(t(`sb.err.${key}`, directive ? { directive } : undefined));
 }
 
-// Кавычки сохраняют пробелы (в частности, префикс «route » в pull-filter).
-// Комментарий начинается за пределами кавычек на границе аргументов.
+// Quotes preserve spaces (in particular, the "route " prefix in pull-filter).
+// A comment starts outside quotes at an argument boundary.
 function words(line, directive = "profile") {
   const result = [];
   let token = "", quote = "", active = false;
@@ -134,7 +134,7 @@ function validIpv4(value) {
   return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);
 }
 
-// Ядро использует Go duration: «1m30s» и «1000ms» тоже означают целые секунды.
+// The core uses Go durations: "1m30s" and "1000ms" also mean whole seconds.
 function validDuration(value, wholeSeconds = false) {
   if (typeof value !== "string" || !value) return false;
   if (value === "0") return true;
@@ -149,8 +149,8 @@ function validDuration(value, wholeSeconds = false) {
     && (!wholeSeconds || Math.abs(seconds - Math.round(seconds)) < 1e-9);
 }
 
-// Проверки общие для .ovpn и готового JSON sing-box: битый endpoint роняет
-// инициализацию всего конфига, даже если выбран совсем другой сервер.
+// The checks are shared by .ovpn and ready sing-box JSON: a broken endpoint brings down
+// the initialization of the whole config, even if a completely different server is selected.
 export function openvpnEndpointIssue(endpoint, authUserPass = false) {
   if (!endpoint || typeof endpoint !== "object" || Array.isArray(endpoint)) return { code: "ovpnEndpoint" };
   if (String(endpoint.dev || "").toLowerCase().startsWith("tap")) return { code: "ovpnTun" };
@@ -372,8 +372,8 @@ export function parseOpenvpnConf(text, displayName = "", credentials = {}) {
   if (!endpoint.servers.length) throw profileError("ovpnRemote");
   if (ifconfig) {
     if (endpoint.topology === "subnet") {
-      // В subnet второе поле ifconfig — маска, а не адрес peer. В static_key
-      // шлюз обязателен и из одной маски не выводится; такой импорт отклоняем.
+      // In subnet the second ifconfig field is a mask, not the peer address. In static_key
+      // the gateway is required and can't be derived from a mask alone; such an import is rejected.
       if (endpoint.mode === "static_key") throw profileError("ovpnStatic");
       const mask = ifconfig[1].split(".").map(part => Number(part).toString(2).padStart(8, "0")).join("");
       if (!/^1*0*$/.test(mask)) throw profileError("ovpnOption", "ifconfig");
@@ -406,8 +406,8 @@ export function parseOpenvpnConf(text, displayName = "", credentials = {}) {
       throw error;
     }
   }
-  // Явно включённое сжатие означает приём сжатых пакетов. У ядра безопасный
-  // default «no», поэтому переносим это намерение без исходящего сжатия.
+  // Explicitly enabled compression means accepting compressed packets. The core's safe
+  // default is "no", so we carry this intent over without outgoing compression.
   if (endpoint.allow_compression === undefined && (["lz4", "lz4-v2"].includes(endpoint.compression)
     || ["yes", "adaptive", "asym"].includes(endpoint.compression_lzo))) endpoint.allow_compression = "asym";
   const issue = openvpnEndpointIssue(endpoint, authUserPass);

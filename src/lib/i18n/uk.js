@@ -1,5 +1,5 @@
-// Ninety · каталог UK (українська). Машинний переклад з RU/EN — НУЖНА ВЫЧИТКА НОСИТЕЛЯ.
-// Ключі дзеркалять ru.js (паритет 771); за відсутнім ключем рантайм фолбэчить на en.
+// Ninety · UK catalog (Ukrainian). Machine translation from RU/EN — NEEDS NATIVE PROOFREADING.
+// Keys mirror ru.js (parity 771); for a missing key the runtime falls back to en.
 export const uk = {
   titlebar: { min: "Згорнути", max: "Розгорнути", close: "Закрити" },
 
@@ -64,7 +64,7 @@ export const uk = {
     channelTitle: "Якість каналу",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Показати Ninety",
     connect: "Підключитися",

@@ -1,9 +1,9 @@
-// Ninety · единая политика localStorage-ключей.
+// Ninety · a single policy for localStorage keys.
 //
-// В localStorage остаются настройки и UI-состояние. Профили/подписки читаются
-// из Rust-owned profile-store; перечисленные ниже ключи нужны только для
-// legacy migration/recovery fallback. Rust-side backup шифруется DPAPI и не
-// должен раздуваться runtime-телеметрией и временными маркерами.
+// Settings and UI state stay in localStorage. Profiles/subscriptions are read
+// from the Rust-owned profile store; the keys listed below are needed only for
+// legacy migration/recovery fallback. The Rust-side backup is encrypted with DPAPI and must not
+// be bloated by runtime telemetry and temporary markers.
 
 const PREFIX = "ninety.";
 
@@ -21,77 +21,77 @@ export const STORAGE_KEYS = {
   modeMigrated: "ninety.mode.migrated",
   strictTunnelPreviousMode: "ninety.privacy.strictTunnel.previousMode",
   theme: "ninety.theme",
-  // "more" | "normal"; нет ключа — режим следует системной настройке контраста.
+  // "more" | "normal"; no key — the mode follows the system contrast setting.
   contrast: "ninety.contrast",
-  // "on" — спокойный главный экран; нет ключа — живой HUD.
+  // "on" — the calm main screen; no key — the live HUD.
   calmHud: "ninety.hud.calm",
   lang: "ninety.lang",
   onboardingStep: "ninety.onboarding.step",
   onboardingDone: "ninety.onboarding.done",
   regionDetected: "ninety.region.detected",
   updateResume: "ninety.update.resume",
-  // "on" | "off": был ли VPN подключён при закрытии — для «При запуске: как было».
+  // "on" | "off": whether the VPN was connected on close — for "On launch: as it was".
   vpnLastState: "ninety.vpn.lastState",
   dpiResumeAfterUpdate: "ninety.dpi.resumeAfterUpdate",
   warpHistory: "ninety.warp.history",
   qualityProfile: "ninety.quality.profile",
   wifiTrusted: "ninety.wifi.trusted",
-  // Идентификатор устройства для подписок с лимитом устройств. Бэкапится
-  // намеренно: после очистки WebView2 новый HWID занял бы в панели ещё один слот.
+  // Device identifier for subscriptions with a device limit. Backed up
+  // on purpose: after clearing WebView2 a new HWID would take another slot in the panel.
   deviceHwid: "ninety.hwid.v1",
   wifiPrevMode: "ninety.wifi.prevMode",
-  // Ключи живут в своих модулях (node-quarantine / incident-log /
-  // runtime-identity) и перечислены здесь, чтобы политика бэкапа и очистки
-  // видела их наравне с остальными: разъехавшись, они пережили бы «очистить
-  // данные» и уехали бы в бэкап вопреки правилу «телеметрию не бэкапим».
+  // The keys live in their own modules (node-quarantine / incident-log /
+  // runtime-identity) and are listed here so that the backup and cleanup policy
+  // sees them on par with the rest: if they drifted apart, they would survive "clear
+  // data" and go into the backup against the "we don't back up telemetry" rule.
   nodeQuarantine: "ninety.nodeQuarantine.v1",
   incidents: "ninety.incidents.v1",
   sourceRevisions: "ninety.source.revisions.v1",
-  // Настройки экрана «DPI-обход»: это выбор пользователя, а не телеметрия, и в
-  // бэкап они идут наравне с остальными настройками.
+  // "DPI bypass" screen settings: this is the user's choice, not telemetry, and they
+  // go into the backup on par with the other settings.
   dpiEnabled: "ninety.dpi.enabled",
   dpiStrategy: "ninety.dpi.strategy",
   dpiGameFilter: "ninety.dpi.gameFilter",
   dpiIpset: "ninety.dpi.ipset",
   dpiMonkey: "ninety.dpi.monkey",
   dpiRecommended: "ninety.dpi.recommended",
-  // Вкладка диагностики и пропущенная версия обновления — тоже решения
-  // пользователя, они переживают переустановку осмысленно.
+  // The diagnostics tab and the skipped update version are also the user's
+  // decisions, they survive a reinstall meaningfully.
   diagnoseTab: "ninety.diagnose.tab",
   updateSkip: "ninety.update.skip",
-  // Пауза после отправки обратной связи. Локальный счётчик, авторитет по
-  // лимиту — сервер; в бэкапе ему не место (см. BACKUP_EXACT_EXCLUDE).
+  // Pause after sending feedback. A local counter, the authority on the
+  // limit is the server; it has no place in the backup (see BACKUP_EXACT_EXCLUDE).
   feedbackState: "ninety.feedback.v1",
 };
 
-// UI-состояние экрана «Серверы» (сортировка, режим показа): ключи вида
-// `ninety.proxies.<поле>` заводит сам экран, поэтому политика знает префикс.
+// UI state of the "Servers" screen (sorting, display mode): keys like
+// `ninety.proxies.<field>` are created by the screen itself, so the policy knows the prefix.
 export const PROXIES_UI_PREFIX = "ninety.proxies.";
 
 const BACKUP_EXACT_EXCLUDE = new Set([
   STORAGE_KEYS.updateResume,
-  // Состояние прошлой сессии: после restore на другой машине оно чужое.
+  // State of the previous session: after a restore on another machine it belongs to someone else.
   STORAGE_KEYS.vpnLastState,
   STORAGE_KEYS.dpiResumeAfterUpdate,
   STORAGE_KEYS.warpHistory,
   STORAGE_KEYS.qualityProfile,
   STORAGE_KEYS.wifiTrusted,
   STORAGE_KEYS.wifiPrevMode,
-  // Замеры задержки — рантайм-телеметрия, в бэкап состояния ей не место.
+  // Latency measurements are runtime telemetry, they have no place in the state backup.
   STORAGE_KEYS.delayHistory,
-  // Того же рода: карантин нод и лента инцидентов описывают прошлую сессию
-  // (отпечатки нод, причины отказа ядра), а счётчики ревизий — уже удалённые
-  // источники. После restore они воскресали бы и глушили живые сервера.
+  // Of the same kind: node quarantine and the incident feed describe the previous session
+  // (node fingerprints, core refusal reasons), and revision counters — already deleted
+  // sources. After a restore they would come back to life and suppress live servers.
   STORAGE_KEYS.nodeQuarantine,
   STORAGE_KEYS.incidents,
   STORAGE_KEYS.sourceRevisions,
-  // Пауза обратной связи — временный маркер того же рода, что update.resume:
-  // после восстановления она относилась бы к чужой сессии.
+  // The feedback pause is a temporary marker of the same kind as update.resume:
+  // after a restore it would belong to someone else's session.
   STORAGE_KEYS.feedbackState,
 ]);
 
-// Счётчики трафика по источнику: их ведёт traffic-meter, поэтому префикс живёт
-// здесь, а модуль берёт его отсюда.
+// Traffic counters per source: they're maintained by traffic-meter, so the prefix lives
+// here, and the module takes it from here.
 export const TRAFFIC_PREFIX = "ninety.traffic.";
 
 const BACKUP_PREFIX_EXCLUDE = [
@@ -109,13 +109,13 @@ const PROFILE_STORAGE_KEYS = new Set([
   STORAGE_KEYS.subscriptionActive,
   STORAGE_KEYS.activeKind,
   STORAGE_KEYS.proxySelection,
-  // Привязаны к подписке: чистятся вместе с профилями, иначе теги серверов
-  // остаются на диске после «очистить данные».
+  // Tied to a subscription: cleared together with profiles, otherwise server tags
+  // stay on disk after "clear data".
   STORAGE_KEYS.favourites,
   STORAGE_KEYS.delayHistory,
-  // Карантин адресуется semantic fingerprint'ом ноды, а он переживает
-  // переимпорт: без очистки те же сервера молча исчезали бы из конфига и
-  // после «очистить данные» + повторного добавления подписки.
+  // The quarantine is addressed by the node's semantic fingerprint, and it survives
+  // a reimport: without cleanup the same servers would silently disappear from the config even
+  // after "clear data" + re-adding the subscription.
   STORAGE_KEYS.nodeQuarantine,
 ]);
 
@@ -148,8 +148,8 @@ export function shouldBackupStorageKey(key) {
 }
 
 export function shouldRestoreStorageKey(key) {
-  // Легаси backup мог содержать больше ключей, чем новая политика. При restore
-  // берём только то, что новый backup стал бы сохранять.
+  // A legacy backup may contain more keys than the new policy. On restore
+  // we take only what a new backup would save.
   return shouldBackupStorageKey(key);
 }
 

@@ -1,17 +1,17 @@
-// Tauri updater Update наследует Resource и не имеет GC-finalizer: каждый
-// ненужный результат check() нужно закрывать явно и ровно один раз.
+// Tauri updater Update inherits Resource and has no GC finalizer: every
+// unneeded check() result must be closed explicitly and exactly once.
 
 const closed = new WeakSet();
 const closing = new WeakMap();
-// Сильные ссылки на Resource, которые не удалось закрыть, со счётчиком раундов
-// уборки. Пока quarantine не очищен, новые updater.check() запрещены — иначе
-// Rust resource table росла бы по одному объекту на каждый scheduler retry.
+// Strong references to Resources that couldn't be closed, with a counter of cleanup
+// rounds. Until the quarantine is cleared, new updater.check() calls are forbidden — otherwise
+// the Rust resource table would grow by one object on every scheduler retry.
 const quarantined = new Map();
 const CLOSE_ATTEMPTS = 2;
-// Сколько раундов уборки терпим, прежде чем отпустить безнадёжный Resource.
-// Типичная причина вечного отказа — rid на Rust-стороне уже освобождён, то есть
-// утечки на самом деле нет, а держать из-за неё ВСЮ проверку обновлений
-// выключенной до перезапуска приложения — цена несоизмеримо выше.
+// How many cleanup rounds we tolerate before letting go of a hopeless Resource.
+// The typical cause of a permanent refusal is that the rid on the Rust side is already released, i.e.
+// there's actually no leak, and keeping the WHOLE update check
+// disabled until the app restarts because of it costs incomparably more.
 const QUARANTINE_ROUNDS = 3;
 
 export function snapshotUpdate(update) {
@@ -40,9 +40,9 @@ export function closeUpdateResource(update) {
         quarantined.delete(update);
         return true;
       } catch (e) {
-        // Короткий bounded retry не даёт transient IPC-ошибке оставить Rust
-        // Resource без владельца. После последней ошибки caller не продолжает
-        // создавать следующие Update-ресурсы.
+        // A short bounded retry keeps a transient IPC error from leaving the Rust
+        // Resource without an owner. After the last error the caller doesn't continue
+        // creating further Update resources.
         if (attempt === CLOSE_ATTEMPTS) {
           console.warn("update resource cleanup failed", e);
         }
@@ -67,9 +67,9 @@ export async function drainUpdateResourceCleanup() {
   return quarantined.size === 0;
 }
 
-// Получить Update с клиентом под актуальное состояние маршрута. Если VPN успел
-// включиться/выключиться во время check(), устаревший Resource закрывается и
-// check повторяется уже с новым proxy (не более трёх попыток).
+// Get an Update with a client for the current route state. If the VPN managed
+// to turn on/off during check(), the stale Resource is closed and
+// check is repeated with the new proxy (at most three attempts).
 export async function acquireUpdateForCurrentRoute({
   check,
   getProxy,
@@ -83,11 +83,11 @@ export async function acquireUpdateForCurrentRoute({
     const proxy = getProxy();
     const update = await check({ proxy });
     if (getProxy() === proxy) return update;
-    // Маршрут сменился, пока шла проверка — результат относится к прежнему
-    // маршруту, поэтому пробуем заново. Закрывать при этом нечего, если
-    // обновления нет: `check` вернул null, и closeUpdateResource честно отвечает
-    // «нечего закрывать» (false). Раньше этот ответ считался отказом закрытия, и
-    // спокойное «обновлений нет» превращалось в «не удалось проверить».
+    // The route changed while the check was running — the result belongs to the previous
+    // route, so we try again. There's nothing to close if
+    // there's no update: `check` returned null, and closeUpdateResource honestly answers
+    // "nothing to close" (false). Previously this answer counted as a close failure, and
+    // a calm "no updates" turned into "couldn't check".
     if (update && !(await closeUpdateResource(update))) {
       throw new Error(unstableMessage);
     }

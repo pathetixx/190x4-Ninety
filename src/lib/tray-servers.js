@@ -1,19 +1,19 @@
-// Ninety · раскладка подменю «Сервер» в трее.
+// Ninety · layout of the "Server" submenu in the tray.
 //
-// Плоский список работает, пока серверов десяток. На подписке в две-три сотни
-// он превращается в полосу до края экрана, в которой ничего не найти, а меню
-// пересобирается на каждое переключение ноды — и каждая иконка флага в нём
-// платится заново. Поэтому большой список раскладывается по странам: наверху
-// текущий сервер, избранные и самые быстрые, ниже — страны с количеством,
-// внутри страны ноды по возрастанию задержки.
+// A flat list works while there are a dozen servers. On a subscription of two or three hundred
+// it turns into a strip down to the edge of the screen in which nothing can be found, and the menu
+// is rebuilt on every node switch — and every flag icon in it
+// is paid for anew. So a big list is laid out by country: at the top
+// the current server, favorites and the fastest, below — countries with counts,
+// within a country nodes by ascending latency.
 
-// Ниже этого числа группировать нечего: страна с одной нодой — лишний клик.
+// Below this number there's nothing to group: a country with one node is an extra click.
 export const TRAY_FLAT_LIMIT = 12;
-// Потолок нод внутри одной страны. Провайдеры любят держать десятки нод в
-// одной локации, но выбирать из тридцати в меню уже некомфортно.
+// The ceiling of nodes within one country. Providers like to keep dozens of nodes in
+// one location, but choosing from thirty in a menu is already uncomfortable.
 export const TRAY_GROUP_LIMIT = 30;
-// Потолок на всё подменю. Windows строит меню целиком, и на каждый пункт
-// уходит объект ядра, поэтому у списка должен быть конец.
+// The ceiling for the whole submenu. Windows builds the menu entirely, and each item
+// costs a kernel object, so the list must have an end.
 export const TRAY_TOTAL_LIMIT = 180;
 export const TRAY_FAVOURITE_LIMIT = 12;
 export const TRAY_FAST_LIMIT = 8;
@@ -32,7 +32,7 @@ function isFavourite(favourites, id) {
 }
 
 /**
- * Раскладывает список нод в структуру подменю.
+ * Lays out the node list into the submenu structure.
  *
  * @param {Array<{id: string, label: string, iso: string|null, selected: boolean, delay: number|null}>} entries
  * @param {{favourites?: Set<string>, countryLabel?: (iso: string) => string, otherLabel?: string}} opts
@@ -50,7 +50,7 @@ export function buildTrayServerMenu(entries, opts = {}) {
   };
   if (indexed.length === 0) return base;
 
-  // Маленькая подписка: группировка только мешает — отдаём список как есть.
+  // A small subscription: grouping only gets in the way — we return the list as is.
   if (indexed.length <= TRAY_FLAT_LIMIT) {
     return { ...base, flat: indexed };
   }
@@ -59,8 +59,8 @@ export function buildTrayServerMenu(entries, opts = {}) {
     .filter(e => !e.selected && isFavourite(opts.favourites, e.id))
     .slice(0, TRAY_FAVOURITE_LIMIT);
 
-  // «Быстрые» строятся только из реально измеренных нод: без замера слово
-  // «быстрый» — обещание, которого никто не давал.
+  // "Fastest" is built only from actually measured nodes: without a measurement the word
+  // "fast" is a promise nobody made.
   const fast = indexed
     .filter(e => !e.selected && Number(e.delay) > 0)
     .sort(byDelayThenOrder)
@@ -84,10 +84,10 @@ export function buildTrayServerMenu(entries, opts = {}) {
       count: items.length,
     }))
     .sort((a, b) => {
-      // Страна текущего сервера — первой: к ней возвращаются чаще всего.
+      // The current server's country goes first: it's returned to most often.
       if (a.key === currentKey && b.key !== currentKey) return -1;
       if (b.key === currentKey && a.key !== currentKey) return 1;
-      // Ноды без страны — в самом низу: это служебные записи провайдера.
+      // Nodes without a country go at the very bottom: these are the provider's service entries.
       if (a.iso === null && b.iso !== null) return 1;
       if (b.iso === null && a.iso !== null) return -1;
       if (a.count !== b.count) return b.count - a.count;
@@ -102,8 +102,8 @@ export function buildTrayServerMenu(entries, opts = {}) {
     const items = group.items.slice(0, take);
     budget -= items.length;
     hidden += group.count - items.length;
-    // Группа целиком не поместилась — её ноды уже посчитаны в hidden, самой
-    // пустой строки в меню быть не должно.
+    // The whole group didn't fit — its nodes are already counted in hidden, and the group itself
+    // must not be an empty line in the menu.
     if (items.length > 0) {
       shown.push({ iso: group.iso, label: group.label, items, hidden: group.count - items.length });
     }

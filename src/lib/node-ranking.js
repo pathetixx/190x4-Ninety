@@ -1,9 +1,9 @@
-// Ninety · движок рекомендаций — оценка сервера по его собственным замерам.
-// Вынесен из proxies-view.js: здесь чистая математика без DOM, clash-API и
-// хранилища, поэтому её можно проверить тестами напрямую.
+// Ninety · the recommendation engine — scoring a server by its own measurements.
+// Moved out of proxies-view.js: this is pure math without DOM, clash API and
+// storage, so it can be checked by tests directly.
 //
-// Считает ТОЛЬКО по замерам, которые приложение уже сделало: история задержек
-// и тип транспорта ноды. Никакой внешней телеметрии.
+// It counts ONLY measurements the app has already made: the latency history
+// and the node's transport type. No external telemetry.
 
 export const liveDelays = (hs) => hs.filter(d => d > 0 && d < 65000);
 
@@ -38,15 +38,15 @@ export function transportWeight(node) {
   return 0.8;
 }
 
-// Шкала задержки — логарифмическая, по отношению, а не по разнице в мс.
-// Линейная шкала «25…300 мс» оценивала разницу одинаково на любой скорости: 2 мс
-// стоили столько же на паре 26/28, сколько на паре 260/262. На подписке, где все
-// живые серверы укладываются в 26–40 мс, весь разброс задержки занимал 5% шкалы,
-// и рекомендации фактически решал разброс: сервер с 33 мс и ровным каналом
-// обгонял самый быстрый с 26 мс. Пользователь при этом видит колонку «Задержка»,
-// отсортированную по числам, — и блок рекомендаций выглядел случайным.
-// По логарифму на 30 мс миллисекунда задержки весит примерно столько же, сколько
-// миллисекунда разброса, а на 300 мс — заметно меньше, что и требуется.
+// The latency scale is logarithmic, by ratio, not by the difference in ms.
+// A linear "25…300 ms" scale rated a difference the same at any speed: 2 ms
+// were worth as much in a 26/28 pair as in a 260/262 pair. On a subscription where all
+// live servers fit into 26–40 ms, the whole latency spread took 5% of the scale,
+// and recommendations were effectively decided by jitter: a server with 33 ms and a steady channel
+// beat the fastest one with 26 ms. Meanwhile the user sees the "Latency" column
+// sorted by numbers — and the recommendations block looked random.
+// On a logarithmic scale at 30 ms a millisecond of latency weighs about as much as
+// a millisecond of jitter, and at 300 ms noticeably less, which is what's needed.
 const LATENCY_FLOOR_MS = 20;
 const LATENCY_CEIL_MS = 400;
 const LATENCY_SPAN = Math.log(LATENCY_CEIL_MS / LATENCY_FLOOR_MS);
@@ -55,25 +55,25 @@ export function latencyScore(med) {
   return clamp01(1 - Math.log(Math.max(med, LATENCY_FLOOR_MS) / LATENCY_FLOOR_MS) / LATENCY_SPAN);
 }
 
-// Разброс остаётся в абсолютной шкале: 5 мс дрожания одинаково мешают и на
-// быстром, и на медленном канале.
+// Jitter stays on an absolute scale: 5 ms of jitter hurts equally on
+// a fast and a slow channel.
 const JITTER_SCALE_MS = 55;
 
 export function scoreNode(node, history) {
   const hs = Array.isArray(history) ? history : [];
   const L = liveDelays(hs);
-  // Хватает одного успешного замера: один прогон «Измерить все» даёт ровно один
-  // замер на сервер, и порог выше этого делал рекомендации недостижимыми.
+  // One successful measurement is enough: one "Measure all" run gives exactly one
+  // measurement per server, and a threshold above that made recommendations unreachable.
   if (!L.length) return null;
   const med = medianOf(L);
   const jit = L.length >= 2 ? stdevOf(L) : null;
   const latency = latencyScore(med);
 
-  // По двум замерам разброс и доступность — крайне шумные оценки: один неудачный
-  // сэмпл обнулял стабильность, и самый быстрый сервер вылетал из рекомендаций.
-  // Поэтому производные компоненты набирают вес по мере накопления замеров, а
-  // пока доказательств мало, индекс опирается на то, что измерено напрямую —
-  // на задержку.
+  // With two measurements, jitter and availability are extremely noisy estimates: one bad
+  // sample zeroed stability, and the fastest server dropped out of the recommendations.
+  // So the derived components gain weight as measurements accumulate, and
+  // while evidence is scarce, the index relies on what's measured directly —
+  // latency.
   const evidence = clamp01((hs.length - 1) / 4);
   const shrink = (v) => 0.5 + (v - 0.5) * evidence;
   const stability = jit == null ? 0.5 : shrink(clamp01(1 - jit / JITTER_SCALE_MS));
@@ -87,22 +87,22 @@ export function scoreNode(node, history) {
 
 export const REASON_KEYS = ["latency", "stability", "liveness", "transport"];
 
-// Причина выбирается по тому, чем нода сильнее всего ОТРЫВАЕТСЯ от поля,
-// а не по максимальному компоненту: иначе все получают «12 из 12 замеров»
-// — правду, которая ничего не объясняет. Две строки не повторяются.
+// The reason is chosen by what the node STANDS OUT from the field the most,
+// not by the maximum component: otherwise everyone gets "12 of 12 measurements"
+// — a truth that explains nothing. The two lines don't repeat.
 //
-// superlative говорит, можно ли назвать задержку самой низкой. Раньше строка
-// «самая низкая задержка» вешалась на любую ноду, у которой задержка оказалась
-// сильнейшей стороной, — и в списке под ней спокойно стоял сервер с меньшим
-// числом. Превосходную степень заслуживает только минимум по полю.
+// superlative says whether the latency can be called the lowest. Previously the line
+// "lowest latency" was attached to any node whose latency happened to be
+// its strongest side — and below it in the list there could well be a server with a smaller
+// number. Only the minimum across the field deserves the superlative.
 export function reasonKeys(top, field) {
   const med = {};
   REASON_KEYS.forEach(k => { med[k] = medianOf(field.map(x => Math.round(x.s[k] * 100))) / 100; });
   const bestMed = field.reduce((m, x) => Math.min(m, x.s.med), Infinity);
   const used = new Set();
   return top.map(({ s }) => {
-    // Разброс без второго замера не измерен, доступность при единственном замере
-    // тривиально равна единице — такие причины ничего не объясняют.
+    // Jitter isn't measured without a second measurement, availability with a single measurement
+    // is trivially one — such reasons explain nothing.
     const usable = REASON_KEYS.filter(k =>
       !(k === "stability" && s.jit == null) && !(k === "liveness" && s.allN < 2));
     const pool = usable.length ? usable : REASON_KEYS.filter(k => k !== "stability" || s.jit != null);

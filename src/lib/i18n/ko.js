@@ -1,4 +1,4 @@
-// Ninety · 카탈로그 KO (한국어). EN/RU 기계 번역 — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (원어민 교정 필요).
+// Ninety · 카탈로그 KO (한국어). EN/RU 기계 번역 — NEEDS NATIVE PROOFREADING (원어민 교정 필요).
 // 키는 ru.js와 일치 (패리티 771); 키가 없으면 런타임이 en으로 폴백합니다.
 export const ko = {
   titlebar: { min: "최소화", max: "최대화", close: "닫기" },
@@ -64,7 +64,7 @@ export const ko = {
     channelTitle: "채널 품질",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Ninety 표시",
     connect: "연결",

@@ -1,4 +1,4 @@
-// Ninety · catálogo ES (español). Traducción automática desde EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (revisar nativo).
+// Ninety · catálogo ES (español). Traducción automática desde EN/RU — NEEDS NATIVE PROOFREADING (revisar nativo).
 // Las claves reflejan ru.js (paridad 771); si falta una clave, el runtime cae a en.
 export const es = {
   titlebar: { min: "Minimizar", max: "Maximizar", close: "Cerrar" },
@@ -64,7 +64,7 @@ export const es = {
     channelTitle: "Calidad del canal",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Mostrar Ninety",
     connect: "Conectar",

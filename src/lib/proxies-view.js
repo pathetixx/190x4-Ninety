@@ -1,5 +1,5 @@
-// Ninety · Proxies view — SVG-флаги, авто-сортировка по пингу,
-// клик-выбор через Selector, AUTO-режим сверху, FAB-молния перетеста.
+// Ninety · Proxies view — SVG flags, auto-sorting by ping,
+// click selection via Selector, AUTO mode on top, the retest lightning FAB.
 
 import {
   getProxies, testGroup, testNode, selectProxy,
@@ -31,17 +31,17 @@ const SOURCE_READY_RETRIES = 4;
 const SOURCE_READY_BACKOFF_MS = 250;
 
 let pollTimer = null;
-// Экран открыт? В строгом режиме опроса нет, поэтому по pollTimer видимость не
-// определить — держим отдельный флаг.
+// Is the screen open? In strict mode there's no polling, so visibility can't be
+// determined from pollTimer — we keep a separate flag.
 let viewActive = false;
 let testingAll = false;
-// Прогресс «Измерить все»: { done, total }. null — прогон не идёт.
+// "Measure all" progress: { done, total }. null — no run in progress.
 let sweep = null;
 let lastClashSnapshot = null;
-// Локальный optimistic-active: после клика подсвечиваем сразу, не ждём поллинг.
+// Local optimistic active: after a click we highlight right away, without waiting for polling.
 let optimisticActiveTag = null;
 let optimisticUntilTs = 0;
-// Запомненный effective node — чтобы диспатчить ninety:node-changed только при реальном изменении
+// The remembered effective node — so that ninety:node-changed is dispatched only on an actual change
 let lastEffectiveTag = null;
 let sourceGeneration = 0;
 let isStrictPrivacy = () => false;
@@ -56,9 +56,9 @@ function strictSelectedTag(nodes) {
   const remembered = getRememberedProxySelection(getActiveSource());
   if (nodes.length === 1) {
     const onlyTag = nodes[0]?.clashTag || null;
-    // Новая singleton-подписка безопасно выбирается сама. Но если источник
-    // раньше был multi-node и хранит Auto/исчезнувший pin, не рисуем ложную
-    // активность: клик по единственной карточке явно закрепит её.
+    // A new single-node subscription is safely selected on its own. But if the source
+    // used to be multi-node and keeps Auto/a vanished pin, we don't draw false
+    // activity: a click on the single card will pin it explicitly.
     return !remembered || remembered === "proxy" || remembered === onlyTag
       ? onlyTag
       : null;
@@ -78,11 +78,11 @@ function dispatchNodeChanged(tag, node) {
   }));
 }
 
-// ── флаги: имя ноды → ISO ── (логика в /lib/flags.js, импортируется выше)
-// Фолбэк при отсутствии .svg вешается НЕ inline-обработчиком (`onerror=`), а
-// через addEventListener в attachFlagFallbacks() после вставки разметки: строгий
-// CSP (`script-src 'self'` без unsafe-inline) блокирует inline event-handlers,
-// поэтому inline-onerror молча не срабатывал. data-flag-fallback несёт текст-замену.
+// ── flags: node name → ISO ── (logic in /lib/flags.js, imported above)
+// The fallback for a missing .svg is attached NOT with an inline handler (`onerror=`), but
+// via addEventListener in attachFlagFallbacks() after the markup is inserted: a strict
+// CSP (`script-src 'self'` without unsafe-inline) blocks inline event handlers,
+// so inline onerror silently didn't fire. data-flag-fallback carries the replacement text.
 function flagHtml(iso, fallbackText) {
   if (iso) {
     return `<img class="prox__flag-img" src="${FLAGS_BASE}/${iso}.svg" alt="" loading="lazy" data-flag-fallback="${escapeAttr(fallbackText || "?")}">`;
@@ -90,9 +90,9 @@ function flagHtml(iso, fallbackText) {
   return `<span class="prox__flag-fallback">${escapeHtml(fallbackText || "?")}</span>`;
 }
 
-// После вставки разметки: на каждый флаг-img вешаем обработчик ошибки загрузки
-// (CSP-совместимо) и сразу проверяем уже-провалившиеся (complete && naturalWidth=0,
-// напр. из кэша) — заменяем битый флаг на текстовый фолбэк.
+// After inserting the markup: attach a load error handler to every flag img
+// (CSP-compatible) and immediately check the ones that already failed (complete && naturalWidth=0,
+// e.g. from the cache) — replace a broken flag with the text fallback.
 function attachFlagFallbacks(root) {
   if (!root) return;
   for (const img of root.querySelectorAll(".prox__flag-img[data-flag-fallback]")) {
@@ -107,13 +107,13 @@ function attachFlagFallbacks(root) {
   }
 }
 
-// ── список нод подписки → ноды с clash-тэгами ──────────────
+// ── subscription node list → nodes with clash tags ──────────────
 export function nodesFromSource() {
   const src = getActiveSource();
   if (!src) return [];
   const raw = src.kind === "sub" ? src.nodes : [src.profile];
-  // Ноды не фильтруем: транспорты, которых ядро не умеет само, приложение
-  // обслуживает отдельным ядром на локальном мосту — в списке они полноценны.
+  // We don't filter nodes: transports the core can't handle itself are served by the app
+  // with a separate core on a local bridge — in the list they're full-fledged.
   return raw.map((n, i) => ({
     ...n,
     clashTag: raw.length >= 2 ? nodeTag(i, n) : "proxy",
@@ -128,9 +128,9 @@ function selectorMembers(proxy) {
   return Array.isArray(proxy?.all) ? proxy.all : [];
 }
 
-// Snapshot Clash относится к активному источнику только если в нём уже
-// присутствует собранная для этого источника топология. Это отделяет новый UI
-// от старого ядра во время реконнекта.
+// A Clash snapshot belongs to the active source only if it already
+// contains the topology built for this source. This separates the new UI
+// from the old core during a reconnect.
 export function snapshotMatchesSource(clashData, nodes) {
   const proxies = clashData?.proxies;
   const proxy = proxies?.proxy;
@@ -169,40 +169,40 @@ async function readMatchingSnapshot(nodes, { attempts = 1 } = {}) {
   return null;
 }
 
-// ── избранное / поиск / сортировка / группировка ────────────
+// ── favorites / search / sorting / grouping ────────────
 let query = "";
 let sortState = loadUi("sort", { key: "ping", dir: "asc" });
 let grouped = loadUi("grouped", true);
 let recOpen = loadUi("recOpen", true);
 const collapsedGroups = new Set();
 let lastSignature = "";
-// Данные строк отдельно от структуры списка: пока меняются только цифры,
-// таблицу можно не пересобирать — см. renderTable.
+// Row data is separate from the list structure: while only numbers change,
+// the table doesn't need to be rebuilt — see renderTable.
 let lastDataSignature = "";
-// Порядок строк, зафиксированный на время прогона «Измерить все».
+// The row order frozen for the duration of a "Measure all" run.
 //
-// Держать его постоянно нельзя: столбец «Задержка» подсвечен как активная
-// сортировка, и список, который ей не соответствует, читается как поломка —
-// выбранный «Авто» сервер оказывается ниже строк с меньшими числами. Поэтому
-// вне прогона порядок пересчитывается на каждом обновлении; это дёшево, потому
-// что переставляются готовые строки, а не собирается таблица заново.
+// It can't be kept permanently: the "Latency" column is highlighted as the active
+// sort, and a list that doesn't match it reads as a breakage —
+// the server picked by "Auto" ends up below rows with smaller numbers. So
+// outside a run the order is recomputed on every update; this is cheap because
+// ready rows are rearranged rather than the table being rebuilt.
 //
-// На время прогона порядок всё же замораживаем: там замеры приходят пачками по
-// несколько раз в секунду, и список иначе перетасовывается под курсором.
+// During a run the order is frozen after all: measurements arrive there in batches
+// several times a second, and the list would otherwise reshuffle under the cursor.
 let sortFreeze = null;
-// tag → отпечаток нарисованных ячеек задержки. Позволяет трогать только те
-// строки, где цифра действительно изменилась.
+// tag → fingerprint of the drawn latency cells. Lets us touch only the rows
+// where the number actually changed.
 const rowState = new Map();
 
-// Полная пересборка на следующем рендере: структура списка больше не совпадает
-// с нарисованной.
+// A full rebuild on the next render: the list structure no longer matches
+// what's drawn.
 function invalidateRender() {
   lastSignature = "";
   lastDataSignature = "";
   rowState.clear();
 }
 
-// Префикс UI-ключей экрана — из политики хранения, а не литералом здесь.
+// The screen's UI key prefix comes from the storage policy, not from a literal here.
 function loadUi(k, dflt) {
   try {
     const v = localStorage.getItem(PROXIES_UI_PREFIX + k);
@@ -213,26 +213,26 @@ function saveUi(k, v) {
   try { localStorage.setItem(PROXIES_UI_PREFIX + k, JSON.stringify(v)); } catch {}
 }
 
-// ── статистика по истории замеров clash ─────────────────────
-// Историю ведёт приложение: у ядра её нет (см. lib/delay-history.js).
-// Источник, зафиксированный на время одного прохода рендера. История задержки
-// нужна КАЖДОЙ строке (плюс сигнатура, сортировка и рекомендации), а
-// getActiveSource() достаёт подписку из защищённого хранилища с глубоким
-// копированием: на подписке в три сотни серверов это давало больше тысячи
-// копий за один рендер и секунды заморозки интерфейса.
+// ── statistics from the clash measurement history ─────────────────────
+// The history is kept by the app: the core doesn't have one (see lib/delay-history.js).
+// The source fixed for the duration of one render pass. The latency history
+// is needed by EVERY row (plus the signature, sorting and recommendations), and
+// getActiveSource() gets the subscription from the protected storage with a deep
+// copy: on a subscription of three hundred servers this produced over a thousand
+// copies per render and seconds of interface freeze.
 let renderSource = null;
 
 function historyOf(_clashData, tag) {
   return getProbeHistory(renderSource || getActiveSource(), tag);
 }
-// ── движок рекомендаций ─────────────────────────────────────
+// ── recommendation engine ─────────────────────────────────────
 function rankNodes(nodes, clashData) {
   return nodes
-    // Рекомендация обязана быть про сервер, который отвечает СЕЙЧАС. История
-    // замеров живёт в приложении и переживает и реконнект, и смерть подписки,
-    // поэтому сама по себе она доказывает лишь то, что сервер когда-то работал:
-    // без этой проверки в «лучшие по замерам» выходил сервер, который ядро в
-    // текущей сессии не подтвердило и через который трафик не пошёл бы.
+    // A recommendation must be about a server that responds NOW. The measurement
+    // history lives in the app and survives both a reconnect and the death of a subscription,
+    // so by itself it only proves that the server worked at some point:
+    // without this check "best by measurements" included a server the core hadn't confirmed in
+    // the current session and through which traffic wouldn't go.
     .map(n => ({ n, s: coreDelay(clashData, n.clashTag) ? scoreNode(n, historyOf(clashData, n.clashTag)) : null }))
     .filter(x => x.s)
     .sort((a, b) => b.s.total - a.s.total);
@@ -248,7 +248,7 @@ function reasonsFor(top, field) {
     reasonFor(key, top[i].s, top[i].n, superlative));
 }
 
-// ── иконки (канонический Lucide, обводка приведена к системе) ──
+// ── icons (canonical Lucide, stroke adjusted to the system) ──
 const SVG = (p, w = 1.6) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 const ICON_GAUGE  = SVG('<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>');
 const ICON_PULSE  = SVG('<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>');
@@ -288,8 +288,8 @@ function transportLabel(n) {
     hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC",
     socks: "SOCKS", shadowsocks: "Shadowsocks", openvpn: "OpenVPN",
   };
-  // Шейпинг AmneziaWG отличает профиль от обычного WireGuard сильнее, чем
-  // транспорт: по этой метке пользователь и узнаёт, что импортировал.
+  // AmneziaWG shaping sets a profile apart from regular WireGuard more than
+  // the transport does: this label is how the user recognizes what they imported.
   if (n?.proto === "wireguard") {
     const awg = n.awg || {};
     if (isAmneziaWg3(awg)) return "AmneziaWG 3";
@@ -298,7 +298,7 @@ function transportLabel(n) {
       || [awg.h1, awg.h2, awg.h3, awg.h4].some((value, index) => value && value !== index + 1);
     return shaped ? "AmneziaWG" : "WireGuard";
   }
-  // Готовый outbound Xray: метку (XMC, VLESS ML-KEM) кладёт импортёр.
+  // A ready Xray outbound: the label (XMC, VLESS ML-KEM) is set by the importer.
   if (n?.proto === "xray") return n.label || "Xray";
   if (PROTO_LABEL[n?.proto]) return PROTO_LABEL[n.proto];
   const sec = String(n?.security || "").toLowerCase();
@@ -306,13 +306,13 @@ function transportLabel(n) {
   return String(n?.type || "tcp").toUpperCase();
 }
 
-// ── подсветка совпадений поиска ─────────────────────────────
-// Подсветка совпадений поиска. Ищем в ИСХОДНОМ тексте и экранируем каждый
-// кусок отдельно. Прежний порядок (сначала escapeHtml, потом regex по готовой
-// разметке) резал HTML-сущности: запрос «amp» превращал `&amp;` в
-// `&<mark>amp</mark>;`, и вместо «&» в имени ноды появлялся сырой текст
-// сущности. Экранирование при этом не ослабло — под escapeHtml проходит и
-// текст между совпадениями, и сами совпадения; литералом остаётся только <mark>.
+// ── search match highlighting ─────────────────────────────
+// Highlighting search matches. We search in the ORIGINAL text and escape each
+// piece separately. The former order (escapeHtml first, then a regex over the ready
+// markup) cut HTML entities: the query "amp" turned `&amp;` into
+// `&<mark>amp</mark>;`, and instead of "&" the node name showed the raw text of the
+// entity. Escaping didn't get weaker: both the text between matches and the matches
+// themselves go through escapeHtml; only <mark> stays a literal.
 function highlight(text) {
   const raw = String(text ?? "");
   const q = query.trim();
@@ -320,8 +320,8 @@ function highlight(text) {
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
     .map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   if (!terms.length) return escapeHtml(raw);
-  // Термы непустые (filter(Boolean)), поэтому совпадение нулевой длины и
-  // связанный с ним бесконечный цикл matchAll невозможны.
+  // The terms are non-empty (filter(Boolean)), so a zero-length match and
+  // the related infinite matchAll loop are impossible.
   const re = new RegExp("(" + terms.join("|") + ")", "gi");
   let out = "";
   let last = 0;
@@ -332,15 +332,15 @@ function highlight(text) {
   return out + escapeHtml(raw.slice(last));
 }
 
-// ── разброс: 12 последних замеров ───────────────────────────
+// ── jitter: the last 12 measurements ───────────────────────────
 function sparkHtml(hs) {
   const L = liveDelays(hs);
   if (L.length < 2) {
     const title = !hs.length ? t("proxies.sparkNever")
       : L.length ? t("proxies.sparkOne", { all: hs.length })
                  : t("proxies.sparkDead", { all: hs.length });
-    // Двух точек ещё нет — рисовать линию нечем. Прочерк честнее плоской черты,
-    // которую легко принять за сломанный график.
+    // There aren't two points yet — nothing to draw a line with. A dash is more honest than a flat line,
+    // which is easy to mistake for a broken chart.
     return `<span class="n-spark-none" title="${escapeAttr(title)}">—</span>`;
   }
   const mn = Math.min(...L), mx = Math.max(...L), sp = Math.max(1, mx - mn);
@@ -348,8 +348,8 @@ function sparkHtml(hs) {
     ok: L.length, all: hs.length, min: mn, max: mx,
     med: medianOf(L), jit: Math.round(stdevOf(L)),
   });
-  // Тот же фильтр живого значения, что и в liveDelays: 65535-сентинел таймаута
-  // иначе уезжал далеко за пределы viewBox и ломал график.
+  // The same live value filter as in liveDelays: the 65535 timeout sentinel
+  // would otherwise go far beyond the viewBox and break the chart.
   const alive = (d) => d > 0 && d < 65000;
   const yOf = (d) => alive(d) ? 13 - ((d - mn) / sp) * 11 : 13;
   const pts = hs.map((d, i) => `${((i / Math.max(1, hs.length - 1)) * 52).toFixed(1)},${yOf(d).toFixed(1)}`).join(" ");
@@ -357,19 +357,19 @@ function sparkHtml(hs) {
   return `<svg class="n-spark" viewBox="-1 0 55 15" role="img"><title>${escapeHtml(title)}</title><polyline points="${pts}"/><circle cx="52" cy="${lastY.toFixed(1)}" r="1.5"/></svg>`;
 }
 
-// Замер ЯДРА, без отката на локальный архив. Только он отвечает на вопрос
-// «сервер отвечает сейчас»: currentDelay ниже умеет подставлять последнюю
-// сохранённую точку, и счётчик «отвечают», построенный на нём, показывал
-// замеры прошлых сессий — на мёртвой подписке экран рапортовал «88 из 268»
-// и не менялся после «Измерить все».
+// The CORE measurement, without falling back to the local archive. Only it answers the question
+// "does the server respond now": currentDelay below can substitute the last
+// saved point, and the "responding" counter built on it showed
+// measurements from past sessions — on a dead subscription the screen reported "88 of 268"
+// and didn't change after "Measure all".
 function coreDelay(clashData, tag) {
   const d = lastDelay(clashData?.proxies?.[tag]);
   return d > 0 && d < 65000 ? d : 0;
 }
 
-// Цифра есть только в локальном архиве — ядро эту ноду в текущей сессии не
-// подтвердило. Такие значения показываем приглушённо, чтобы мёртвый сервер не
-// выглядел как живой.
+// The number exists only in the local archive — the core hasn't confirmed this node in the current
+// session. Such values are shown dimmed so that a dead server doesn't
+// look alive.
 function isStaleDelay(clashData, tag) {
   return !coreDelay(clashData, tag) && currentDelay(clashData, tag) > 0;
 }
@@ -377,9 +377,9 @@ function isStaleDelay(clashData, tag) {
 function currentDelay(clashData, tag) {
   const live = lastDelay(clashData?.proxies?.[tag]);
   if (live > 0 && live < 65000) return live;
-  // Берём последнюю ЗАПИСАННУЮ точку, включая нулевую: откат на последний
-  // удачный замер оставлял мёртвый сервер со старым зелёным числом, считал
-  // его отвечающим и пускал в сортировку живых.
+  // We take the last RECORDED point, including a zero one: falling back to the last
+  // successful measurement left a dead server with an old green number, counted
+  // it as responding and let it into the sorting of live ones.
   const own = historyOf(clashData, tag);
   const lastOwn = own.length ? own[own.length - 1] : 0;
   return lastOwn > 0 && lastOwn < 65000 ? lastOwn : 0;
@@ -399,7 +399,7 @@ function starHtml(tag, on) {
     title="${escapeAttr(on ? t("proxies.favIn") : t("proxies.favAdd"))}">${ICON_STAR}</button>`;
 }
 
-// ── строка таблицы ──────────────────────────────────────────
+// ── table row ──────────────────────────────────────────
 function nodeRowHtml(n, ctx) {
   const hs = historyOf(ctx.clashData, n.clashTag);
   const delay = currentDelay(ctx.clashData, n.clashTag);
@@ -431,18 +431,18 @@ function fullName(node) {
   return cleanNameOf(node?.name) || node?.host || "";
 }
 
-// Подзаголовок «Выбран {имя} · {n} из {total} отвечают». Имена у провайдеров
-// бывают с украшениями («Estonia #2 ⚡ 10 Gbit ⚡ Low Ping»), поэтому режем их
-// не по числу символов, а по факту нехватки места: имя обрезается через CSS,
-// а счётчик отвечающих остаётся целым (он короткий и важнее хвоста имени).
-// Раньше имя резалось в JS на 16 символах и оставалось обрезанным даже на
-// весь экран.
+// Subtitle "Selected {name} · {n} of {total} responding". Providers' names
+// can be decorated ("Estonia #2 ⚡ 10 Gbit ⚡ Low Ping"), so we cut them
+// not by character count but when space actually runs out: the name is truncated via CSS,
+// and the responding counter stays whole (it's short and more important than the tail of the name).
+// Previously the name was cut in JS at 16 characters and stayed truncated even
+// at full screen.
 function metaLineHtml(pin, alive) {
   const SLOT_PIN = "\u0001", SLOT_ALIVE = "\u0002";
   const line = t("proxies.metaLine", { pin: SLOT_PIN, alive: SLOT_ALIVE });
   const at = line.indexOf(SLOT_PIN);
-  // Разделитель из шаблона уезжает в хвост, а не остаётся отдельным текстовым
-  // узлом между flex-элементами: иначе пробелы вокруг него рискуют схлопнуться.
+  // The separator from the template goes into the tail rather than staying a separate text
+  // node between flex items: otherwise the spaces around it risk collapsing.
   const head = at < 0 ? "" : line.slice(0, at);
   const tail = at < 0 ? line : line.slice(at + SLOT_PIN.length);
   return `<span class="screen__sub-pin">${escapeHtml(head + pin)}</span>`
@@ -451,13 +451,13 @@ function metaLineHtml(pin, alive) {
 
 function countryOf(n) {
   const iso = isoOf(n.name);
-  // У служебных записей провайдера («22 октября 2026», баннеры) страны нет.
-  // Раньше каждая заводила свою группу и засоряла список.
+  // Provider service entries ("22 October 2026", banners) have no country.
+  // Previously each created its own group and cluttered the list.
   if (!iso) return t("proxies.groupOther");
   return countryName(iso);
 }
 
-// ── блок рекомендаций ───────────────────────────────────────
+// ── recommendations block ───────────────────────────────────────
 function recHtml(nodes, ctx) {
   const box = $("proxies-rec");
   if (!box) return;
@@ -475,10 +475,10 @@ function recHtml(nodes, ctx) {
 
   const ranked = rankNodes(nodes, ctx.clashData);
   const rankedTop = ranked.length ? ranked[0].n : null;
-  // «Сейчас» обязано называть ноду, через которую ядро реально ведёт трафик
-  // (Balancer.Now() → proxies.auto.now → ctx.liveTag), а НЕ победителя рейтинга.
-  // Раньше обе строки брались из рейтинга, и на мёртвой подписке экран уверял
-  // «Сейчас → Russia [03] 44 мс», пока трафик стоял на первой ноде списка.
+  // "Now" must name the node through which the core actually routes traffic
+  // (Balancer.Now() → proxies.auto.now → ctx.liveTag), NOT the ranking winner.
+  // Previously both lines were taken from the ranking, and on a dead subscription the screen claimed
+  // "Now → Russia [03] 44 ms" while traffic was on the first node in the list.
   const leaderNode = ctx.selectorTag === "auto" && ctx.liveTag
     ? nodes.find(n => n.clashTag === ctx.liveTag) || null
     : null;
@@ -501,7 +501,7 @@ function recHtml(nodes, ctx) {
       ${autoPick ? pingHtml(autoDelay, gradeDelay(autoDelay), isStaleDelay(ctx.clashData, autoPick.clashTag)) : `<span class="n-ping" data-grade="dead">—</span>`}
     </div>`;
 
-  // Замеров ещё нет: «Авто» остаётся, а вместо списка — объяснение и действие.
+  // No measurements yet: "Auto" stays, and instead of the list there's an explanation and an action.
   if (!ranked.length) {
     box.innerHTML = head("") + `
       <div class="n-plate rec__body" id="rec-body"${recOpen ? "" : " hidden"}>
@@ -548,9 +548,9 @@ function recHtml(nodes, ctx) {
 
 }
 
-// Перестановка уже существующих строк в новый порядок. appendChild переносит
-// узел, а не копирует, поэтому цена — перемещение ссылок, без разбора разметки.
-// Если порядок и так совпадает, не трогаем DOM вовсе.
+// Rearranging already existing rows into a new order. appendChild moves
+// the node rather than copying it, so the cost is moving references, without parsing markup.
+// If the order already matches, the DOM isn't touched at all.
 function reorderRows(container, nodes) {
   if (!container || !Array.isArray(nodes)) return;
   const rows = container.querySelectorAll(".nt-row[data-tag]");
@@ -560,9 +560,9 @@ function reorderRows(container, nodes) {
     if (rows[i].dataset.tag !== nodes[i].clashTag) { same = false; break; }
   }
   if (same) return;
-  // Переставляем только то, что стоит не на месте. Полное переупорядочивание
-  // трогало бы все строки даже когда местами поменялись две, а каждая такая
-  // правка — это работа по раскладке всего списка.
+  // We rearrange only what's out of place. A full reordering
+  // would touch all rows even when two swapped places, and each such
+  // edit means layout work for the whole list.
   const byTag = new Map([...rows].map(el => [el.dataset.tag, el]));
   let cursor = container.firstElementChild;
   for (const node of nodes) {
@@ -573,15 +573,15 @@ function reorderRows(container, nodes) {
   }
 }
 
-// Группировка «остатка» по странам: списки, порядок групп и подпись группы.
-// Считается одинаково и для полной пересборки, и для мягкого обновления,
-// поэтому живёт отдельной функцией — иначе два пути разъезжаются.
+// Grouping of the "rest" by country: the lists, the group order and the group label.
+// It's computed the same way for a full rebuild and for a soft update,
+// so it lives in a separate function — otherwise the two paths diverge.
 function groupRest(rest, { cmpNode, cmp, val, clashData }) {
   const byC = {};
   rest.forEach(n => { const c = countryOf(n); (byC[c] ||= []).push(n); });
   Object.keys(byC).forEach(c => byC[c].sort(cmpNode));
-  // Страны переставляются тем же кликом: по имени — по алфавиту, по остальным
-  // столбцам — по представителю, то есть по первой строке внутри страны.
+  // Countries are reordered with the same click: by name — alphabetically, by the other
+  // columns — by a representative, i.e. by the first row within the country.
   const gkey = (c) => sortState.key === "name" ? c : val[sortState.key](byC[c][0]);
   const order = Object.keys(byC).sort((a, b) => cmp(gkey(a), gkey(b)));
   const noteOf = (c) => {
@@ -594,11 +594,11 @@ function groupRest(rest, { cmpNode, cmp, val, clashData }) {
   return { byC, order, noteOf };
 }
 
-// Мягкое обновление сгруппированного списка. Тот же смысл, что и у плоского:
-// состав не изменился, изменились цифры и порядок. Раньше эта ветка была только
-// у плоского списка, а группировка по странам — режим по умолчанию, и каждый
-// новый замер пересобирал в ней всю таблицу заново.
-// false = структура на экране не та, которую ждём → зовущий делает полный рендер.
+// Soft update of the grouped list. The same idea as for the flat one:
+// the composition hasn't changed, the numbers and the order have. Previously this branch existed only
+// for the flat list, while grouping by country is the default mode, and every
+// new measurement rebuilt the whole table in it from scratch.
+// false = the structure on screen isn't what we expect → the caller does a full render.
 function patchGroupedRows(grid, { favList, byC, order, noteOf }) {
   const favHead = grid.querySelector(".nt__grp--static");
   if (!!favList.length !== !!favHead) return false;
@@ -628,8 +628,8 @@ function patchGroupedRows(grid, { favList, byC, order, noteOf }) {
     if (meta && meta.textContent !== note) meta.textContent = note;
   }
 
-  // Порядок самих стран трогаем только если он реально изменился: перемещение
-  // узла — это работа по раскладке всего списка, вхолостую её делать незачем.
+  // The order of the countries themselves is touched only if it actually changed: moving
+  // a node means layout work for the whole list, there's no point doing it idly.
   const domOrder = heads.map(h => h.dataset.c);
   if (domOrder.some((c, i) => c !== order[i])) {
     for (const c of order) {
@@ -648,10 +648,10 @@ function restoreRowFocus(grid, tag) {
   if (again) again.focus({ preventScroll: true });
 }
 
-// Точечное обновление ячеек «Разброс» и «Задержка» в уже нарисованных строках.
-// Меняем только те, где отпечаток изменился: за один тик прогона приходит
-// несколько результатов, а не триста, поэтому работы получается на единицы
-// строк вместо полной пересборки со всеми флагами и обработчиками.
+// Targeted update of the "Jitter" and "Latency" cells in already drawn rows.
+// We change only those whose fingerprint changed: one run tick brings
+// a few results, not three hundred, so the work comes to a handful of
+// rows instead of a full rebuild with all the flags and handlers.
 function patchDelayCells(grid, pool, ctx) {
   for (const node of pool) {
     const tag = node.clashTag;
@@ -676,7 +676,7 @@ function patchDelayCells(grid, pool, ctx) {
   }
 }
 
-// ── таблица ─────────────────────────────────────────────────
+// ── table ─────────────────────────────────────────────────
 function sortHeader(key, label, end) {
   const on = sortState.key === key;
   return `<button class="nt__h${end ? " nt__h--end" : ""}" type="button" data-k="${key}"
@@ -700,7 +700,7 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
 
   const favs = getFavourites(source);
   const multi = nodes.length >= 2 && !strict;
-  // Закреплено мной ≠ через что реально идёт трафик. В «Авто» это разные строки.
+  // Pinned by me ≠ what the traffic actually goes through. In "Auto" these are different rows.
   const liveTag = selectorTag === "auto" ? effectiveTag : selectorTag;
   const ctx = { clashData, selectorTag, liveTag, favs, multi, testing: testingAll };
 
@@ -719,17 +719,17 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const pool = terms.length ? nodes.filter(matches) : nodes;
   const flat = !grouped || terms.length > 0;
 
-  // Полный innerHTML раз в 4 секунды сбрасывал бы фокус строки и ввод в поиске.
-  // Пересобираем только когда что-то реально изменилось — и различаем два
-  // «изменилось»: состав/порядок/фильтры требуют пересборки, а новая цифра
-  // задержки — только замены двух ячеек в готовой строке. Во время прогона
-  // «Измерить все» результаты приходят пачками по несколько раз в секунду, и
-  // пересборка трёхсот строк с флагами на каждую пачку — это и есть те самые
-  // секунды, на которые подвисало окно.
-  // Отпечатки собираются конкатенацией, а не JSON.stringify: тот на каждом тике
-  // (раз в 4 секунды) плодил массив тегов и ещё по паре на КАЖДУЮ ноду — на
-  // подписке в три сотни узлов это сотни короткоживущих объектов в мусор просто
-  // ради сравнения «изменилось ли что-нибудь».
+  // A full innerHTML every 4 seconds would reset row focus and the search input.
+  // We rebuild only when something actually changed — and distinguish two kinds of
+  // "changed": composition/order/filters require a rebuild, while a new latency
+  // number only requires replacing two cells in a ready row. During a
+  // "Measure all" run results arrive in batches several times a second, and
+  // rebuilding three hundred rows with flags for every batch is exactly those
+  // seconds the window froze for.
+  // Fingerprints are built by concatenation, not JSON.stringify: that one on every tick
+  // (every 4 seconds) produced an array of tags plus a couple more for EVERY node — on
+  // a subscription of three hundred nodes that's hundreds of short-lived objects into the garbage just
+  // to compare "did anything change".
   const SEP = "\u0001";
   const sigParts = [
     selectorTag, effectiveTag, query, sortState.key, sortState.dir,
@@ -749,9 +749,9 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   lastSignature = signature;
   lastDataSignature = dataSignature;
 
-  // Считаем по замерам ЯДРА. Прежний счёт через currentDelay откатывался на
-  // локальный архив, поэтому число «отвечают» фиксировалось в первой сессии и
-  // не пересчитывалось ни при «Измерить все», ни когда подписка умирала.
+  // We count by the CORE measurements. The former count via currentDelay fell back to
+  // the local archive, so the "responding" number got fixed in the first session and
+  // wasn't recomputed either on "Measure all" or when the subscription died.
   const alive = nodes.filter(n => coreDelay(clashData, n.clashTag) > 0).length;
 
   if (metaEl) {
@@ -764,8 +764,8 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
       const pin = selectorTag === "auto"
         ? (liveNode ? t("proxies.pinAuto", { name: fullName(liveNode) }) : t("proxies.auto"))
         : t("proxies.pinNode", { name: selectorTag ? fullName(nodes.find(n => n.clashTag === selectorTag)) || "—" : "—" });
-      // Во время прогона показываем прогресс, а не итог: иначе счётчик ползёт
-      // вверх от нуля и выглядит как «подписка сдохла».
+      // During a run we show progress, not the total: otherwise the counter crawls
+      // up from zero and looks like "the subscription died".
       const tail = sweep
         ? t("proxies.metaTesting", { done: sweep.done, total: sweep.total, alive })
         : tn("proxies.metaAlive", alive, { total: nodes.length });
@@ -781,9 +781,9 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
     name: n => cleanNameOf(n.name) || n.host,
     host: n => n.host,
     tr:   n => transportLabel(n),
-    // Подтверждённые ядром сортируются между собой по задержке, архивные —
-    // следом за ними, без данных — в самом конце. Иначе цифра из прошлой
-    // сессии вклинивается между живыми серверами и выглядит как лучший выбор.
+    // Core-confirmed ones are sorted among themselves by latency, archived ones
+    // come after them, those without data at the very end. Otherwise a number from a past
+    // session squeezes in between live servers and looks like the best choice.
     ping: n => {
       const live = coreDelay(clashData, n.clashTag);
       if (live) return live;
@@ -794,11 +794,11 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   const dir = sortState.dir === "asc" ? 1 : -1;
   const raw = (x, y) => typeof x === "number" ? x - y : String(x).localeCompare(String(y), "ru");
   const cmp = (x, y) => raw(x, y) * dir;
-  // При равенстве по основному столбцу — быстрейший выше, затем по имени.
-  // Без этого «все REALITY» выпадали в порядке добавления.
-  // Во время прогона порядок заморожен: сортировка по задержке иначе
-  // переставляла бы строки под курсором на каждом пришедшем замере, а список
-  // «прыгал» бы весь прогон. После прогона рендер пересортирует всё разом.
+  // With a tie on the main column — the fastest goes higher, then by name.
+  // Without this "all REALITY" came out in the order they were added.
+  // During a run the order is frozen: sorting by latency would otherwise
+  // rearrange rows under the cursor on every arriving measurement, and the list
+  // would "jump" for the whole run. After the run the render re-sorts everything at once.
   const frozenIndex = (n) => (sortFreeze?.has(n.clashTag) ? sortFreeze.get(n.clashTag) : Number.MAX_SAFE_INTEGER);
   const cmpNode = sortFreeze
     ? (a, b) => frozenIndex(a) - frozenIndex(b) || raw(val.name(a), val.name(b))
@@ -822,20 +822,20 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
     return;
   }
 
-  // Избранное всегда наверху и не дублируется в странах: выбор пользователя
-  // важнее машинного и важнее географии.
+  // Favorites are always on top and aren't duplicated in countries: the user's choice
+  // matters more than the machine's and more than geography.
   const favList = pool.filter(n => favs.has(n.clashTag)).sort(cmpNode);
   const rest = pool.filter(n => !favs.has(n.clashTag));
   const restSorted = flat ? rest.slice().sort(cmpNode) : null;
 
   const groups = flat ? null : groupRest(rest, { cmpNode, cmp, val, clashData });
 
-  // Мягкое обновление. Состав списка тот же — изменились цифры и, возможно,
-  // порядок. Строки уже существуют: переставить готовые узлы и заменить в них
-  // две ячейки несравнимо дешевле, чем собрать и распарсить заново пять тысяч
-  // узлов. Полная пересборка при сортировке по задержке случалась на КАЖДОМ
-  // пришедшем замере, то есть каждые несколько секунд, и это она ощущалась
-  // как рывки интерфейса.
+  // Soft update. The list composition is the same — the numbers and possibly
+  // the order changed. The rows already exist: rearranging ready nodes and replacing two
+  // cells in them is incomparably cheaper than building and parsing five thousand
+  // nodes anew. A full rebuild when sorting by latency happened on EVERY
+  // arriving measurement, i.e. every few seconds, and that's what was felt
+  // as interface jerks.
   if (!structureChanged && grid.querySelector(".nt-row[data-tag]")) {
     let patched = false;
     if (flat) {
@@ -888,11 +888,11 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
     }).join("");
   }
 
-  // Новый замер перерисовывает таблицу целиком. Без этого фокус строки слетал
-  // бы на каждом обновлении и клавиатурная навигация ломалась каждые 4 секунды.
+  // A new measurement redraws the whole table. Without this row focus would be lost
+  // on every update and keyboard navigation would break every 4 seconds.
   grid.innerHTML = head + favBlock + body;
   attachFlagFallbacks(grid);
-  // Отпечатки нарисованного — чтобы следующий патч трогал только изменившееся.
+  // Fingerprints of what's drawn — so that the next patch touches only what changed.
   for (const node of pool) {
     const hs = historyOf(clashData, node.clashTag);
     const pending = ctx.testing && !hs.length;
@@ -906,9 +906,9 @@ function renderTable(nodes, selectorTag, effectiveTag, clashData, { strict = fal
   }
 }
 
-// ── render: сопутствующие состояния ─────────────────────────
+// ── render: related states ─────────────────────────
 function effectiveSelectorTag(clashData) {
-  // optimistic override живёт 4 сек — пока бэк не подтвердит
+  // the optimistic override lives 4 s — until the backend confirms
   if (optimisticActiveTag && Date.now() < optimisticUntilTs) return optimisticActiveTag;
   return pickSelectorNow(clashData);
 }
@@ -953,13 +953,13 @@ async function refresh({ retry = false } = {}) {
   lastClashSnapshot = data;
   const tags = nodes.map(n => n.clashTag);
   pruneProbeHistory(getActiveSource(), tags);
-  // Новую точку в истории раньше сопровождала полная инвалидация рендера —
-  // то есть каждый пришедший замер пересобирал таблицу целиком. Теперь разницу
-  // видит сигнатура данных, и её отрабатывает патч ячеек.
+  // A new point in the history used to be accompanied by a full render invalidation —
+  // i.e. every arriving measurement rebuilt the whole table. Now the difference
+  // is seen by the data signature, and the cell patch handles it.
   recordProbes(getActiveSource(), data, tags);
   const selectorTag = effectiveSelectorTag(data);
   const effectiveTag = pickEffectiveNode(data);
-  // URLTest сам мог перевыбрать ноду — синхронизируем хедер и IP
+  // URLTest may have reselected the node itself — sync the header and IP
   if (effectiveTag && effectiveTag !== lastEffectiveTag) {
     lastEffectiveTag = effectiveTag;
     const node = nodes.find(n => n.clashTag === effectiveTag) || null;
@@ -968,7 +968,7 @@ async function refresh({ retry = false } = {}) {
   render(nodes, selectorTag, effectiveTag, data);
 }
 
-// ── click-handler: выбор ноды через Selector ───────────────
+// ── click handler: node selection via Selector ───────────────
 async function handleNodeClick(card, onToast) {
   const generation = sourceGeneration;
   const tag = card.dataset.tag;
@@ -988,8 +988,8 @@ async function handleNodeClick(card, onToast) {
     }
     return;
   }
-  // Одиночный source не имеет Selector: карточка уже является активным
-  // конечным outbound, поэтому PUT /proxies/proxy здесь недопустим.
+  // A single source has no Selector: the card is already the active
+  // final outbound, so PUT /proxies/proxy isn't allowed here.
   if (nodes.length < 2) return;
 
   const data = await readMatchingSnapshot(nodes, { attempts: 2 });
@@ -1011,15 +1011,15 @@ async function handleNodeClick(card, onToast) {
   try {
     const selected = await selectProxy("proxy", tag);
     if (selected?.stale) return;
-    // Ядро выбор уже приняло — запоминаем его ДО проверки поколения. Иначе уход
-    // с экрана сразу после клика (onProxiesViewLeave поднимает поколение)
-    // оставлял ядро с новым сервером, а приложение — со старым в памяти, и
-    // следующий реконнект возвращал прежний.
+    // The core has already accepted the choice — we remember it BEFORE the generation check. Otherwise leaving
+    // the screen right after the click (onProxiesViewLeave bumps the generation)
+    // left the core with the new server and the app with the old one in memory, and
+    // the next reconnect brought back the previous one.
     rememberProxySelection(getActiveSource(), tag);
     if (generation !== sourceGeneration) return;
     onToast?.(tag === "auto" ? t("proxies.toastAuto") : t("proxies.toastSwitched"), "success", 1200);
-    // Для "auto" реальный исходящий определит URLTest — узнаем после refresh.
-    // Для ручного выбора — сразу синхронизируем hero/location/IP.
+    // For "auto" the actual outbound is determined by URLTest — we'll learn it after refresh.
+    // For a manual choice — sync hero/location/IP right away.
     if (tag !== "auto") {
       const nodes = nodesFromSource();
       const node = nodes.find(n => n.clashTag === tag) || null;
@@ -1047,12 +1047,12 @@ export function onProxiesViewEnter() {
   pollTimer = setInterval(refresh, POLL_MS);
 }
 
-// Если active = "auto", но замеров ещё нет — Balancer не на чем выбирать и
-// держит первую ноду списка. Форсим групповой прогон, он наполняет историю.
+// If active = "auto" but there are no measurements yet — the Balancer has nothing to choose with and
+// holds the first node of the list. We force a group run, it fills the history.
 //
-// Прежнее условие («выходим, если auto.now непустой») не срабатывало никогда:
-// Balancer.Now() всегда возвращает тег — на пустой истории это фолбэк на
-// первую ноду. Проверять надо не наличие лидера, а наличие ЗАМЕРА у него.
+// The former condition ("exit if auto.now is non-empty") never fired:
+// Balancer.Now() always returns a tag — with an empty history it's a fallback to
+// the first node. What has to be checked isn't the presence of a leader but the presence of its MEASUREMENT.
 async function kickstartAutoIfNeeded() {
   if (strictPrivacyEnabled()) return;
   const data = lastClashSnapshot;
@@ -1062,8 +1062,8 @@ async function kickstartAutoIfNeeded() {
   if (!auto) return;
   const leader = auto.now && auto.now !== "auto" ? auto.now : null;
   if (leader && coreDelay(data, leader) > 0) return;
-  // Оборвать этот прогон по таймауту безопасно: ядро больше не стирает
-  // историю нод, чьи пробы не успели завершиться до отмены запроса.
+  // Cutting this run off by timeout is safe: the core no longer erases
+  // the history of nodes whose probes didn't finish before the request was cancelled.
   try { await testGroup("auto", { timeoutMs: 20000 }); await refresh(); } catch {}
 }
 
@@ -1081,10 +1081,10 @@ export function resetProxiesViewForSourceChange() {
   optimisticActiveTag = null;
   optimisticUntilTs = 0;
   lastEffectiveTag = null;
-  // Перерисовывать скрытый экран незачем: на подписке в сотни серверов это
-  // полсекунды блокировки главного потока прямо посреди переключения источника.
-  // Вход на экран всегда начинается с рендера, а сброшенная сигнатура не даст
-  // ему счесть список неизменившимся.
+  // There's no point redrawing a hidden screen: on a subscription of hundreds of servers that's
+  // half a second of main thread blocking right in the middle of a source switch.
+  // Entering the screen always starts with a render, and the reset signature won't let
+  // it consider the list unchanged.
   if (!viewActive) {
     invalidateRender();
     return;
@@ -1099,12 +1099,12 @@ function stopPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
-// Живой ре-рендер при смене языка (из onLangChange). Без сети — берём последний
-// снапшот clash; если его нет, render отрисует пустое состояние.
+// Live re-render on a language change (from onLangChange). Without the network we take the last
+// clash snapshot; if there's none, render draws an empty state.
 export function rerenderProxiesView() {
   if (!$("proxies-grid")) return;
-  // Смена языка на скрытом экране: пересобирать список не нужно, он всё равно
-  // перерисуется при входе — но сигнатуру сбрасываем, чтобы вход это сделал.
+  // A language change on a hidden screen: there's no need to rebuild the list, it will
+  // be redrawn on entry anyway — but we reset the signature so that entry does it.
   if (!viewActive) {
     invalidateRender();
     return;
@@ -1136,7 +1136,7 @@ export function mountProxiesView({
   const screen = document.querySelector('.screen[data-view="proxies"]');
 
   screen?.addEventListener("click", (e) => {
-    // Действия внутри строки не должны выбирать ноду
+    // Actions inside a row must not select the node
     const fav = e.target.closest("[data-fav]");
     if (fav) {
       e.stopPropagation();
@@ -1148,7 +1148,7 @@ export function mountProxiesView({
     const menu = e.target.closest("[data-node-menu]");
     if (menu) {
       e.stopPropagation();
-      // detail === 0 — нажатие с клавиатуры: фокус сразу на первый пункт.
+      // detail === 0 — a keyboard press: focus goes straight to the first item.
       openNodeMenu(menu, menu.closest(".prox"), onToast, { focusFirst: e.detail === 0 });
       return;
     }
@@ -1177,8 +1177,8 @@ export function mountProxiesView({
     if (card) handleNodeClick(card, onToast);
   });
 
-  // Правый клик по строке сервера → меню строки у курсора. У строки «Авто»
-  // своих действий нет — там меню не открываем.
+  // Right click on a server row → the row menu at the cursor. The "Auto" row
+  // has no actions of its own — no menu there.
   screen?.addEventListener("contextmenu", (e) => {
     const row = e.target.closest(".nt-row.prox");
     if (!row) return;
@@ -1186,7 +1186,7 @@ export function mountProxiesView({
     openNodeMenu({ x: e.clientX, y: e.clientY }, row, onToast, { returnFocus: row });
   });
 
-  // ── клавиатура: плотная таблица должна ходить стрелками ──
+  // ── keyboard: a dense table must be navigable with the arrows ──
   const rowsInOrder = () => [...screen.querySelectorAll(".rec-row, .nt-row")]
     .filter(r => r.offsetParent !== null);
   screen?.addEventListener("keydown", (e) => {
@@ -1215,7 +1215,7 @@ export function mountProxiesView({
     else if (e.key === "Home" && cur) { e.preventDefault(); go(0); }
     else if (e.key === "End" && cur) { e.preventDefault(); go(rows.length - 1); }
     else if ((e.key === "Enter" || e.key === " ") && cur) {
-      // Внутри строки есть свои кнопки (★, ⋯) — им нужен их собственный Enter.
+      // A row has its own buttons (★, ⋯) — they need their own Enter.
       if (e.target.closest("button")) return;
       e.preventDefault(); handleNodeClick(cur, onToast);
     }
@@ -1227,7 +1227,7 @@ export function mountProxiesView({
     }
   });
 
-  // ── поиск ──
+  // ── search ──
   function setQuery(v) {
     query = v;
     const input = $("proxies-q");
@@ -1252,7 +1252,7 @@ export function mountProxiesView({
     }
   });
 
-  // ── группировка ──
+  // ── grouping ──
   $("proxies-group")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-g]");
     if (!b) return;
@@ -1265,7 +1265,7 @@ export function mountProxiesView({
   $("proxies-group")?.querySelectorAll("button").forEach(x =>
     x.setAttribute("aria-pressed", String((x.dataset.g === "country") === grouped)));
 
-  // ── измерить все ──
+  // ── measure all ──
   const testBtn = $("proxies-test");
   testBtn?.addEventListener("click", async () => {
     if (strictPrivacyEnabled()) return;
@@ -1285,21 +1285,21 @@ export function mountProxiesView({
         return;
       }
       lastClashSnapshot = ready;
-      // Фиксируем порядок, который сейчас видит пользователь: дальше строки
-      // только обновляются на месте. Если таблица ещё не нарисована, морозить
-      // нечего — тогда прогон идёт с обычной пересборкой.
+      // We fix the order the user sees right now: from here on rows
+      // are only updated in place. If the table isn't drawn yet, there's nothing to freeze —
+      // then the run goes with the regular rebuild.
       const drawn = [...($("proxies-grid")?.querySelectorAll(".nt-row[data-tag]") || [])];
       sortFreeze = drawn.length ? new Map(drawn.map((el, i) => [el.dataset.tag, i])) : null;
       invalidateRender();
-      // refresh по ходу — список оживает прогрессивно, не ждёт все ноды
+      // refresh along the way — the list comes alive progressively, without waiting for all nodes
       let last = 0;
       sweep = { done: 0, total: new Set(nodes.map(n => n.clashTag)).size };
       await testAllNodes(nodes, (done) => {
         if (generation !== sourceGeneration) return;
         if (sweep) sweep.done = done;
-        // Каждый refresh — это ответ /proxies на все ноды подписки: сотня с
-        // лишним килобайт JSON через IPC. Раз в секунду список обновляется
-        // достаточно живо, а окно не занято разбором ответов.
+        // Each refresh is a /proxies response for all nodes of the subscription: over a hundred
+        // kilobytes of JSON through IPC. Updating the list once a second is
+        // lively enough, and the window isn't busy parsing responses.
         const now = Date.now();
         if (now - last > 1000) { last = now; refresh(); }
       }, () => generation === sourceGeneration);
@@ -1312,8 +1312,8 @@ export function mountProxiesView({
     } finally {
       testingAll = false;
       sweep = null;
-      // Порядок размораживаем и пересобираем список один раз — с итоговой
-      // сортировкой по свежим замерам.
+      // We unfreeze the order and rebuild the list once — with the final
+      // sorting by fresh measurements.
       sortFreeze = null;
       invalidateRender();
       delete testBtn.dataset.testing;
@@ -1328,11 +1328,11 @@ export function mountProxiesView({
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideScorePopover(); });
 }
 
-// ── поповер «как считается» ─────────────────────────────────
+// ── the "how it's calculated" popover ─────────────────────────────────
 function hideScorePopover() { document.getElementById("rec-pop")?.remove(); }
 function showScorePopover(anchor) {
-  // Создаём по месту, как меню строки: в index.html элемента нет, и раньше
-  // «как считается» молча не открывалось.
+  // Created on the spot, like the row menu: index.html doesn't have the element, and previously
+  // "how it's calculated" silently didn't open.
   hideScorePopover();
   const p = document.createElement("div");
   p.className = "rec-pop";
@@ -1362,16 +1362,16 @@ function showScorePopover(anchor) {
   p.style.left = Math.max(10, Math.min(ar.right - p.offsetWidth, window.innerWidth - p.offsetWidth - 10)) + "px";
 }
 
-// ── меню действий по серверу ────────────────────────────────
-// Общее меню приложения (lib/pmenu.js): кнопка «⋯», правый клик по строке и
-// клавиша Menu / Shift+F10 открывают одно и то же.
+// ── server action menu ────────────────────────────────
+// The app's shared menu (lib/pmenu.js): the "⋯" button, a right click on a row and
+// the Menu / Shift+F10 key open the same thing.
 function openNodeMenu(anchor, row, onToast, opts = {}) {
   const tag = row?.dataset.tag;
   const node = tag && nodesFromSource().find(n => n.clashTag === tag);
   if (!node) return;
   const fav = getFavourites(getActiveSource()).has(tag);
-  // Действие, которое ничего не изменит, не должно выглядеть кликабельным:
-  // на уже выбранном сервере пункт показывает состояние, а не предложение.
+  // An action that won't change anything must not look clickable:
+  // on an already selected server the item shows a state, not an offer.
   const current = effectiveSelectorTag(lastClashSnapshot) === tag;
   openPMenu(anchor, [
     current
@@ -1397,22 +1397,22 @@ function openNodeMenu(anchor, row, onToast, opts = {}) {
   });
 }
 
-// Перетест ВСЕХ нод по одной через /proxies/{tag}/delay (пропатчен на unified →
-// точно, и перемеряет КАЖДЫЙ вызов). Групповой эндпоинт тоже перемерил бы всё,
-// но по одной ноде видно прогресс, а прогон переживает уход с экрана.
+// Retesting ALL nodes one by one via /proxies/{tag}/delay (patched to unified →
+// accurate, and EVERY call re-measures). The group endpoint would also re-measure everything,
+// but with one node at a time the progress is visible, and the run survives leaving the screen.
 //
-// Время прогона определяют не живые серверы, а мёртвые: почти всё оно уходит на
-// ожидание тех, кто не ответит. Поэтому счёт идёт от того, сколько таких ждём
-// одновременно. Порядок — по последней известной задержке: сервер, который уже
-// был быстрым, проверяется первым, и список оживает с верхних строк, а не в
-// случайном порядке подписки.
-// Замер стоит примерно четыре round trip'а до цели через сервер: даже дальний
-// узел укладывается в пару секунд, поэтому четырёх хватает с запасом, а всё
-// сверх — это ожидание тех, кто не ответит никогда. Два десятка одновременных
-// соединений домашний канал не замечает (браузер открывает больше), зато
-// прогон на трёхсотнодной подписке укладывается меньше чем в минуту вместо
-// трёх. Выше не поднимаем: выигрыш уже небольшой, а всплеск запросов через
-// IPC заметен на отзывчивости окна.
+// The run time is determined not by live servers but by dead ones: almost all of it goes to
+// waiting for those who won't answer. So the count is based on how many of those we wait for
+// simultaneously. The order is by the last known latency: a server that was already
+// fast is checked first, and the list comes alive from the top rows rather than in
+// the subscription's random order.
+// A measurement costs about four round trips to the target through the server: even a distant
+// node fits into a couple of seconds, so four are more than enough, and everything
+// beyond is waiting for those who will never answer. Twenty simultaneous
+// connections go unnoticed on a home connection (a browser opens more), while
+// a run on a three-hundred-node subscription fits into less than a minute instead of
+// three. We don't go higher: the gain is already small, and a burst of requests through
+// IPC is noticeable in window responsiveness.
 const TEST_ALL_CONCURRENCY = 24;
 const TEST_ALL_TIMEOUT_MS = 4000;
 

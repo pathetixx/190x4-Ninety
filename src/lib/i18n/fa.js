@@ -1,4 +1,4 @@
-// Ninety · کاتالوگ FA (فارسی). ترجمهٔ ماشینی از EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (نیازمند بازخوانی توسط گویشور بومی).
+// Ninety · کاتالوگ FA (فارسی). ترجمهٔ ماشینی از EN/RU — NEEDS NATIVE PROOFREADING (نیازمند بازخوانی توسط گویشور بومی).
 // کلیدها مانند ru.js است (پاریته ۷۷۱)؛ اگر کلیدی نباشد، در زمان اجرا به en بازمی‌گردد.
 export const fa = {
   titlebar: { min: "کوچک‌کردن", max: "بزرگ‌کردن", close: "بستن" },
@@ -64,7 +64,7 @@ export const fa = {
     channelTitle: "کیفیت کانال",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "نمایش Ninety",
     connect: "اتصال",

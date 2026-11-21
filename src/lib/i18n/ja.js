@@ -1,4 +1,4 @@
-// Ninety · カタログ JA（日本語）。EN/RU からの機械翻訳 — НУЖНА ВЫЧИТКА НОСИТЕЛЯ（ネイティブによる校正が必要）。
+// Ninety · カタログ JA（日本語）。EN/RU からの機械翻訳 — NEEDS NATIVE PROOFREADING（ネイティブによる校正が必要）。
 // キーは ru.js に対応（パリティ 771）; キーが欠けている場合、ランタイムは en にフォールバックします。
 export const ja = {
   titlebar: { min: "最小化", max: "最大化", close: "閉じる" },
@@ -64,7 +64,7 @@ export const ja = {
     channelTitle: "回線品質",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Ninety を表示",
     connect: "接続",

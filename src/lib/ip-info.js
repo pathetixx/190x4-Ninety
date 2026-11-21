@@ -1,9 +1,9 @@
-// Ninety · публичный IP юзера (через локальный inbound sing-box).
-// Rust-команда перебирает несколько IP-провайдеров и нормализует ответ. Запрос
-// ВСЕГДА идёт через loopback-прокси sing-box (mixed-in / probe-in) — даже в
-// systemProxy и TUN: reqwest не чтит системный прокси, а собственный трафик
-// Ninety.exe в TUN уходит в direct bypass'ом, поэтому «напрямую» показал бы
-// реальный IP юзера, а не exit. Явный proxyHostPort задаёт main.js.
+// Ninety · the user's public IP (through the local sing-box inbound).
+// A Rust command tries several IP providers and normalizes the response. The request
+// ALWAYS goes through the sing-box loopback proxy (mixed-in / probe-in) — even in
+// systemProxy and TUN: reqwest doesn't honor the system proxy, and Ninety.exe's own
+// traffic in TUN goes direct via bypass, so "direct" would show
+// the user's real IP, not the exit. main.js sets the explicit proxyHostPort.
 
 import { maskIp } from "/lib/address-mask.js";
 import { localizedInvoke } from "/lib/backend-errors.js";
@@ -17,12 +17,12 @@ export async function fetchPublicIp({ proxyHostPort } = {}) {
   return info;
 }
 
-// Маскировка живёт в /lib/address-mask.js — её же использует отчёт диагностики.
-// Реэкспортируем: вызывающие (main.js) знают её по этому модулю, а bindIpReveal
-// ниже зовёт её напрямую.
+// Masking lives in /lib/address-mask.js — the diagnostics report uses it too.
+// We re-export it: callers (main.js) know it from this module, and bindIpReveal
+// below calls it directly.
 export { maskIp };
 
-// 20-секундный auto-hide reveal
+// 20-second auto-hide reveal
 let revealTimer = null;
 export function bindIpReveal(el, getFullIp) {
   el.addEventListener("click", () => {

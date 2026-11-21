@@ -1,38 +1,38 @@
-// Ninety · «чёрный ящик» — лента инцидентов связи.
+// Ninety · the "black box" — the connection incident feed.
 //
-// Зачем: движок качества, вотчдоги, карантин нод и kill switch уже чинят связь
-// сами, но наружу их работа видна только тостом, который живёт три секунды.
-// Лента хранит короткую историю: что случилось, что программа сделала и сколько
-// это заняло — вкладка «Лента» в разделе «Диагностика».
+// Why: the quality engine, watchdogs, node quarantine and the kill switch already fix the connection
+// themselves, but their work is visible from outside only as a toast that lives three seconds.
+// The feed keeps a short history: what happened, what the program did and how long
+// it took — the "Feed" tab in the "Diagnostics" section.
 //
-// Записи хранят ДАННЫЕ, а не готовый текст: подпись собирается из каталога i18n
-// в момент отрисовки. Иначе история, записанная на русском, так и осталась бы
-// русской после смены языка (и наоборот).
+// Entries store DATA, not ready text: the label is built from the i18n catalog
+// at render time. Otherwise a history recorded in Russian would stay
+// Russian after a language change (and vice versa).
 //
-// Ограничения хранилища: кольцо на CAP записей + TTL. Лента — не журнал (для
-// него есть «Логи»), а обозримая история за последние дни; расти без границ ей
-// незачем, а localStorage у пользователя один на всё приложение.
+// Storage limits: a ring of CAP entries + TTL. The feed isn't a log (there are
+// "Logs" for that), but a manageable history of the last few days; there's no reason for it
+// to grow without bounds, and the user has one localStorage for the whole app.
 
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const KEY = STORAGE_KEYS.incidents;
 const CAP = 200;
 const TTL_MS = 14 * 24 * 3600 * 1000;
-// Инцидент считается закрытым, если после него не было событий дольше этого
-// окна: программа могла починить связь молча (или пользователь сам переключил
-// сервер), и вечно открытый инцидент врал бы про «идёт до сих пор».
+// An incident is considered closed if there were no events after it for longer than this
+// window: the program may have fixed the connection silently (or the user switched the
+// server themselves), and a forever-open incident would lie about "still ongoing".
 const IDLE_CLOSE_MS = 10 * 60_000;
 
-// Уровни: err/warn открывают инцидент, ok закрывает его подтверждённым
-// восстановлением, end — закрывает без вердикта (сессия кончилась раньше:
-// отключение, смена источника, выключенное наблюдение), info — контекст внутри.
+// Levels: err/warn open an incident, ok closes it with a confirmed
+// recovery, end closes it without a verdict (the session ended earlier:
+// disconnect, source switch, observation turned off), info is context inside.
 export const INCIDENT_SEVERITIES = ["info", "ok", "end", "warn", "err"];
 
 const isOpener = (severity) => severity === "warn" || severity === "err";
 
 function safeStorage(storage) {
-  // Приватное окно, отключённые site data, ранний старт — доступ к localStorage
-  // может бросить на самом обращении, не только на чтении ключа.
+  // A private window, disabled site data, an early start — access to localStorage
+  // may throw on the access itself, not only on reading a key.
   try {
     if (storage) return storage;
     return typeof localStorage === "undefined" ? null : localStorage;
@@ -50,7 +50,7 @@ export function createIncidentLog({
 } = {}) {
   const store = safeStorage(storage);
   const listeners = new Set();
-  let memory = null; // фолбэк, когда localStorage недоступен
+  let memory = null; // fallback when localStorage is unavailable
 
   function read() {
     if (memory) return memory;
@@ -71,8 +71,8 @@ export function createIncidentLog({
     try {
       store.setItem(key, JSON.stringify(entries));
     } catch {
-      // Переполненное хранилище не должно ронять запись инцидента: лента
-      // продолжит жить в памяти до конца сессии.
+      // Full storage must not break recording an incident: the feed
+      // keeps living in memory until the end of the session.
     }
   }
 
@@ -99,7 +99,7 @@ export function createIncidentLog({
     const entries = prune([...read(), entry]);
     write(entries);
     for (const fn of listeners) {
-      try { fn(entry); } catch { /* подписчик не должен ронять запись */ }
+      try { fn(entry); } catch { /* a subscriber must not break the recording */ }
     }
     return entry;
   }
@@ -113,7 +113,7 @@ export function createIncidentLog({
   function clear() {
     write([]);
     for (const fn of listeners) {
-      try { fn(null); } catch { /* см. выше */ }
+      try { fn(null); } catch { /* see above */ }
     }
   }
 
@@ -126,17 +126,17 @@ export function createIncidentLog({
   return { record, list, clear, subscribe };
 }
 
-// Группировка записей в инциденты: «что-то сломалось → что делали → чем
-// кончилось». Открывает инцидент первое warn/err. Закрыть его может:
-//   ok  — восстановление подтверждено замером (outcome "resolved");
-//   end — сессия кончилась раньше замера (outcome "ended"): исход неизвестен,
-//         но длительность известна — до этого момента связь была плохой;
-//   тишина дольше idleMs (outcome "unmeasured") — замеров больше не было, и
-//         сколько ещё длилась деградация, приложение не знает.
-// info вне открытого инцидента — отдельная однособытийная заметка (outcome
-// "note"): пользователю важно видеть и «просто переключил сервер», иначе лента
-// выглядит пустой в спокойные дни. end вне инцидента не показываем — обычное
-// отключение само по себе не событие связи.
+// Grouping entries into incidents: "something broke → what was done → how it
+// ended". The first warn/err opens an incident. It can be closed by:
+//   ok  — recovery confirmed by a measurement (outcome "resolved");
+//   end — the session ended before a measurement (outcome "ended"): the outcome is unknown,
+//         but the duration is known — until that moment the connection was bad;
+//   silence longer than idleMs (outcome "unmeasured") — there were no more measurements, and
+//         the app doesn't know how long the degradation lasted.
+// info outside an open incident — a separate single-event note (outcome
+// "note"): it matters to the user to see "just switched the server" too, otherwise the feed
+// looks empty on quiet days. end outside an incident isn't shown — a regular
+// disconnect by itself isn't a connection event.
 export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now } = {}) {
   const sorted = [...(entries || [])].filter((e) => e && Number.isFinite(e.ts)).sort((a, b) => a.ts - b.ts);
   const groups = [];
@@ -145,8 +145,8 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
   const close = (group, endTs, outcome) => {
     group.endTs = endTs;
     group.outcome = outcome;
-    // Прежнее поле остаётся: «восстановлено» — только подтверждённое ok, всё
-    // остальное для старых потребителей по-прежнему false.
+    // The old field stays: "recovered" means only a confirmed ok, everything
+    // else is still false for old consumers.
     group.resolved = outcome === "resolved";
     group.durationMs = Math.max(0, endTs - group.startTs);
   };
@@ -162,8 +162,8 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
         open = { startTs: entry.ts, lastTs: entry.ts, severity: entry.severity, events: [] };
         groups.push(open);
       }
-      // Инцидент наследует худший уровень своих событий: пара warn с одним err
-      // внутри — это всё-таки обрыв, а не замедление.
+      // An incident inherits the worst level of its events: a couple of warns with one err
+      // inside is still a breakdown, not a slowdown.
       if (entry.severity === "err") open.severity = "err";
       open.events.push(entry);
       open.lastTs = entry.ts;
@@ -171,8 +171,8 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
     }
 
     if (entry.severity === "end") {
-      // Конец сессии закрывает только уже открытый инцидент. Вне его это
-      // рядовое отключение, и заметкой в ленте оно быть не должно.
+      // The end of a session closes only an already open incident. Outside it this is
+      // an ordinary disconnect, and it must not be a note in the feed.
       if (!open) continue;
       open.events.push(entry);
       open.lastTs = entry.ts;
@@ -191,41 +191,41 @@ export function groupIncidents(entries, { idleMs = IDLE_CLOSE_MS, now = Date.now
       continue;
     }
 
-    // Событие вне инцидента.
+    // An event outside an incident.
     const solo = { startTs: entry.ts, lastTs: entry.ts, severity: entry.severity, events: [entry] };
     close(solo, entry.ts, entry.severity === "ok" ? "resolved" : "note");
     groups.push(solo);
   }
 
   if (open) {
-    // Инцидент без развязки: если тишина уже дольше окна — он закрыт по
-    // таймауту, иначе идёт прямо сейчас.
+    // An incident without a resolution: if the silence is already longer than the window, it's closed by
+    // timeout, otherwise it's ongoing right now.
     const silent = now() - open.lastTs > idleMs;
     close(open, open.lastTs, "unmeasured");
     open.ongoing = !silent;
   }
 
-  return groups.reverse(); // свежие сверху — так их и показывает лента
+  return groups.reverse(); // newest first — that's how the feed shows them
 }
 
-// Суммарное время деградации за период (для строки «за неделю связь
-// деградировала N минут»). Считаем только закрытые/идущие инциденты уровня
-// warn+, одиночные info в счёт не идут.
+// Total degradation time for a period (for the line "this week the connection
+// was degraded for N minutes"). We count only closed/ongoing incidents of level
+// warn+, single info entries don't count.
 //
-// Для "resolved" и "ended" это точная длительность, для "unmeasured" — нижняя
-// граница: после последнего события измерений не было, и деградация могла идти
-// ещё долго. Поэтому сумма — оценка снизу, а сводка обязана говорить «не менее»
-// и показывать рядом unmeasuredIncidents(); иначе инцидент из одной записи
-// (длительность 0) молча улучшает картину недели.
+// For "resolved" and "ended" this is the exact duration, for "unmeasured" a lower
+// bound: after the last event there were no measurements, and the degradation may have lasted
+// much longer. So the sum is a lower estimate, and the summary must say "at least"
+// and show unmeasuredIncidents() next to it; otherwise an incident with a single entry
+// (duration 0) silently improves the week's picture.
 export function degradedMs(groups, { since = 0 } = {}) {
   return (groups || [])
     .filter((g) => isOpener(g.severity) && g.startTs >= since)
     .reduce((total, g) => total + (g.durationMs || 0), 0);
 }
 
-// Сколько инцидентов за период закрылись без исхода — те самые, чьё время
-// degradedMs недосчитывает. Идущий прямо сейчас инцидент сюда не попадает: он
-// ещё может закончиться замером.
+// How many incidents in the period closed without an outcome — the very ones whose time
+// degradedMs undercounts. An incident ongoing right now isn't included: it
+// may still end with a measurement.
 export function unmeasuredIncidents(groups, { since = 0 } = {}) {
   return (groups || []).filter((g) => isOpener(g.severity)
     && g.startTs >= since
@@ -233,5 +233,5 @@ export function unmeasuredIncidents(groups, { since = 0 } = {}) {
     && !g.ongoing).length;
 }
 
-// Общая лента приложения. Тесты создают свою через createIncidentLog.
+// The app's shared feed. Tests create their own via createIncidentLog.
 export const incidentLog = createIncidentLog();

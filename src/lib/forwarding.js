@@ -1,30 +1,30 @@
-// Ninety · пересылка IP на внешнем интерфейсе (issue #168).
+// Ninety · IP forwarding on the external interface (issue #168).
 //
-// Проба живёт в Rust (forwarding.rs): там же объяснение, почему пересылка
-// зацикливает TUN. Здесь — только то, что нужно интерфейсу: есть ли проблема
-// и какой командой её снять. Сами настройки Ninety не меняет: пересылка бывает
-// нужна осознанно (Hyper-V, WSL, раздача), решать человеку.
+// The probe lives in Rust (forwarding.rs): that's also where the explanation of why forwarding
+// loops TUN is. Here — only what the interface needs: whether there's a problem
+// and which command removes it. Ninety doesn't change the settings itself: forwarding is sometimes
+// needed deliberately (Hyper-V, WSL, sharing), it's up to the person.
 
-/// Проблема есть, только если пересылка включена на интерфейсе с выходом в
-/// интернет прямо сейчас. Один флаг реестра без неё ничего не ломает.
+/// There's a problem only if forwarding is enabled on an interface with internet
+/// access right now. The registry flag alone breaks nothing without it.
 export function forwardingProblem(status) {
   return Array.isArray(status?.interfaces) && status.interfaces.length > 0;
 }
 
-/// Имена адаптеров через запятую, без повторов (IPv4 и IPv6 одного адаптера).
+/// Adapter names separated by commas, without repeats (IPv4 and IPv6 of the same adapter).
 export function forwardingAliases(status) {
   const names = (status?.interfaces || []).map((entry) => String(entry?.alias || "").trim()).filter(Boolean);
   return [...new Set(names)].join(", ");
 }
 
-// Строка в одинарных кавычках PowerShell: единственный спецсимвол — сама кавычка.
+// A string in PowerShell single quotes: the only special character is the quote itself.
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-/// Команды для PowerShell от имени администратора. Выключают пересылку на
-/// найденных интерфейсах сразу, а флаг реестра — чтобы она не вернулась после
-/// перезагрузки.
+/// Commands for PowerShell run as administrator. They turn forwarding off on
+/// the found interfaces immediately, and the registry flag too, so it doesn't come back after
+/// a reboot.
 export function forwardingFixCommand(status) {
   const lines = [];
   for (const entry of status?.interfaces || []) {

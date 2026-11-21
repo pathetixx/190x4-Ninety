@@ -1,12 +1,12 @@
-// Ninety · id для сущностей storage (профили, подписки, правила маршрутизации).
-// crypto.randomUUID есть в webview2/Tauri; фолбэк — старое окружение/node-тесты.
-// Консолидирует прежние локальные копии (routing-rules uuid; singbox/subscriptions
-// делали чистый Math.random — теоретические коллизии при массовом импорте).
+// Ninety · ids for storage entities (profiles, subscriptions, routing rules).
+// crypto.randomUUID exists in webview2/Tauri; the fallback is for an old environment/node tests.
+// Consolidates the former local copies (routing-rules uuid; singbox/subscriptions
+// used plain Math.random — theoretical collisions on a bulk import).
 export function uid(prefix = "") {
   let id;
   try {
     id = globalThis.crypto?.randomUUID?.();
-  } catch { /* нет WebCrypto — фолбэк ниже */ }
+  } catch { /* no WebCrypto — fallback below */ }
   if (!id) id = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
   return prefix + id;
 }

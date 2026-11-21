@@ -1,21 +1,21 @@
-// Ninety · история замеров задержки
+// Ninety · latency measurement history
 //
-// sing-box хранит ОДИН результат на тег (`map[string]*adapter.URLTestHistory`)
-// и отдаёт его в clash-совместимом виде как массив из одного элемента. Скользящего
-// списка, как в Clash.Meta, там нет — значит разброс и стабильность по данным ядра
-// не посчитать в принципе. Историю копит приложение: на каждом опросе сверяем
-// отметку времени последнего замера и дописываем новую точку.
+// sing-box stores ONE result per tag (`map[string]*adapter.URLTestHistory`)
+// and returns it in clash-compatible form as a single-element array. There's no sliding
+// list there like in Clash.Meta — so spread and stability can't be computed from core data
+// in principle. The app accumulates the history: on every poll we check
+// the timestamp of the last measurement and append a new point.
 
 import { selectionSourceKey } from "/lib/proxy-selection.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const KEY = STORAGE_KEYS.delayHistory;
-const CAP = 12;                  // столько точек рисует спарклайн
+const CAP = 12;                  // how many points the sparkline draws
 
-// getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
-// поллингу раз в 4 с. Дорогая часть — JSON.parse, поэтому кэшируем разбор, но
-// сверяем исходную строку: иначе внешняя запись (очистка данных, восстановление
-// из бэкапа) осталась бы незамеченной и модуль воскрешал бы стёртое.
+// getProbeHistory is called for every row of every render, and rendering follows
+// the 4 s polling. The expensive part is JSON.parse, so we cache the parse but
+// compare the source string: otherwise an external write (clearing data, restoring
+// from a backup) would go unnoticed and the module would resurrect erased data.
 let _cacheRaw = null;
 let _cacheVal = null;
 function readAll() {
@@ -40,9 +40,9 @@ function writeAll(map) {
 }
 
 
-// Сборки до исправления ключа писали всё в одно ведро с пустым id («sub:»).
-// Эти записи никому не принадлежат и держат теги серверов на диске — чистим
-// при первой же записи.
+// Builds before the key fix wrote everything into one bucket with an empty id ("sub:").
+// These entries belong to nobody and keep server tags on disk — we clean them up
+// on the very first write.
 function dropLegacyBuckets(map) {
   let changed = false;
   for (const k of Object.keys(map)) {
@@ -51,17 +51,17 @@ function dropLegacyBuckets(map) {
   return changed;
 }
 
-// Точка записывается, только когда ядро реально перемерило: отметка времени
-// последнего замера отличается от уже сохранённой. Иначе поллинг раз в 4 с
-// размножил бы одно и то же значение и разброс стал бы ложно нулевым.
+// A point is written only when the core actually re-measured: the timestamp
+// of the last measurement differs from the saved one. Otherwise the 4 s polling
+// would multiply the same value and the spread would become falsely zero.
 export function recordProbes(source, clashData, tags) {
   const proxies = clashData?.proxies;
   if (!proxies || !Array.isArray(tags) || !tags.length) return false;
-  // Источник без собственного ключа ничего не помнит: ведро "none" всё равно
-  // удаляет dropLegacyBuckets на этой же записи. Прежний фолбэк на "none"
-  // давал холостой цикл — заполнили ведро, тут же стёрли, вернули changed=true.
-  // На каждом опросе (раз в 4 с) это stringify всего архива, запись в
-  // localStorage и лишняя перерисовка таблицы.
+  // A source without its own key remembers nothing: the "none" bucket is deleted anyway
+  // by dropLegacyBuckets in this same write. The old fallback to "none"
+  // produced an idle cycle — filled the bucket, erased it right away, returned changed=true.
+  // On every poll (every 4 s) that was a stringify of the whole archive, a write to
+  // localStorage and an extra table redraw.
   const key = selectionSourceKey(source);
   if (!key) return false;
   const map = readAll();
@@ -98,7 +98,7 @@ export function getProbeHistory(source, tag) {
   return entry && Array.isArray(entry.d) ? entry.d.slice(-CAP) : [];
 }
 
-// Смена набора нод (обновление подписки) делает старые теги мусором.
+// A change in the node set (subscription update) turns old tags into garbage.
 export function pruneProbeHistory(source, validTags) {
   const key = selectionSourceKey(source);
   if (!key) return;
@@ -116,8 +116,8 @@ export function pruneProbeHistory(source, validTags) {
 export function clearProbeHistory(source) {
   const key = selectionSourceKey(source);
   const map = readAll();
-  // Ключа нет — писать было некуда, но легаси-вёдра прошлых сборок ("none" и
-  // "sub:") снимет сам writeAll через dropLegacyBuckets.
+  // No key — there was nowhere to write, but the legacy buckets of previous builds ("none" and
+  // "sub:") are removed by writeAll itself via dropLegacyBuckets.
   if (key) delete map[key];
   writeAll(map);
 }

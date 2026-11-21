@@ -1,25 +1,25 @@
-// Ninety · DNS-watchdog для direct-резолвера.
+// Ninety · DNS watchdog for the direct resolver.
 //
-// Проблема: имя сервера ноды sing-box резолвит через dns-direct ДО поднятия
-// туннеля. Мёртвый direct-DNS (в РФ так легли Google/Cloudflare DoH) роняет
-// старт целиком — «i/o timeout» без внятной причины. Этот модуль активно пробует
-// текущий direct-DNS (Rust: dns_probe) и при отказе переключает на рабочий резерв.
+// The problem: sing-box resolves the node's server name via dns-direct BEFORE the
+// tunnel comes up. A dead direct DNS (in Russia, Google/Cloudflare DoH went down this way) brings down
+// the whole start — "i/o timeout" without a clear cause. This module actively probes
+// the current direct DNS (Rust: dns_probe) and on failure switches to a working fallback.
 //
-// Две точки: (1) ПЕРЕД коннектом ensureWorkingDirectDns лечит «VPN не стартует»;
-// (2) периодический чек при connected ловит, если резолвер лёг в середине сессии.
+// Two points: (1) BEFORE connecting, ensureWorkingDirectDns fixes "VPN won't start";
+// (2) a periodic check while connected catches the resolver going down mid-session.
 //
-// Порядок резервов НЕ случаен: Quad9 DoH первым — он держится в РФ и, в отличие
-// от Yandex, не искажает urltest-проверку нод (Yandex резолвит часть серверов в
-// адреса, которые тест ложно метит недоступными). Yandex DoH — крайний резерв:
-// максимально устойчив, но с той же оговоркой про ложные failed.
+// The fallback order is NOT random: Quad9 DoH first — it holds up in Russia and, unlike
+// Yandex, doesn't distort the node urltest check (Yandex resolves some servers to
+// addresses the test falsely marks as unreachable). Yandex DoH is the last resort:
+// maximally resilient, but with the same caveat about false failures.
 //
-// За DoH обязательно идут plain-DNS ступени. ТСПУ режет DoH КЛАССОМ, а не по
-// одному адресу: 06.08.2026 разом легли :443 у Quad9, Yandex, Google и Cloudflare
-// при живом UDP:53 и живом обычном TCP:443. Цепочка из одних DoH в такой день
-// вырождается — все кандидаты мертвы, guard уходит в all-dead и НЕ лечит, хотя
-// рабочий резолвер под рукой. Plain-DNS слабее (открытый запрос, подмена
-// провайдером), поэтому он ниже DoH, но он последняя ступень, на которой
-// туннель вообще поднимается.
+// DoH must be followed by plain-DNS steps. TSPU cuts DoH as a CLASS, not
+// one address at a time: on 06.08.2026 :443 of Quad9, Yandex, Google and Cloudflare went down at once
+// while UDP:53 and regular TCP:443 were alive. A chain of DoH alone on such a day
+// degenerates — all candidates are dead, the guard goes into all-dead and DOESN'T fix anything, although
+// a working resolver is right at hand. Plain DNS is weaker (an open query, spoofing
+// by the ISP), so it ranks below DoH, but it's the last step at which
+// the tunnel comes up at all.
 
 import { getOptionsSnapshot, updateOption } from "/lib/options.js";
 import { dnsHostLabel } from "/lib/dns-presets.js";
@@ -29,31 +29,31 @@ import { localizedInvoke } from "/lib/backend-errors.js";
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// Нейтральный контрольный домен (IANA, вечный) — проверяем сам факт резолюции,
-// не привязываясь к конкретной ноде/инфре.
+// A neutral control domain (IANA, permanent) — we check the very fact of resolution
+// without tying it to a specific node/infrastructure.
 const CONTROL_HOST = "example.com";
 
-// Цепочка резервов: DoH (Quad9 → Google → Yandex), затем plain-DNS. Дефолтный
-// direct-DNS (Google DoH) в вершину не ставим — если упал именно он, Quad9
-// надёжнее; но ниже он обязан быть, иначе уход с него необратим: сторож
-// перебирает список сверху, и адреса, которого в нём нет, он не вернёт никогда.
+// Fallback chain: DoH (Quad9 → Google → Yandex), then plain DNS. The default
+// direct DNS (Google DoH) isn't placed at the top — if it's the one that went down, Quad9
+// is more reliable; but it must be lower down, otherwise switching away from it is irreversible: the watchdog
+// goes through the list from the top, and it will never return an address that isn't in it.
 //
-// Google взят ТОЛЬКО в DoH-форме. Открытый udp://8.8.8.8 в цепочку не годится:
-// из РФ он отдаёт подделанный NXDOMAIN на фильтруемые домены, а проба ниже идёт
-// по нейтральному example.com и подмены не видит — такой резолвер прошёл бы
-// health-check и остался выбранным. По DoH ответ шифрован и подменить его
-// нельзя, поэтому там Google безопасен (подробнее — в dns-presets.js).
+// Google is taken ONLY in DoH form. The open udp://8.8.8.8 doesn't fit the chain:
+// from Russia it returns a forged NXDOMAIN for filtered domains, and the probe below
+// uses the neutral example.com and doesn't see the spoofing — such a resolver would pass
+// the health check and stay selected. Over DoH the answer is encrypted and can't be
+// spoofed, so Google is safe there (more in dns-presets.js).
 export const FALLBACKS = [
   "https://149.112.112.112/dns-query", // Quad9 secondary DoH
-  "https://8.8.8.8/dns-query",         // Google DoH — дефолт, к нему надо уметь вернуться
-  "https://77.88.8.8/dns-query",       // Yandex DoH (крайний DoH-резерв)
-  "udp://149.112.112.112",             // Quad9 plain — когда DoH срезан классом
-  "udp://77.88.8.8",                   // Yandex plain — самый живучий в РФ
+  "https://8.8.8.8/dns-query",         // Google DoH — the default, we must be able to return to it
+  "https://77.88.8.8/dns-query",       // Yandex DoH (last-resort DoH fallback)
+  "udp://149.112.112.112",             // Quad9 plain — when DoH is cut as a class
+  "udp://77.88.8.8",                   // Yandex plain — the most resilient in Russia
 ];
 
 const PROBE_TIMEOUT_MS = 4000;
-// Все резервы легли = скорее всего нет сети вообще. Не спамим: тост не чаще
-// раза в 30 мин, watchdog после этого отступает на 15 мин.
+// All fallbacks are down = most likely there's no network at all. We don't spam: a toast no more than
+// once every 30 min, and after that the watchdog backs off for 15 min.
 const ALL_DEAD_TOAST_GAP_MS = 30 * 60_000;
 const ALL_DEAD_BACKOFF_MS = 15 * 60_000;
 let lastAllDeadToastAt = 0;
@@ -62,8 +62,8 @@ let allDeadBackoffUntil = 0;
 async function probe(dns) {
   try {
     const r = await invoke("dns_probe", { dns, host: CONTROL_HOST, timeoutMs: PROBE_TIMEOUT_MS });
-    // Причину смерти — в console: без неё «почему dead» не выяснить (так и
-    // отловили бы 505 от HTTP/1.1-пробы сразу, а не по жалобе на тосты).
+    // The cause of death goes to the console: without it "why dead" can't be figured out (this way we
+    // would have caught the 505 from the HTTP/1.1 probe right away, not from a complaint about toasts).
     if (r?.status === "dead") console.warn("[dns-guard] проба dead:", dns, r?.detail || "");
     return r?.status || "skip";
   } catch (e) {
@@ -72,16 +72,16 @@ async function probe(dns) {
   }
 }
 
-// Проверяет текущий direct-DNS; если он "dead" — ищет первый рабочий резерв,
-// сохраняет его в настройки и возвращает новый адрес (иначе null — трогать нечего).
-// toast инжектится из main.js. onlyIf — предикат «ещё актуально» (не переключать,
-// если юзер за время пробы отключился/сменил источник).
+// Checks the current direct DNS; if it's "dead", finds the first working fallback,
+// saves it in settings and returns the new address (otherwise null — nothing to touch).
+// toast is injected from main.js. onlyIf is a "still relevant" predicate (don't switch
+// if the user disconnected/changed the source during the probe).
 export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
   const cur = getOptionsSnapshot().dns?.directAddress || "";
   const st = await probe(cur);
-  if (st !== "dead") return null; // ok / skip — не вмешиваемся
-  // Перепроверка: не переключаемся по одиночному сбою (сеть моргнула, пакет
-  // потерялся) — dead признаём только по двум провалам подряд.
+  if (st !== "dead") return null; // ok / skip — don't intervene
+  // Recheck: we don't switch on a single failure (the network blinked, a packet
+  // got lost) — dead is accepted only after two failures in a row.
   if ((await probe(cur)) !== "dead") return null;
   if (onlyIf && !onlyIf()) return null;
 
@@ -89,9 +89,9 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     if (cand === cur) continue;
     if ((await probe(cand)) !== "ok") continue;
     if (onlyIf && !onlyIf()) return null;
-    // Пробы занимают секунды, и за это время пользователь мог задать DNS сам.
-    // onlyIf сторожит актуальность операции, но не значение настройки: без этой
-    // сверки сторож молча возвращал свой резерв поверх свежего ручного выбора.
+    // Probes take seconds, and during that time the user may have set the DNS themselves.
+    // onlyIf guards the relevance of the operation, but not the setting value: without this
+    // comparison the watchdog silently put its fallback back over a fresh manual choice.
     if ((getOptionsSnapshot().dns?.directAddress || "") !== cur) return null;
     updateOption("dns.directAddress", cand);
     toast?.(t("dns.switched", { dns: dnsHostLabel(cand) }), "warn", 6000, {
@@ -99,8 +99,8 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
     });
     return cand;
   }
-  // Все резервы легли тоже — настройку не трогаем; сообщаем сдержанно
-  // (гейт по времени), watchdog отступает — иначе тост долбил каждый тик.
+  // All fallbacks are down too — we don't touch the setting; we report it with restraint
+  // (time gate), the watchdog backs off — otherwise the toast would hammer every tick.
   allDeadBackoffUntil = Date.now() + ALL_DEAD_BACKOFF_MS;
   if (Date.now() - lastAllDeadToastAt >= ALL_DEAD_TOAST_GAP_MS) {
     lastAllDeadToastAt = Date.now();
@@ -109,8 +109,8 @@ export async function ensureWorkingDirectDns({ toast, onlyIf } = {}) {
   return null;
 }
 
-// Периодический watchdog при connected. onDnsSwitched(newDns) зовётся, когда
-// резолвер сменён (main.js делает реконнект, чтобы sing-box перечитал DNS).
+// Periodic watchdog while connected. onDnsSwitched(newDns) is called when
+// the resolver was changed (main.js reconnects so that sing-box rereads the DNS).
 let timer = null;
 let inFlight = false;
 
@@ -118,14 +118,14 @@ export function startDnsGuard({ toast, isConnected, onDnsSwitched, intervalMs = 
   stopDnsGuard();
   timer = setInterval(async () => {
     if (inFlight || !isConnected?.()) return;
-    if (Date.now() < allDeadBackoffUntil) return; // после all-dead — отступаем
+    if (Date.now() < allDeadBackoffUntil) return; // after all-dead — back off
     inFlight = true;
     try {
-      // ensureWorkingDirectDns сам делает быстрый выход по первой ok-пробе и
-      // double-check перед переключением — отдельная предпроба не нужна.
+      // ensureWorkingDirectDns itself exits fast on the first ok probe and
+      // double-checks before switching — a separate pre-probe isn't needed.
       const next = await ensureWorkingDirectDns({ toast, onlyIf: isConnected });
       if (next) onDnsSwitched?.(next);
-    } catch { /* фоновая задача — ошибки не эскалируем */ }
+    } catch { /* a background task — we don't escalate errors */ }
     finally { inFlight = false; }
   }, intervalMs);
 }

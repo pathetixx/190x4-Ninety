@@ -1,11 +1,11 @@
-// Ninety · осциллограмма канала — раскрытый вид индикатора «КАНАЛ».  [ИСПРАВЛЕННАЯ ВЕРСИЯ]
+// Ninety · channel oscilloscope — the expanded view of the "CHANNEL" indicator.  [FIXED VERSION]
 //
-// ▼ ЧТО ИСПРАВЛЕНО:
-//   1) Поповер больше НЕ уезжает за нижний край окна. Раньше он жёстко ставился ПОД
-//      якорем (top = anchor.bottom + 8), а ячейка «КАНАЛ» стоит у самого низа окна →
-//      окно вылезало за экран. Теперь по умолчанию открывается НАД якорем, а если
-//      сверху не хватает места — флипается вниз. Плюс клампится по обеим осям.
-//   2) Заголовок «Осциллограмма канала» → «Качество канала» (юзер-френдли).
+// ▼ WHAT WAS FIXED:
+//   1) The popover NO LONGER goes past the bottom edge of the window. Previously it was hard-placed UNDER
+//      the anchor (top = anchor.bottom + 8), and the "CHANNEL" cell sits at the very bottom of the window →
+//      the window went off screen. Now it opens ABOVE the anchor by default, and if
+//      there's not enough room above, it flips down. Plus it's clamped on both axes.
+//   2) Title "Channel oscilloscope" → "Channel quality" (user-friendly).
 import { bus } from "/lib/bus.js";
 import { escapeHtml } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
@@ -14,13 +14,13 @@ const Q_VAR = {
   UNKNOWN: "--text-mid", GOOD: "--ok", SLOW: "--warn", STALLED: "--err", DEAD: "--err",
   PRESSURE: "--warn",
 };
-// Неизвестное состояние сводим к «проверке»: иначе в пилюлю попадал сырой ключ.
+// An unknown state is reduced to "checking": otherwise the raw key ended up in the pill.
 const qLabel = (q) => t("qScope.label." + (Q_VAR[q] ? String(q).toLowerCase() : "unknown"));
 const MAX_POINTS = 60;
 const W = 320, H = 96, PAD = 6;
-const GAP = 10; // отступ поповера от якоря
+const GAP = 10; // popover offset from the anchor
 
-let open = null; // активный поповер (один за раз)
+let open = null; // the active popover (one at a time)
 
 export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {}) {
   closeScope();
@@ -44,7 +44,7 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
     '</div>';
   document.body.appendChild(root);
 
-  // ── Позиционирование: по умолчанию НАД якорем, флип вниз если сверху мало места. ──
+  // ── Positioning: ABOVE the anchor by default, flip down if there's little room above. ──
   positionScope(root, anchor);
 
   const line = root.querySelector(".qscope__line");
@@ -93,7 +93,7 @@ export function openQualityScope({ anchor, getSamples, goodBps = 1_500_000 } = {
   return open;
 }
 
-// НАД якорем по умолчанию; вниз — только если сверху не помещается. Клампинг по краям.
+// ABOVE the anchor by default; down only if it doesn't fit above. Clamped at the edges.
 function positionScope(root, anchor) {
   const r = anchor?.getBoundingClientRect?.();
   if (!r) return;
@@ -102,9 +102,9 @@ function positionScope(root, anchor) {
   const spaceAbove = r.top;
   let top;
   if (spaceAbove >= h + GAP) {
-    top = r.top - h - GAP;            // НАД ячейкой (предпочтительно)
+    top = r.top - h - GAP;            // ABOVE the cell (preferred)
   } else {
-    top = Math.min(window.innerHeight - h - 8, r.bottom + GAP); // флип вниз + кламп
+    top = Math.min(window.innerHeight - h - 8, r.bottom + GAP); // flip down + clamp
   }
   root.style.left = left + "px";
   root.style.top = Math.max(8, top) + "px";

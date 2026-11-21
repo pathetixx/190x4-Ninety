@@ -1,15 +1,15 @@
-// Ninety · карантин нод, которые ядро отвергло на старте.
+// Ninety · quarantine for nodes the core rejected at startup.
 //
-// Статические проверки (`node-validation.js`) знают всё, что ядро отвергало до
-// сих пор, но панель может прислать параметр, которого мы ещё не видели, — и
-// одна такая нода снова уронит инициализацию всего конфига. Тогда причину
-// называет само ядро: «initialize outbound[N]: …». Ноду по индексу находим
-// точно, запоминаем её здесь и больше в конфиг не пускаем: следующая попытка
-// подключения проходит без неё, а не упирается в тот же отказ.
+// Static checks (`node-validation.js`) know everything the core has rejected so
+// far, but a panel may send a parameter we haven't seen yet — and
+// one such node will again bring down the initialization of the whole config. Then the cause
+// is named by the core itself: "initialize outbound[N]: …". We find the node by index
+// precisely, remember it here and don't let it into the config anymore: the next connection
+// attempt goes without it instead of running into the same refusal.
 //
-// Ключ — semantic fingerprint ноды: он переживает переименование, обновление
-// подписки и порядок в списке. Если панель починит сервер, fingerprint
-// изменится и карантин на него не распространится.
+// The key is the node's semantic fingerprint: it survives renaming, a subscription
+// update and the order in the list. If the panel fixes the server, the fingerprint
+// changes and the quarantine doesn't apply to it.
 
 import { nodeSemanticFingerprint } from "/lib/runtime-identity.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
@@ -17,10 +17,10 @@ import { STORAGE_KEYS } from "/lib/storage-policy.js";
 const KEY = STORAGE_KEYS.nodeQuarantine;
 const CAP = 300;
 
-// Разбор держим при исходной строке: список нод проверяется поштучно, то есть
-// на подписке в сотни серверов readAll зовётся сотни раз за один проход, и
-// столько же раз разбирался один и тот же JSON. Сверка со строкой оставляет
-// внешнюю запись (восстановление из бэкапа, очистка данных) замеченной.
+// The parse is kept with the source string: the node list is checked one by one, i.e.
+// on a subscription of hundreds of servers readAll is called hundreds of times in one pass, and
+// the same JSON was parsed just as many times. Comparing with the string keeps
+// an external write (restoring from a backup, clearing data) noticed.
 let rawCache = null;
 let valCache = null;
 
@@ -44,8 +44,8 @@ function writeAll(map) {
   try {
     const keys = Object.keys(map);
     if (keys.length > CAP) {
-      // Оставляем свежие: старые отказы уже неинтересны, а расти без предела
-      // хранилищу нельзя.
+      // Keep the fresh ones: old refusals are no longer interesting, and the storage
+      // must not grow without bounds.
       const trimmed = keys
         .sort((a, b) => (map[b]?.at || 0) - (map[a]?.at || 0))
         .slice(0, CAP);
@@ -55,7 +55,7 @@ function writeAll(map) {
     localStorage.setItem(KEY, raw);
     rawCache = raw;
     valCache = map;
-  } catch { /* приватный режим/переполнение — карантин не критичен */ }
+  } catch { /* private mode/overflow — the quarantine isn't critical */ }
 }
 
 export function quarantineNode(node, reason = "") {
@@ -78,17 +78,17 @@ export function quarantineReason(node) {
 }
 
 export function clearNodeQuarantine() {
-  try { localStorage.removeItem(KEY); } catch { /* нечего чистить */ }
+  try { localStorage.removeItem(KEY); } catch { /* nothing to clean up */ }
 }
 
 /**
- * Разбирает отказ ядра «initialize outbound[N]: причина» и находит ноду по
- * индексу outbound'а. Индекс считает само ядро, поэтому карту индексов даёт
- * сборщик конфига — арифметику по позициям селектора/балансировщика повторять
- * нельзя, она разъедется на первой же смене состава outbound'ов.
+ * Parses the core's "initialize outbound[N]: reason" refusal and finds the node by
+ * the outbound index. The index is computed by the core itself, so the index map is provided by
+ * the config builder — repeating the arithmetic over selector/balancer positions
+ * isn't allowed, it would diverge on the very first change in the outbound set.
  *
- * WireGuard-ноды ядро инициализирует отдельным списком и называет их
- * «initialize endpoint[N]» (box.go), поэтому у них своя карта индексов.
+ * The core initializes WireGuard nodes as a separate list and calls them
+ * "initialize endpoint[N]" (box.go), so they have their own index map.
  * @returns {{node: object, reason: string, index: number, kind: string} | null}
  */
 export function matchCoreOutboundRejection(errorText, outboundNodes, endpointNodes = null) {

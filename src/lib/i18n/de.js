@@ -1,4 +1,4 @@
-// Ninety · Katalog DE (Deutsch). Maschinelle Übersetzung aus EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (Muttersprachler-Lektorat nötig).
+// Ninety · Katalog DE (Deutsch). Maschinelle Übersetzung aus EN/RU — NEEDS NATIVE PROOFREADING (Muttersprachler-Lektorat nötig).
 // Schlüssel spiegeln ru.js (Parität 771); fehlt ein Schlüssel, fällt das Runtime auf en zurück.
 export const de = {
   titlebar: { min: "Minimieren", max: "Maximieren", close: "Schließen" },
@@ -64,7 +64,7 @@ export const de = {
     channelTitle: "Kanalqualität",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Ninety anzeigen",
     connect: "Verbinden",

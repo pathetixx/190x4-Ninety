@@ -1,5 +1,5 @@
-// Ninety · 目录 ZH (简体中文)。机器翻译，自 EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (需母语者校对).
-// 键与 ru.js 对齐 (паритет 771); 缺键时运行时回退到 en.
+// Ninety · 目录 ZH (简体中文)。机器翻译，自 EN/RU — NEEDS NATIVE PROOFREADING (需母语者校对).
+// 键与 ru.js 对齐 (parity 771); 缺键时运行时回退到 en.
 export const zh = {
   titlebar: { min: "最小化", max: "最大化", close: "关闭" },
 
@@ -64,7 +64,7 @@ export const zh = {
     channelTitle: "通道质量",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "显示 Ninety",
     connect: "连接",

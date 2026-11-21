@@ -1,5 +1,5 @@
 // Ninety · subscriptions
-// URL-импорт списка vless://, парсинг subscription-userinfo, storage.
+// URL import of a vless:// list, parsing subscription-userinfo, storage.
 
 import { nodeTag, parseLink } from "/lib/singbox.js";
 import { t } from "/lib/i18n/index.js";
@@ -14,8 +14,8 @@ import { detectConfigFormat, parseClientConfig, unsupportedFormatMessage } from 
 import { getRememberedProxySelection, rememberProxySelection } from "/lib/proxy-selection.js";
 import { looksLikeAmneziaKey } from "/lib/amnezia-key.js";
 import { HWID_SCOPE_PROVIDER, hwidHeaders, hwidSignal, subscriptionUsesScopedHwid } from "/lib/hwid.js";
-// Реэкспорт: формулировка переехала в свой модуль, но вызывающие (main.js,
-// экран профилей) продолжают брать её отсюда вместе с остальными хелперами.
+// Re-export: the wording moved to its own module, but callers (main.js,
+// the profiles screen) keep taking it from here together with the other helpers.
 export { relativeTime } from "/lib/relative-time.js";
 import {
   getActiveSubscriptionIdFromStore,
@@ -31,34 +31,34 @@ const PROTO_PREFIX_RE = /^(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|any
 
 const REFRESH_ALL_CONCURRENCY = 3;
 
-// Формат ответа, который просим у панели вместо списка ссылок (Rust по нему
-// меняет User-Agent). Целые конфиги Xray несут то, чего в ссылке нет, — и
-// панели кладут туда серверы, которых в списке ссылок нет вовсе (например,
-// XMC: маскировка под Minecraft через finalmask).
+// The response format we ask the panel for instead of the link list (Rust changes
+// the User-Agent based on it). Whole Xray configs carry what a link doesn't — and
+// panels put servers there that aren't in the link list at all (e.g.
+// XMC: disguise as Minecraft via finalmask).
 export const XRAY_JSON_FORMAT = "xray-json";
-// Как часто перепроверять, отдаёт ли панель такой JSON и стоит ли на него
-// переходить: панели добавляют такие серверы со временем, а лишний запрос на
-// каждое обновление ни к чему.
+// How often to recheck whether the panel serves such JSON and whether to
+// switch to it: panels add such servers over time, and an extra request on
+// every update is unnecessary.
 export const XRAY_JSON_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 // ── base64 detection (try-and-see) ─────────────────────────
-// Никаких regex-проверок «похоже на base64». Просто пытаемся decode —
-// если успешно и есть осмысленные ссылки, берём декод; иначе оригинал.
+// No regex checks for "looks like base64". We simply try to decode —
+// if it succeeds and there are meaningful links, we take the decoded version; otherwise the original.
 const KNOWN_PROTO_RE = /vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hysteria2?:\/\/|hy2:\/\/|tuic:\/\/|tt:\/\/|anytls:\/\/|mierus:\/\/|socks(?:5h?|4a?)?:\/\/|naive\+[a-z]+:\/\//i;
 const KNOWN_PROTO_URL_RE = /(?:(?:vless|vmess|trojan|ss|hysteria2?|hy2|tuic|tt|anytls|mierus|socks(?:5h?|4a?)?):\/\/|naive\+[a-z]+:\/\/)\S+/ig;
 
-// TrustTunnel endpoint-.toml (export из endpoint): плоский toml с hostname/addresses.
+// TrustTunnel endpoint .toml (export from endpoint): a flat toml with hostname/addresses.
 const TT_TOML_RE = /^\s*hostname\s*=.*[\r\n]/m;
 function looksLikeTrustTunnelToml(s) {
   return TT_TOML_RE.test(s) && /^\s*addresses\s*=/m.test(s) && /^\s*username\s*=/m.test(s);
 }
 
-// Панель может отдать не список ссылок, а собранный конфиг ядра или файл
-// профиля — и в plain, и в base64. Случайно тут ничего не декодируется:
-// atob отвергает всё, что не из алфавита base64.
+// The panel may return not a link list but an assembled core config or a profile
+// file — both plain and base64. Nothing gets decoded here by accident:
+// atob rejects everything outside the base64 alphabet.
 function looksLikeJsonText(text) {
   const s = String(text || "").trimStart();
   return s.startsWith("{") || s.startsWith("[");
@@ -72,8 +72,8 @@ function bodyIsRecognizable(text) {
     || looksLikeTrustTunnelToml(text);
 }
 
-// Тело подписки — один файл профиля, а не список. Разбор тот же, что при
-// вставке текстом; имя ноды берёт сам парсер (endpoint пира / hostname).
+// The subscription body is a single profile file, not a list. The parsing is the same as when
+// pasting as text; the node name is taken by the parser itself (the peer endpoint / hostname).
 function parseSingleFileBody(text) {
   try {
     if (looksLikeWireguardConf(text)) return parseWireguardConf(text);
@@ -86,13 +86,13 @@ function parseSingleFileBody(text) {
 }
 
 /**
- * Парсит тело подписки. Разбирает строки и сразу отбраковывает ноды, которые
- * ядро не примет: одна такая нода валит инициализацию всего конфига, то есть
- * целую подписку. Отброшенные считаем, чтобы честно сказать это пользователю.
- * Поддерживает: plain newline-список, base64-encoded список, готовый конфиг
- * sing-box (JSON) — из него берётся только серверная часть.
- * `format` заполнен, когда тело оказалось конфигом клиента: по нему вызывающий
- * объясняет пустой результат, вместо безликого «нет поддерживаемых конфигов».
+ * Parses the subscription body. Parses the lines and immediately rejects nodes the
+ * core won't accept: one such node brings down the initialization of the whole config, i.e.
+ * the whole subscription. We count the rejected ones to tell the user honestly.
+ * Supports: a plain newline list, a base64-encoded list, a ready sing-box config
+ * (JSON) — only the server part is taken from it.
+ * `format` is filled in when the body turned out to be a client config: the caller uses it to
+ * explain an empty result instead of a faceless "no supported configs".
  * @returns {{profiles: object[], skipped: number, format: string|null}}
  */
 export function parseSubscriptionEntries(body) {
@@ -100,8 +100,8 @@ export function parseSubscriptionEntries(body) {
   let text = originalText.trim();
   if (!text) return { profiles: [], skipped: 0, format: null };
 
-  // Сначала пробуем декодировать как base64 — если в результате узнаём тело
-  // подписки в любом из поддерживаемых видов, дальше работаем с декодом.
+  // First we try to decode as base64 — if the result is a recognizable subscription body
+  // in any of the supported forms, we work with the decoded version from there on.
   const decoded = safeDecodeBase64(text);
   if (decoded && bodyIsRecognizable(decoded)) {
     text = decoded;
@@ -110,8 +110,8 @@ export function parseSubscriptionEntries(body) {
 
   const { format, profiles: fromConfig, skipped: configSkipped } = parseClientConfig(text);
   if (format) {
-    // Формат, который прочитать нечем (Clash), даёт ноль серверов: вызывающий
-    // назовёт его по имени вместо безликого «нет поддерживаемых конфигов».
+    // A format we have nothing to read with (Clash) yields zero servers: the caller
+    // will name it instead of a faceless "no supported configs".
     const { usable, skipped: rejected } = partitionNodes(fromConfig);
     for (const { node, issue } of rejected) {
       console.warn("subscription: skip unusable node", issue.code, node?.host);
@@ -119,9 +119,9 @@ export function parseSubscriptionEntries(body) {
     return { profiles: usable, skipped: configSkipped + rejected.length, format };
   }
 
-  // Панель может раздать ссылкой и файл: WARP у BPB-Worker-Panel — это
-  // .conf WireGuard, а не список ссылок. Вставку такого файла текстом мы
-  // понимали и раньше, тело подписки — нет, и подписка выглядела пустой.
+  // A panel may also hand out a file by link: WARP in BPB-Worker-Panel is
+  // a WireGuard .conf, not a link list. We understood pasting such a file as text
+  // before, but not as a subscription body, and the subscription looked empty.
   const single = parseSingleFileBody(looksLikeOpenvpnConf(text) ? originalText : text);
   if (single) {
     const { usable, skipped: rejected } = partitionNodes([single]);
@@ -148,10 +148,10 @@ export function parseSubscriptionEntries(body) {
 }
 
 /**
- * Тело подписки, полученное по ссылке: то же, что parseSubscriptionEntries,
- * но без нод-заглушек провайдера (см. withoutPlaceholders). Вставленный руками
- * список не трогаем: там 127.0.0.1 бывает осознанным.
- * `received` — все ноды до отсева: по ним распознаётся заглушка HWID.
+ * A subscription body received by link: the same as parseSubscriptionEntries,
+ * but without the provider's placeholder nodes (see withoutPlaceholders). A list pasted by hand
+ * isn't touched: 127.0.0.1 may be deliberate there.
+ * `received` — all nodes before weeding out: the HWID placeholder is recognized by them.
  * @returns {{profiles: object[], received: object[], skipped: number, format: string|null}}
  */
 export function parseRemoteSubscription(body) {
@@ -160,49 +160,49 @@ export function parseRemoteSubscription(body) {
 }
 
 /**
- * Парсит тело подписки в массив профилей (без счётчика отброшенных).
+ * Parses the subscription body into an array of profiles (without the rejected counter).
  */
 export function parseSubscriptionBody(body) {
   return parseSubscriptionEntries(body).profiles;
 }
 
-// ── LinkParser: распознаёт что юзер вставил ────────────────
-//   { kind: "url", url }              — подписка по http(s) URL
-//   { kind: "config", content }       — одиночная vless:// ссылка
-//   { kind: "list", content }         — несколько vless:// (raw или base64)
-//   { kind: "client-config", content, format } — готовый конфиг клиента
+// ── LinkParser: recognizes what the user pasted ────────────────
+//   { kind: "url", url }              — a subscription by http(s) URL
+//   { kind: "config", content }       — a single vless:// link
+//   { kind: "list", content }         — several vless:// (raw or base64)
+//   { kind: "client-config", content, format } — a ready client config
 //   { kind: "tt-toml", content }      — endpoint TrustTunnel
 //   { kind: "wg-conf", content }      — WireGuard / AmneziaWG .conf
 //   { kind: "ovpn-conf", content }    — OpenVPN .ovpn
-//   { kind: "amnezia-key", content }  — ключ AmneziaVPN (vpn://…)
+//   { kind: "amnezia-key", content }  — an AmneziaVPN key (vpn://…)
 //   { kind: "empty" } / { kind: "unknown" }
 export function detectAddInput(raw) {
   const s = String(raw || "").trim();
   if (!s) return { kind: "empty" };
 
-  // Готовый конфиг клиента проверяем первым: распознавание точное (JSON обязан
-  // разобраться), а вот эвристики ниже на нём могут и ошибиться.
+  // A ready client config is checked first: the recognition is exact (the JSON must
+  // parse), while the heuristics below could get it wrong.
   const pastedFormat = detectConfigFormat(s);
   if (pastedFormat) return { kind: "client-config", content: s, format: pastedFormat };
 
-  // Ключ AmneziaVPN: сжатый JSON в base64url за схемой vpn://. Разбирается
-  // асинхронно при добавлении, здесь достаточно узнать форму.
+  // AmneziaVPN key: compressed JSON in base64url behind the vpn:// scheme. It's parsed
+  // asynchronously when adding, here it's enough to recognize the shape.
   if (looksLikeAmneziaKey(s)) return { kind: "amnezia-key", content: s };
 
-  // Файлы проверяем до поиска ссылок: комментарий может содержать URL.
+  // Files are checked before searching for links: a comment may contain a URL.
   if (looksLikeOpenvpnConf(s)) return { kind: "ovpn-conf", content: String(raw) };
 
   const protocolUrls = Array.from(s.matchAll(KNOWN_PROTO_URL_RE), m => m[0]);
   if (protocolUrls.length > 1) return { kind: "list", content: s };
   // Direct protocol link (vless/vmess/trojan/ss/hysteria2/tuic)
-  // Имя после «#» панели не всегда кодируют: пробел в нём обрывал совпадение, и
-  // одиночная ссылка уходила в ветку списка.
+  // Panels don't always encode the name after "#": a space in it broke the match, and
+  // a single link went into the list branch.
   const singleLine = !/[\r\n]/.test(s);
   if (protocolUrls.length === 1 && PROTO_PREFIX_RE.test(s) && (protocolUrls[0] === s || singleLine)) {
     return { kind: "config", content: s };
   }
 
-  // Deeplink чужих клиентов: <схема>://import/<url> или ?url=
+  // Deep links of other clients: <scheme>://import/<url> or ?url=
   const dl = s.match(/^(?:hiddify|v2ray|v2rayn|v2rayng|clash|clashmeta|sing-box):\/\/(.+)$/i);
   if (dl) {
     const rest = dl[1];
@@ -219,7 +219,7 @@ export function detectAddInput(raw) {
   // Plain http(s) URL
   if (/^https?:\/\//i.test(s)) return { kind: "url", url: s };
 
-  // Base64 список или base64-обёрнутый конфиг?
+  // A base64 list or a base64-wrapped config?
   const decoded = safeDecodeBase64(s);
   if (decoded && KNOWN_PROTO_RE.test(decoded)) return { kind: "list", content: decoded };
   if (decoded) {
@@ -228,13 +228,13 @@ export function detectAddInput(raw) {
     if (looksLikeOpenvpnConf(decoded)) return { kind: "ovpn-conf", content: decoded };
   }
 
-  // Plain список с любыми поддерживаемыми протоколами
+  // A plain list with any supported protocols
   if (KNOWN_PROTO_RE.test(s)) return { kind: "list", content: s };
 
-  // TrustTunnel endpoint-.toml (вставлен текстом или загружен файлом)
+  // TrustTunnel endpoint .toml (pasted as text or loaded as a file)
   if (looksLikeTrustTunnelToml(s)) return { kind: "tt-toml", content: s };
 
-  // WireGuard / AmneziaWG .conf — тоже файл, а не ссылка.
+  // WireGuard / AmneziaWG .conf — also a file, not a link.
   if (looksLikeWireguardConf(s)) return { kind: "wg-conf", content: s };
 
   return { kind: "unknown", raw: s };
@@ -255,11 +255,11 @@ function tooLargeToSave(saved) {
 
 const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// Откат неудавшегося refresh: возвращаем только поля, которые изменил сам
-// refresh, и только если их с тех пор никто не поменял. Переименование, HWID
-// или интервал, заданные пользователем во время записи, остаются.
-// Поля, которые имеют смысл только вместе: режим интервала без своих часов
-// превращается в настройку, которую никто не выбирал.
+// Rolling back a failed refresh: we restore only the fields the refresh itself
+// changed, and only if nobody has changed them since. A rename, HWID
+// or interval set by the user during the write stay.
+// Fields that make sense only together: an interval mode without its hours
+// turns into a setting nobody chose.
 const REFRESH_FIELD_GROUPS = [
   ["updateIntervalMode", "updateIntervalHours", "serverUpdateIntervalHours"],
 ];
@@ -272,7 +272,7 @@ function revertRefresh(current, fresh, merged) {
   const out = { ...current };
   for (const key of new Set([...Object.keys(fresh), ...Object.keys(merged)])) {
     if (sameValue(fresh[key], merged[key])) continue;
-    // Если пользователь тронул хоть одно поле группы, группу не откатываем.
+    // If the user touched at least one field of a group, the group isn't rolled back.
     if (fieldGroup(key).some(k => !sameValue(current[k], merged[k]))) continue;
     if (key in fresh) out[key] = fresh[key];
     else delete out[key];
@@ -280,8 +280,8 @@ function revertRefresh(current, fresh, merged) {
   return out;
 }
 
-// Stable ID переживает rename/reorder и повторный refresh. Для новых одинаковых
-// структур добавляется occurrence; после первого сохранения ID матчится обратно.
+// A stable ID survives rename/reorder and a repeated refresh. For new identical
+// structures an occurrence is added; after the first save the ID matches back.
 export function assignStableNodeIds(profiles, previous = [], namespace = "sub") {
   const oldByShape = new Map();
   for (const node of previous || []) {
@@ -301,9 +301,9 @@ export function assignStableNodeIds(profiles, previous = [], namespace = "sub") 
   });
 }
 
-// Legacy-подписки могли сохранить ручной выбор по старому tag до появления
-// stableId. При первой миграции stableId меняет tag, поэтому переносим выбор по
-// semantic identity ноды, а не оставляем новый Selector на default=auto.
+// Legacy subscriptions may have saved a manual choice by the old tag before
+// stableId appeared. On the first migration stableId changes the tag, so we carry the choice over by
+// the node's semantic identity rather than leaving the new Selector on default=auto.
 function migrateRememberedSelection(id, previous = [], next = []) {
   const source = { kind: "sub", subscription: { id } };
   const oldTag = getRememberedProxySelection(source);
@@ -342,8 +342,8 @@ export function removeSubscription(id) {
   }
 }
 
-// Точечное обновление полей подписки (rename, autoUpdate, interval, …).
-// Сохраняет неуказанные поля, не трогает .profiles и .lastUpdate.
+// Targeted update of subscription fields (rename, autoUpdate, interval, …).
+// Keeps the unspecified fields, doesn't touch .profiles and .lastUpdate.
 export function updateSubscription(id, patch) {
   const list = loadSubscriptions();
   const idx = list.findIndex(s => s.id === id);
@@ -353,12 +353,12 @@ export function updateSubscription(id, patch) {
   return list[idx];
 }
 
-// ── дубликаты ───────────────────────────────────────────────
-// Одна и та же ссылка, добавленная дважды, даёт две копии одних и тех же
-// серверов: они удваивают список, каждая тянет свой refresh и «Авто» выбирает
-// между клонами. Сравниваем нормализованный адрес: схема и хост
-// регистронезависимы, дефолтный порт и якорь на ответ панели не влияют, а путь
-// и параметры оставляем как есть — ими и различаются подписки одной панели.
+// ── duplicates ───────────────────────────────────────────────
+// The same link added twice produces two copies of the same
+// servers: they double the list, each pulls its own refresh, and "Auto" picks
+// between clones. We compare the normalized address: the scheme and host
+// are case-insensitive, the default port and the anchor don't affect the panel's response, while the path
+// and parameters are kept as is — that's what distinguishes subscriptions of the same panel.
 export function normalizeSubscriptionUrl(raw) {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -370,7 +370,7 @@ export function normalizeSubscriptionUrl(raw) {
   } catch { return value; }
 }
 
-/** Уже добавленная подписка с тем же адресом, иначе null. */
+/** An already added subscription with the same address, otherwise null. */
 export function findSubscriptionByUrl(url, list = null) {
   const key = normalizeSubscriptionUrl(url);
   if (!key) return null;
@@ -379,22 +379,22 @@ export function findSubscriptionByUrl(url, list = null) {
 }
 
 // ── fetch + merge ───────────────────────────────────────────
-// Прокси для fetch_subscription: main.js подставляет локальный инбаунд при
-// поднятом VPN — запрос к панели уходит через туннель (не светит реальный IP
-// и работает там, где панель заблокирована напрямую). null → напрямую.
+// Proxy for fetch_subscription: main.js substitutes the local inbound when
+// the VPN is up — the request to the panel goes through the tunnel (doesn't expose the real IP
+// and works where the panel is blocked directly). null → direct.
 let subProxyProvider = null;
 export function setSubscriptionProxy(fn) { subProxyProvider = fn; }
 let subTunnelInTransit = null;
-// true, пока туннель поднимается или гаснет: прокси ещё нет, но VPN уже включён.
+// true while the tunnel is coming up or going down: there's no proxy yet, but the VPN is already on.
 export function setSubscriptionTunnelTransit(fn) { subTunnelInTransit = fn; }
 
-// HWID уходит только тем подпискам, у которых пользователь его включил:
-// панелям без лимита устройств идентификатор устройства знать незачем.
+// The HWID goes only to subscriptions for which the user enabled it:
+// panels without a device limit have no reason to know the device identifier.
 async function fetchInfo(url, { hwid = false, scopedHwid = false, format = null } = {}) {
   let proxy = null;
   try { proxy = subProxyProvider?.() || null; } catch {}
-  // Без этой проверки запрет прямого пути обходился: адрес с токеном и HWID уходил
-  // с реального IP, если таймер срабатывал во время реконнекта.
+  // Without this check the ban on the direct path was bypassed: the address with the token and HWID went out
+  // from the real IP if the timer fired during a reconnect.
   if (!proxy && subTunnelInTransit?.()) {
     const options = loadOptions();
     if (options.privacy?.strictTunnel || !options.general?.allowDirectSubscriptionFallback) {
@@ -402,7 +402,7 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false, format = null 
     }
   }
   const headers = hwid ? await hwidHeaders({ scoped: scopedHwid }) : null;
-  // Поле только когда формат задан: старый вызов остаётся байт-в-байт прежним.
+  // The field is present only when the format is set: the old call stays byte-for-byte the same.
   const extra = format ? { format } : {};
   let info;
   try {
@@ -415,22 +415,22 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false, format = null 
     if (!allowDirectFallback) {
       throw new Error(t("subs.proxyFallbackDisabled"), { cause: e });
     }
-    // Туннель мог только что умереть — если юзер явно разрешил, повторяем напрямую.
+    // The tunnel may have just died — if the user explicitly allowed it, we retry directly.
     info = await invoke("fetch_subscription", { url, proxy: null, hwid: headers, ...extra });
   }
   if (info.status >= 400) {
     const err = new Error(`HTTP ${info.status}`);
-    // 404 — то, чем панель с включённым лимитом отвечает на запрос без HWID;
-    // подсказку про это несёт сама ошибка, иначе она выглядит как «панель легла».
+    // 404 is what a panel with the limit enabled answers to a request without a HWID;
+    // the error itself carries the hint about it, otherwise it looks like "the panel is down".
     err.hwid = hwidSignal(info, [], { sent: hwid });
     throw err;
   }
   return info;
 }
 
-// ── xray-JSON вместо списка ссылок ─────────────────────────
-// Сравнение нод двух ответов одной панели: имя, порядок и мелкие поля у
-// форматов расходятся, а сервер — это протокол, адрес, порт и транспорт.
+// ── xray JSON instead of the link list ─────────────────────────
+// Comparing the nodes of two responses of the same panel: the name, order and minor fields
+// differ between formats, while a server is the protocol, address, port and transport.
 function looseNodeKey(node) {
   return [
     profileProto(node),
@@ -441,10 +441,10 @@ function looseNodeKey(node) {
 }
 
 /**
- * Брать ли xray-JSON вместо списка ссылок: только если в нём есть ВСЁ, что
- * было в списке, и что-то сверх. JSON не умеет часть протоколов (TUIC,
- * AnyTLS, Naive…), и панель для JSON-клиентов их просто не отдаёт — такой
- * обмен потерял бы серверы, а не добавил.
+ * Whether to take xray JSON instead of the link list: only if it has EVERYTHING that
+ * was in the list, and something extra. JSON can't do some protocols (TUIC,
+ * AnyTLS, Naive…), and the panel simply doesn't serve them to JSON clients — such
+ * an exchange would lose servers rather than add them.
  */
 export function preferXrayJson(linkProfiles, jsonProfiles) {
   const json = Array.isArray(jsonProfiles) ? jsonProfiles : [];
@@ -457,9 +457,9 @@ export function preferXrayJson(linkProfiles, jsonProfiles) {
 }
 
 /**
- * Тянет подписку в лучшем доступном формате. `state` — запомненное решение
- * {use, checkedAt}: пока оно свежее, повторно не проверяем. Ошибки пробы
- * JSON не фатальны — остаётся обычный список ссылок.
+ * Pulls the subscription in the best available format. `state` is the remembered decision
+ * {use, checkedAt}: while it's fresh, we don't recheck. JSON probe errors
+ * aren't fatal — the regular link list stays.
  * @returns {{info: object, parsed: object, xrayJson: {use: boolean, checkedAt: number}|null}}
  */
 async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Date.now()) {
@@ -474,16 +474,16 @@ async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Da
     } catch (e) {
       console.warn("subscription: xray-json fetch failed, falling back to links", e?.message);
     }
-    // JSON больше не отдаётся: берём список ссылок и решаем заново.
+    // JSON is no longer served: we take the link list and decide anew.
   }
 
   const info = await fetchInfo(url, fetchOptions);
   const parsed = parseRemoteSubscription(info.body);
   if (fresh && !known.use) return { info, parsed, xrayJson: known };
-  // Пустой ответ разбирает вызывающий (HWID, формат) — пробовать JSON не к чему.
+  // An empty response is handled by the caller (HWID, format) — there's nothing to try JSON for.
   if (!parsed.profiles.length) return { info, parsed, xrayJson: known };
   const checked = { use: false, checkedAt: now };
-  // Панель и так отдала конфиг клиента — второй формат просить незачем.
+  // The panel already returned a client config — there's no reason to ask for a second format.
   if (parsed.format) return { info, parsed, xrayJson: checked };
 
   try {
@@ -501,15 +501,15 @@ async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Da
 }
 
 /**
- * Создаёт новую подписку по URL: тянет, парсит, сохраняет.
+ * Creates a new subscription by URL: pulls, parses, saves.
  * @returns {object} subscription record
  */
 export async function addSubscriptionFromUrl(url, customName = "", intervalHoursOverride = null, { hwid = false } = {}) {
   const u = String(url || "").trim();
   if (!/^https?:\/\//i.test(u)) throw new Error(t("subs.needHttpUrl"));
 
-  // Страховка для всех путей добавления, а не только для окна «Добавить»:
-  // повторная ссылка не должна создавать вторую копию подписки.
+  // A safeguard for all add paths, not only the "Add" window:
+  // a repeated link must not create a second copy of the subscription.
   const duplicate = findSubscriptionByUrl(u);
   if (duplicate) {
     const err = new Error(t("subs.duplicate", { name: duplicate.name || t("subs.subFallback") }));
@@ -518,7 +518,7 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     throw err;
   }
 
-  // Новая подписка сразу живёт по схеме HWID провайдера (см. hwid.js).
+  // A new subscription immediately uses the provider HWID scheme (see hwid.js).
   const { info, parsed, xrayJson } = await fetchRemoteSubscription(u, { hwid, scopedHwid: true });
   const { profiles, received, skipped, format } = parsed;
   if (profiles.length === 0) {
@@ -528,8 +528,8 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
   }
 
   const id = uid("sub_");
-  // Явный выбор слайдера (>0) приоритетнее заголовка панели; 0 = «Авто» → берём
-  // profile-update-interval сервера, а без него silentRefreshSubs даёт 6ч дефолт.
+  // An explicit slider choice (>0) takes priority over the panel header; 0 = "Auto" → we take
+  // the server's profile-update-interval, and without it silentRefreshSubs uses the 6 h default.
   const hours = Number(intervalHoursOverride);
   const serverUpdateIntervalHours = info.profile_update_interval_hours ?? null;
   const updateIntervalMode = hours > 0 ? "manual" : "auto";
@@ -554,8 +554,8 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
 
   const list = loadSubscriptions();
   list.push(sub);
-  // Ждём записи: подписка, которая не помещается в хранилище, иначе висела бы
-  // в списке до перезапуска и исчезала. Такую убираем сразу и говорим почему.
+  // We wait for the write: a subscription that doesn't fit into storage would otherwise hang
+  // in the list until a restart and then vanish. We remove such a subscription right away and say why.
   const saved = await saveSubscriptions(list, { quietTooLarge: true });
   if (tooLargeToSave(saved)) {
     await saveSubscriptions(loadSubscriptions().filter(s => s.id !== id));
@@ -563,13 +563,13 @@ export async function addSubscriptionFromUrl(url, customName = "", intervalHours
     err.code = "too_large";
     throw err;
   }
-  // Сигнал панели про лимит устройств живёт только в ответе: в записи подписки
-  // ему не место — он про этот запрос, а не про саму подписку.
+  // The panel's device limit signal lives only in the response: it has no place in the subscription
+  // record — it's about this request, not about the subscription itself.
   return { ...sub, hwidSignal: hwidSignal(info, received, { sent: hwid }) };
 }
 
 /**
- * Обновляет существующую подписку.
+ * Updates an existing subscription.
  */
 export async function refreshSubscription(id) {
   const cur = loadSubscriptions().find(s => s.id === id);
@@ -586,11 +586,11 @@ export async function refreshSubscription(id) {
     err.hwid = hwidSignal(info, received, { sent: !!cur.hwid });
     throw err;
   }
-  // Ответ из одних заглушек (лимит устройств, «включите HWID», конец тарифа) —
-  // сообщение панели, а не новый список серверов. Рабочие серверы им не
-  // затираем: их учётные данные часто живы, а фоновое обновление иначе молча
-  // оставляло пользователя с нодой 0.0.0.0. Смешанный ответ с настоящими
-  // серверами обновляется как обычно (заглушки из него уже отсеяны).
+  // A response consisting only of placeholders (device limit, "enable HWID", end of plan) is
+  // a message from the panel, not a new server list. We don't overwrite the working servers
+  // with it: their credentials are often still alive, while a background update would otherwise silently
+  // leave the user with a 0.0.0.0 node. A mixed response with real
+  // servers is updated as usual (the placeholders have already been weeded out of it).
   if (profiles.every(isPlaceholderNode)
       && (cur.profiles || []).some((node) => !isPlaceholderNode(node))) {
     const err = new Error(t("subs.placeholderOnly"));
@@ -599,9 +599,9 @@ export async function refreshSubscription(id) {
     throw err;
   }
 
-  // Список перечитывается ПОСЛЕ await: за время fetch'а юзер мог переименовать
-  // или удалить подписку, а параллельный refresh — обновить соседнюю. Сохранение
-  // снапшота, взятого до await, молча откатывало бы эти изменения.
+  // The list is reread AFTER the await: during the fetch the user may have renamed
+  // or deleted the subscription, and a parallel refresh may have updated a neighboring one. Saving
+  // a snapshot taken before the await would silently roll back these changes.
   const list = loadSubscriptions();
   const idx = list.findIndex(s => s.id === id);
   if (idx < 0) throw new Error(t("subs.notFound"));
@@ -611,8 +611,8 @@ export async function refreshSubscription(id) {
   list[idx] = merged;
   const saved = await saveSubscriptions(list, { quietTooLarge: true });
   if (tooLargeToSave(saved)) {
-    // Откатываем только результат этого refresh: соседние подписки и поздние
-    // правки этой не трогаем.
+    // We roll back only the result of this refresh: neighboring subscriptions and later
+    // edits of this one are left alone.
     const current = loadSubscriptions();
     const at = current.findIndex(s => s.id === id);
     if (at >= 0) {
@@ -669,9 +669,9 @@ async function allSettledLimit(items, limit, fn) {
   return out;
 }
 
-// Ограниченно параллельно: последовательный обход складывал сетевые таймауты,
-// а Promise.all по всем подпискам создавал burst при больших списках. Гонок за
-// localStorage нет — каждый refresh перечитывает список после своего await.
+// Limited parallelism: a sequential pass added up network timeouts,
+// and Promise.all over all subscriptions created a burst with big lists. There are no races for
+// localStorage — each refresh rereads the list after its own await.
 export async function refreshAllSubscriptions() {
   const list = loadSubscriptions();
   const settled = await allSettledLimit(list, REFRESH_ALL_CONCURRENCY, s => refreshSubscription(s.id));
@@ -684,7 +684,7 @@ function hostnameOf(url) {
   try { return new URL(url).hostname; } catch { return ""; }
 }
 
-// ── helpers для UI ─────────────────────────────────────────
+// ── helpers for the UI ─────────────────────────────────────────
 export function subscriptionDaysLeft(sub) {
   if (!sub?.expire) return null;
   const secsLeft = sub.expire - Math.floor(Date.now() / 1000);
@@ -703,8 +703,8 @@ export function formatGiB(bytes) {
   return (bytes / 1024 / 1024 / 1024).toFixed(bytes < 1e9 ? 2 : 1);
 }
 
-// Умный форматтер трафика: сам подбирает единицу (Б/КБ/МБ/ГБ/ТБ), даёт
-// «12.3 МБ» / «1.45 ГБ» / «857 ГБ» вместо вечного «0.00 ГБ» на мелких объёмах.
+// A smart traffic formatter: picks the unit itself (B/KB/MB/GB/TB), gives
+// "12.3 MB" / "1.45 GB" / "857 GB" instead of the eternal "0.00 GB" on small volumes.
 export function formatBytes(bytes) {
   const b = Number(bytes) || 0;
   if (b <= 0) return t("subs.zero");
@@ -715,8 +715,8 @@ export function formatBytes(bytes) {
   return `${v.toFixed(dec)} ${units[i]}`;
 }
 
-// total=0 (или отсутствует) у многих панелей = безлимит/не метится. Возвращаем
-// число только если это реальный положительный лимит, иначе null = безлимит.
+// total=0 (or missing) for many panels = unlimited/not metered. We return
+// a number only if it's a real positive limit, otherwise null = unlimited.
 export function subscriptionLimitBytes(sub) {
   const total = sub?.total;
   return typeof total === "number" && total > 0 ? total : null;

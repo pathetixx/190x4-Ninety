@@ -1,4 +1,4 @@
-// Ninety · كتالوج AR (العربية). ترجمة آلية من EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (بحاجة إلى مراجعة متحدّث أصلي).
+// Ninety · كتالوج AR (العربية). ترجمة آلية من EN/RU — NEEDS NATIVE PROOFREADING (بحاجة إلى مراجعة متحدّث أصلي).
 // المفاتيح مطابقة لـ ru.js (تكافؤ ٧٧١)؛ إن غاب مفتاح يعود وقت التشغيل إلى en.
 export const ar = {
   titlebar: { min: "تصغير", max: "تكبير", close: "إغلاق" },
@@ -64,7 +64,7 @@ export const ar = {
     channelTitle: "جودة القناة",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "إظهار Ninety",
     connect: "اتصال",

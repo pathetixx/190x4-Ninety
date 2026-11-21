@@ -1,23 +1,23 @@
-// Ninety · сборка share-ссылки из полей сервера.
+// Ninety · building a share link from server fields.
 //
-// Общий низ для импортёров чужих конфигов: и sing-box, и Xray описывают один и
-// тот же сервер, просто разными именами полей. Каждый импортёр раскладывает
-// свой outbound по параметрам v2rayN — словарю, который читают парсеры
-// Ninety, — а собирает из них строку уже этот модуль.
+// A shared base for importers of foreign configs: both sing-box and Xray describe the same
+// server, just with different field names. Each importer lays out
+// its outbound into v2rayN parameters — the vocabulary Ninety's parsers
+// read — and this module assembles the string from them.
 //
-// Почему вообще через ссылку: на поле `raw` профиля держатся хранилище,
-// экспорт ноды и обратная совместимость старых записей. Ветка «чужой конфиг →
-// сразу объект профиля» означала бы вторую модель ноды со своей валидацией.
+// Why go through a link at all: storage, node export and backward compatibility of old
+// records rely on the profile's `raw` field. A "foreign config →
+// straight to a profile object" branch would mean a second node model with its own validation.
 
-/** Сервер в ссылке: IPv6 обязан быть в скобках, иначе разбор режет по
- *  последнему двоеточию и отрезает не порт, а половину адреса. */
+/** The server in the link: IPv6 must be in brackets, otherwise parsing cuts at
+ *  the last colon and cuts off half the address instead of the port. */
 export function hostForUri(server) {
   const host = String(server ?? "").trim().replace(/^\[|\]$/g, "");
   if (!host) return "";
   return host.includes(":") ? `[${host}]` : host;
 }
 
-/** Адрес для полей, которые ядро принимает без скобок (server, peer address). */
+/** Address for fields the core accepts without brackets (server, peer address). */
 export function bareHost(server) {
   return String(server ?? "").trim().replace(/^\[|\]$/g, "");
 }
@@ -33,7 +33,7 @@ function b64(text, urlSafe) {
 export const b64urlUtf8 = (text) => b64(text, true);
 export const b64Utf8 = (text) => b64(text, false);
 
-/** Список ALPN приезжает и массивом, и строкой через запятую. */
+/** The ALPN list arrives both as an array and as a comma-separated string. */
 export function joinList(value) {
   if (Array.isArray(value)) return value.map(v => String(v).trim()).filter(Boolean).join(",");
   return String(value ?? "").trim();
@@ -49,8 +49,8 @@ export function isPlainObject(value) {
 }
 
 /**
- * Собирает ссылку. Пустые параметры не пишутся вовсе: у парсеров свои
- * значения по умолчанию, и `sni=` пустой строкой отличается от отсутствующего.
+ * Builds the link. Empty parameters aren't written at all: the parsers have their own
+ * defaults, and `sni=` as an empty string differs from a missing one.
  * @param {object} spec {scheme, userinfo, server, port, params: [key, value][], tag}
  */
 export function buildShareLink({ scheme, userinfo = "", server, port, params = [], tag = "" }) {
@@ -62,12 +62,12 @@ export function buildShareLink({ scheme, userinfo = "", server, port, params = [
   const auth = userinfo ? `${userinfo}@` : "";
   const search = query.toString();
   const name = tag ? `#${encodeURIComponent(tag)}` : "";
-  // Строкой приходит только диапазон смены портов hysteria2 («443,20000-30000»).
+  // Only the hysteria2 port hopping range arrives as a string ("443,20000-30000").
   const portPart = typeof port === "string" && /^\d[\d,-]*$/.test(port) ? port : Number(port);
   return `${scheme}://${auth}${hostForUri(server)}:${portPart}${search ? `?${search}` : ""}${name}`;
 }
 
-/** vmess — единственная схема, где «ссылка» это base64 от JSON v2rayN. */
+/** vmess is the only scheme where the "link" is base64 of v2rayN JSON. */
 export function buildVmessLink(payload, tag) {
   return `vmess://${b64Utf8(JSON.stringify(payload))}${tag ? `#${encodeURIComponent(tag)}` : ""}`;
 }
@@ -77,7 +77,7 @@ export function shadowsocksUserinfo(method, password) {
   return b64urlUtf8(`${method ?? ""}:${password ?? ""}`);
 }
 
-/** socks/http: «user:pass», обе половины экранированы. */
+/** socks/http: "user:pass", both halves escaped. */
 export function credentialsUserinfo(username, password) {
   const user = username ? encodeURIComponent(username) : "";
   const pass = password ? encodeURIComponent(password) : "";

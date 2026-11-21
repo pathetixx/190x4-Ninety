@@ -6,9 +6,9 @@ export function enableSystemProxy(invoke, {
   hostPort,
   bypassLan = true,
   expectedGeneration,
-  // Токен текущей операции подключения. Нужен не для самой установки прокси, а
-  // для аварийной остановки при её провале: без владения Rust гасил бы runtime,
-  // которым за время IPC мог завладеть более новый connect.
+  // Token of the current connect operation. It's needed not for setting the proxy itself, but
+  // for the emergency stop when that fails: without ownership Rust would kill a runtime
+  // that a newer connect could have taken over during IPC.
   operationToken = null,
 } = {}) {
   requireInvoke(invoke);

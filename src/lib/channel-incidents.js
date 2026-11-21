@@ -1,19 +1,19 @@
-// Ninety · переходы состояния канала → записи в ленте инцидентов.
+// Ninety · channel state transitions → entries in the incident feed.
 //
-// Движок качества зовёт onState на каждом тике: лента обязана хранить ПЕРЕХОДЫ,
-// а не пробы. Логика вынесена из main.js, потому что ошибиться в ней легко, а
-// видно это только через несколько дней наблюдений — ровно так и вышло с
-// UNKNOWN: «нечем измерить» запоминалось как состояние канала и глушило
-// следующий переход в GOOD. Обычнейшая цепочка «упало → проба не дотянулась →
-// починилось» не писала ни одного ok, инцидент закрывался по таймауту, и в
-// ленте он навсегда оставался «чем закончилось — неизвестно».
+// The quality engine calls onState on every tick: the feed must store TRANSITIONS,
+// not probes. The logic is moved out of main.js because it's easy to get wrong, and
+// that only becomes visible after several days of observation — which is exactly what happened with
+// UNKNOWN: "nothing to measure with" was remembered as a channel state and suppressed
+// the next transition to GOOD. The most ordinary chain "went down → the probe didn't reach →
+// recovered" didn't write a single ok, the incident closed on a timeout, and in
+// the feed it stayed forever as "how it ended — unknown".
 //
-// Три исхода инцидента и кто их пишет:
-//   ok  — observe(GOOD): восстановление подтверждено замером;
-//   end — endSession(): сессия кончилась раньше замера (отключение, смена
-//         источника, выключенное наблюдение);
-//   ничего — замеры прекратились; тогда pause() хотя бы называет причину, по
-//         которой исход остался неизвестным.
+// Three incident outcomes and who writes them:
+//   ok  — observe(GOOD): recovery confirmed by a measurement;
+//   end — endSession(): the session ended before a measurement (disconnect, source
+//         switch, observation turned off);
+//   nothing — measurements stopped; then pause() at least names the reason
+//         why the outcome remained unknown.
 
 export const CHANNEL_SESSION_END_KINDS = {
   disconnected: "quality.endedByDisconnect",
@@ -29,12 +29,12 @@ export const CHANNEL_PAUSE_KINDS = {
 
 const DEGRADED = new Set(["SLOW", "STALLED"]);
 
-// record(kind, {severity, params}) — запись в ленту;
-// isAnyIncidentOpen() — открыт ли инцидент, который открыл не канал (смерть
-//   ядра, провал восстановления): он тоже кончается вместе с сессией;
-// sessionSurvives(reason) — правда ли, что сессия на самом деле продолжается
-//   (внутренний реконнект гасит движок, но намерение пользователя остаётся
-//   «подключено», и через секунды измерения возобновятся).
+// record(kind, {severity, params}) — an entry in the feed;
+// isAnyIncidentOpen() — whether an incident is open that wasn't opened by the channel (core
+//   death, recovery failure): it also ends together with the session;
+// sessionSurvives(reason) — whether the session actually continues
+//   (an internal reconnect stops the engine, but the user's intent stays
+//   "connected", and measurements resume within seconds).
 export function createChannelIncidentRecorder({
   record,
   isAnyIncidentOpen = () => false,
@@ -50,21 +50,21 @@ export function createChannelIncidentRecorder({
   const isOpen = () => DEGRADED.has(channelState);
 
   function observe(st) {
-    // UNKNOWN и PRESSURE — отказ измерения (нечем мерить или нельзя из-за
-    // нагрузки ПК), а не состояние канала: историю не трогают. Иначе нагрузка
-    // открывала ложный инцидент «скорость упала», а внутри настоящего — стирала
-    // причину паузы, и pause("hostPressure") больше ничего не писала.
+    // UNKNOWN and PRESSURE are a measurement failure (nothing to measure with, or not allowed because of
+    // PC load), not a channel state: they don't touch the history. Otherwise load
+    // opened a false "speed dropped" incident, and inside a real one it erased
+    // the pause reason, and pause("hostPressure") wrote nothing anymore.
     if (st === "UNKNOWN" || st === "PRESSURE" || st === channelState) return null;
     const prev = channelState;
     channelState = st;
-    // Канал сменил состояние — прежняя причина паузы больше не описывает
-    // происходящее, и следующую надо записать заново.
+    // The channel changed state — the previous pause reason no longer describes
+    // what's happening, and the next one must be recorded anew.
     pauseReason = null;
     if (st === "GOOD") {
       return prev ? record("quality.restored", { severity: "ok", params: { from: prev } }) : null;
     }
-    // Инцидент открываем и на первом замере сессии: канал, плохой сразу после
-    // подключения, — ровно то, что пользователь должен видеть в ленте.
+    // An incident is opened on the first measurement of a session too: a channel that's bad right after
+    // connecting is exactly what the user should see in the feed.
     if (!prev || prev === "GOOD") {
       return record("quality.degraded", {
         severity: st === "STALLED" ? "err" : "warn",
@@ -74,9 +74,9 @@ export function createChannelIncidentRecorder({
     return null;
   }
 
-  // Измерения прекратились по известной причине. Пишем только внутрь открытого
-  // инцидента и только на смене причины: иначе лента забилась бы одинаковыми
-  // строками с каждого тика сторожа.
+  // Measurements stopped for a known reason. We write only inside an open
+  // incident and only when the reason changes: otherwise the feed would fill with identical
+  // lines from every watchdog tick.
   function pause(reason) {
     const kind = CHANNEL_PAUSE_KINDS[reason];
     if (!kind || !isOpen() || pauseReason === reason) return null;
@@ -87,8 +87,8 @@ export function createChannelIncidentRecorder({
   function endSession(reason) {
     if (sessionSurvives(reason)) return null;
     const open = isOpen() || isAnyIncidentOpen();
-    // Состояние прошлой сессии не должно перетекать в следующую: после
-    // подключения первый замер — это новая база, а не продолжение старой.
+    // The previous session's state must not flow into the next one: after
+    // connecting, the first measurement is a new baseline, not a continuation of the old one.
     channelState = null;
     pauseReason = null;
     if (!open) return null;

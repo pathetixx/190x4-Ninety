@@ -64,7 +64,7 @@ export const en = {
     channelTitle: "Channel quality",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Show Ninety",
     connect: "Connect",

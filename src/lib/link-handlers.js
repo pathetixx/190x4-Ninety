@@ -1,6 +1,6 @@
-// Список обязан совпадать с SUPPORTED_SCHEMES (src-tauri/src/url_handler.rs) и
-// TOP_LEVEL_PROTOS (src/lib/deeplink.js) — равенство проверяет
-// tests/link-schemes.test.mjs. Схема, которой нет в Rust, возвращает Err.
+// The list must match SUPPORTED_SCHEMES (src-tauri/src/url_handler.rs) and
+// TOP_LEVEL_PROTOS (src/lib/deeplink.js) — equality is checked by
+// tests/link-schemes.test.mjs. A scheme that isn't in Rust returns Err.
 import { localizedInvoke } from "/lib/backend-errors.js";
 export const LINK_HANDLER_SCHEMES = [
   "vless", "vmess", "ss", "trojan", "hysteria2", "hy2", "hysteria", "tuic", "sub",
@@ -10,10 +10,10 @@ export const LINK_HANDLER_SCHEMES = [
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// Отказ на ОДНОЙ схеме не должен отменять остальные: раньше цикл обрывался на
-// первой ошибке, оставляя часть схем зарегистрированной при выключенной
-// настройке. Проходим весь список и сообщаем агрегированную ошибку — состояние
-// реестра тогда соответствует тому, что удалось применить.
+// A failure on ONE scheme must not cancel the rest: previously the loop broke off at
+// the first error, leaving some schemes registered with the setting
+// turned off. We go through the whole list and report an aggregated error — the registry
+// state then matches what we managed to apply.
 export async function applyLinkHandlers(enable) {
   const cmd = enable ? "register_url_handler" : "unregister_url_handler";
   const results = await Promise.allSettled(

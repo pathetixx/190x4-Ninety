@@ -1,11 +1,11 @@
-// Ninety · паспорт сборки. Файл СГЕНЕРИРОВАН: scripts/gen-build-info.mjs
-// собирает его из .github/pins.json (версии ядер и компонентов) и
-// src-tauri/tauri.conf.json (версия приложения), а CI зовёт скрипт перед
-// `tauri build`. Руками не править — правка уедет со следующей сборкой.
-// В дев-дереве значения commit/date остаются плейсхолдерами: версия всё равно
-// берётся из рантайма (__TAURI__.app.getVersion), а паспорт не врёт цифрами.
-// Единственное поле для ручной правки — channel: генератор переносит его из
-// предыдущей версии файла.
+// Ninety · build passport. This file is GENERATED: scripts/gen-build-info.mjs
+// builds it from .github/pins.json (core and component versions) and
+// src-tauri/tauri.conf.json (app version), and CI calls the script before
+// `tauri build`. Don't edit by hand — the edit will be lost with the next build.
+// In the dev tree the commit/date values stay placeholders: the version is taken
+// from the runtime anyway (__TAURI__.app.getVersion), and the passport doesn't lie with numbers.
+// The only field for manual editing is channel: the generator carries it over from
+// the previous version of the file.
 export const BUILD_INFO = {
   version: "0.18.0",
   commit: "local",

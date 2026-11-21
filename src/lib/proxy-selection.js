@@ -17,9 +17,9 @@ export function getRememberedProxySelection(source) {
   return typeof tag === "string" && tag ? tag : null;
 }
 
-// Сервер, выбранный пользователем вручную, или null. «auto», отсутствие выбора
-// (селектор по умолчанию стоит на том же «auto») и «proxy» одиночного маршрута
-// значат, что сервер выбирает приложение.
+// The server picked by the user manually, or null. "auto", no choice
+// (the selector defaults to the same "auto") and "proxy" of a single route
+// mean the app picks the server.
 export function manualProxySelection(source) {
   const tag = getRememberedProxySelection(source);
   return tag && tag !== "auto" && tag !== "proxy" ? tag : null;
@@ -52,11 +52,11 @@ export async function restoreRememberedProxySelection({
   const selectorType = String(selector?.type || "").toLowerCase();
   const isSelector = selectorType === "selector" || selectableTags.length > 0;
 
-  // Пользователь ничего не выбирал — значит, сервер выбирает «Авто». Ядро
-  // помнит последний выбор селектора в cache.db и при старте ставит его раньше
-  // default: нода, временно закреплённая лесенкой качества, иначе переживала
-  // переподключение и навсегда выключала подбор по задержке. Поэтому «Авто»
-  // применяем явно, но в память не записываем: это не решение пользователя.
+  // The user didn't pick anything — so "Auto" picks the server. The core
+  // remembers the selector's last choice in cache.db and at startup sets it before
+  // default: a node temporarily pinned by the quality ladder would otherwise survive
+  // the reconnect and turn off latency-based selection forever. So we apply "Auto"
+  // explicitly but don't save it: it isn't the user's decision.
   if (!tag) {
     if (!isSelector || !selectableTags.includes("auto")) return { status: "none", tag: null };
     if (selector?.now === "auto") return { status: "current", tag: "auto", implicit: true };
@@ -66,8 +66,8 @@ export async function restoreRememberedProxySelection({
       if (result?.stale || !isCurrent()) return { status: "stale", tag: "auto" };
       return { status: "restored", tag: "auto", implicit: true };
     } catch (error) {
-      // Не фатально: соединение работает и на закреплённой ноде, а следующий
-      // запуск попробует снова.
+      // Not fatal: the connection works on the pinned node too, and the next
+      // launch will try again.
       return { status: "none", tag: null, error };
     }
   }

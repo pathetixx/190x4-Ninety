@@ -1,21 +1,21 @@
-// Ninety · импорт готового конфига Xray (JSON) → профили.
+// Ninety · importing a ready Xray config (JSON) → profiles.
 //
-// Устроен как импортёр sing-box (см. /lib/singbox-config-import.js): outbound
-// раскладывается по параметрам share-ссылки и разбирается тем же parseLink.
+// Built like the sing-box importer (see /lib/singbox-config-import.js): an outbound
+// is laid out into share link parameters and parsed by the same parseLink.
 //
-// Отличие формата: подписка Xray у панелей — это, как правило, **массив целых
-// конфигов** (формат v2rayN), а не один конфиг. Имя сервера в таком массиве
-// лежит в `remarks` самого конфига, а теги outbound'ов служебные («proxy»,
-// «proxy-1»), поэтому имя берём из remarks.
+// The format difference: a panel's Xray subscription is usually **an array of whole
+// configs** (the v2rayN format), not a single config. The server name in such an array
+// lies in the config's own `remarks`, while outbound tags are service ones ("proxy",
+// "proxy-1"), so we take the name from remarks.
 //
-// Что не переносится: маршрутизация, DNS, inbounds, balancers/observatory и
-// mux — это политика приложения, у Ninety она своя.
+// What doesn't carry over: routing, DNS, inbounds, balancers/observatory and
+// mux — that's app policy, Ninety has its own.
 //
-// Исключение — сервер, который в ссылку не помещается: маскировка `finalmask`
-// (например, XMC — трафик под вход в Minecraft), постквантовое шифрование
-// VLESS (`encryption` ≠ none) и т.п. Такой outbound едет в профиль целиком
-// (proto "xray") и поднимается локальным xray-мостом как есть: перевод в
-// ссылку молча выкинул бы ровно то, без чего сервер не отвечает.
+// The exception is a server that doesn't fit into a link: `finalmask` disguise
+// (e.g. XMC — traffic disguised as a Minecraft login), post-quantum VLESS
+// encryption (`encryption` ≠ none), etc. Such an outbound goes into the profile in full
+// (proto "xray") and is brought up by the local xray bridge as is: converting it into
+// a link would silently throw away exactly what the server doesn't respond without.
 
 import { parseLink, stripXrayFileFields } from "/lib/protocol-parsers.js";
 import { safeJsonParse } from "/lib/config-format.js";
@@ -30,12 +30,12 @@ import {
   shadowsocksUserinfo,
 } from "/lib/share-link.js";
 
-// Исходящие, которые не ведут ни на какой сервер.
+// Outbounds that don't lead to any server.
 const NON_SERVER_PROTOCOLS = new Set([
   "freedom", "blackhole", "dns", "loopback",
 ]);
 
-// Ядро Xray их умеет, а Ninety как профиль не заводит.
+// The Xray core supports them, but Ninety doesn't create them as a profile.
 const UNSUPPORTED_PROTOCOLS = new Set([
   "http", "shadowsocksr", "vlite", "mtproto",
 ]);
@@ -45,11 +45,11 @@ function configList(root) {
   return isPlainObject(root) ? [root] : [];
 }
 
-// ── streamSettings → параметры ссылки ──────────────────────
+// ── streamSettings → link parameters ──────────────────────
 function tlsParams(stream) {
   const security = String(stream.security || "none").toLowerCase();
   if (security === "none" || !security) return { security: "none", params: [] };
-  // xtls жил только в старых Xray и на провод давал обычный TLS.
+  // xtls lived only in old Xray and produced regular TLS on the wire.
   const reality = security === "reality";
   const ts = (reality ? stream.realitySettings : stream.tlsSettings) || {};
   const params = [
@@ -71,7 +71,7 @@ function headerType(settings) {
   return settings?.header?.type || "";
 }
 
-// Поля xhttp, которые ссылка несёт отдельными параметрами (и сам вложенный extra).
+// xhttp fields the link carries as separate parameters (and the nested extra itself).
 const XHTTP_LINK_FIELDS = new Set(["host", "path", "mode", "extra"]);
 
 function transportParams(stream) {
@@ -84,8 +84,8 @@ function transportParams(stream) {
         params: [
           ["path", ws.path || ""],
           ["host", ws.host || joinList(ws.headers?.Host) || ""],
-          // Ранняя передача жила отдельными полями только в старых Xray;
-          // нынешний пишет её в путь как «?ed=», и путь мы не трогаем.
+          // Early data lived in separate fields only in old Xray;
+          // the current one writes it into the path as "?ed=", and we don't touch the path.
           ["ed", numberOrNull(ws.maxEarlyData) || ""],
           ["eh", ws.earlyDataHeaderName || ""],
         ],
@@ -136,14 +136,14 @@ function transportParams(stream) {
     case "xhttp":
     case "splithttp": {
       const xh = stream.xhttpSettings || stream.splithttpSettings || {};
-      // Подопции xhttp едут в `extra` в Xray-схеме: их разбирает сборщик
-      // конфига (mergeXhttpExtra) и эмитит только то, что знает форк. Без них
-      // download-канал уходит в дефолт и сервер рвёт handshake.
-      // Форма — как у параметра `extra` в ссылке: подопции плоско, без
-      // host/path/mode (они отдельными параметрами). Панели пишут их и прямо в
-      // xhttpSettings, и во вложенный xhttpSettings.extra — сводим к одному,
-      // иначе сборщик не нашёл бы вложенные, а тот же сервер из JSON и из
-      // ссылки различался бы отпечатком.
+      // xhttp sub-options go into `extra` in the Xray schema: they're parsed by the config
+      // builder (mergeXhttpExtra), which emits only what the fork knows. Without them
+      // the download channel falls back to the default and the server breaks the handshake.
+      // The shape is like the link's `extra` parameter: sub-options flat, without
+      // host/path/mode (those are separate parameters). Panels write them both directly into
+      // xhttpSettings and into the nested xhttpSettings.extra — we reduce them to one,
+      // otherwise the builder wouldn't find the nested ones, and the same server from JSON and from
+      // a link would differ by fingerprint.
       const options = Object.fromEntries(Object.entries(xh)
         .filter(([key]) => !XHTTP_LINK_FIELDS.has(key)));
       if (isPlainObject(xh.extra)) Object.assign(options, xh.extra);
@@ -162,9 +162,9 @@ function transportParams(stream) {
     case "raw":
     default: {
       const tcp = stream.tcpSettings || stream.rawSettings || {};
-      // «none» у TCP — то же, что отсутствие маскировки; ссылка его не пишет.
-      // Иначе тот же сервер из JSON и из списка ссылок различался бы одним
-      // этим полем: смена формата подписки сбрасывала бы выбор сервера.
+      // "none" for TCP is the same as no masking; the link doesn't write it.
+      // Otherwise the same server from JSON and from the link list would differ by this one
+      // field: changing the subscription format would reset the server choice.
       const header = headerType(tcp);
       return { type: network, params: [["headerType", header === "none" ? "" : header]] };
     }
@@ -183,11 +183,11 @@ function streamParams(outbound) {
   ];
 }
 
-// ── outbound → набор серверов ──────────────────────────────
-// vnext/servers — массивы, у vless/vmess внутри ещё и users: один outbound
-// Xray описывает несколько серверов. Разворачиваем всё, что там лежит.
-// Xray 26 пишет outbound и «плоско»: address/port/id прямо в settings, без
-// vnext/servers. Такой сервер ровно один, а пользователь — сами settings.
+// ── outbound → set of servers ──────────────────────────────
+// vnext/servers are arrays, and vless/vmess also have users inside: one Xray outbound
+// describes several servers. We expand everything that's in there.
+// Xray 26 also writes an outbound "flat": address/port/id directly in settings, without
+// vnext/servers. There's exactly one such server, and the user is settings itself.
 function flatServer(settings) {
   return isPlainObject(settings) && settings.address !== undefined && !settings.vnext && !settings.servers;
 }
@@ -227,13 +227,13 @@ function vmessLinks(outbound) {
     aid: String(user.alterId ?? 0),
     scy: user.security || "auto",
     net: network === "h2" ? "http" : network,
-    // В формате v2rayN `type` — это заголовок маскировки, а не транспорт. У xhttp
-    // это поле несёт mode: «none» здесь Xray отверг бы как неизвестный режим.
+    // In the v2rayN format `type` is the masking header, not the transport. For xhttp
+    // this field carries mode: Xray would reject "none" here as an unknown mode.
     type: network === "xhttp" ? (flat.mode || "") : (flat.headerType || "none"),
     ...(network === "xhttp" && flat.extra ? { extra: flat.extra } : {}),
     host: flat.host || "",
-    // Одно поле `path` обслуживает путь у ws/http, имя сервиса у grpc и seed
-    // у mKCP — парсер читает его ровно так же.
+    // One `path` field serves the path for ws/http, the service name for grpc and the seed
+    // for mKCP — the parser reads it exactly the same way.
     path: network === "grpc" ? (flat.serviceName || "") : (flat.path || flat.seed || ""),
     tls: security === "none" ? "" : (security === "reality" ? "reality" : "tls"),
     sni: ts.serverName || "",
@@ -249,15 +249,15 @@ function serverEntries(settings) {
 }
 
 // ── finalmask ──────────────────────────────────────────────
-// Маски слоя под транспортом: { tcp: [...], udp: [...] }, каждая — {type, settings}.
+// Masks of the layer under the transport: { tcp: [...], udp: [...] }, each — {type, settings}.
 function finalmaskEntries(stream) {
   const fm = isPlainObject(stream?.finalmask) ? stream.finalmask : null;
   if (!fm) return [];
   return Object.values(fm).flatMap(list => (Array.isArray(list) ? list.filter(isPlainObject) : []));
 }
 
-// Hysteria в Xray — это протокол + транспорт, а obfs у него — маска salamander.
-// Её ссылка hysteria2:// передаёт; всё прочее (udphop, TCP-маски) — нет.
+// Hysteria in Xray is a protocol + a transport, and its obfs is the salamander mask.
+// A hysteria2:// link carries it; everything else (udphop, TCP masks) — no.
 function hysteriaSalamander(stream) {
   const masks = finalmaskEntries(stream);
   if (!masks.length) return { ok: true, password: "" };
@@ -334,10 +334,10 @@ const LINK_BUILDERS = {
   hysteria: hysteriaLinks,
 };
 
-// ── сервер, который в ссылку не помещается ─────────────────
-// Протоколы, которые локальный xray-мост поднимет из outbound как есть.
+// ── a server that doesn't fit into a link ─────────────────
+// Protocols the local xray bridge will bring up from an outbound as is.
 const RAW_PROTOCOLS = new Set(["vless", "vmess", "trojan", "shadowsocks", "hysteria"]);
-// Что ссылка передаёт без потерь. Всё прочее — повод везти outbound целиком.
+// What a link carries without losses. Everything else is a reason to carry the outbound in full.
 const LINK_NETWORKS = new Set([
   "", "tcp", "raw", "ws", "grpc", "http", "h2", "httpupgrade", "quic", "kcp", "xhttp", "splithttp",
 ]);
@@ -349,7 +349,7 @@ function vlessEncryption(settings) {
 }
 
 /**
- * Почему outbound нельзя передать ссылкой (null — можно).
+ * Why the outbound can't be carried by a link (null — it can).
  * @returns {string|null}
  */
 export function rawOutboundReason(outbound) {
@@ -376,8 +376,8 @@ function rawEndpoint(settings) {
   return { host: servers[0]?.address, port: servers[0]?.port, count: servers.length };
 }
 
-// Короткая метка для списка серверов: по ней пользователь видит, чем этот
-// сервер отличается от обычного (XMC, а не безликое VLESS).
+// A short label for the server list: from it the user sees what sets this
+// server apart from a regular one (XMC, not a faceless VLESS).
 function rawLabel(outbound, reason) {
   const stream = outbound.streamSettings || {};
   const masks = finalmaskEntries(stream)
@@ -388,9 +388,9 @@ function rawLabel(outbound, reason) {
   return String(outbound.protocol || "xray").toUpperCase();
 }
 
-// Глубокая копия без служебных полей конфига-источника: tag назначит сборщик,
-// а dialerProxy/proxySettings ссылались на соседей по исходному конфигу
-// (фрагментация у Ninety своя, цепочки отсеяны раньше).
+// A deep copy without the source config's service fields: the builder will assign the tag,
+// and dialerProxy/proxySettings referenced neighbors in the original config
+// (Ninety has its own fragmentation, chains were weeded out earlier).
 function detachedOutbound(outbound) {
   const copy = stripXrayFileFields(JSON.parse(JSON.stringify(outbound)));
   delete copy.tag;
@@ -407,8 +407,8 @@ function detachedOutbound(outbound) {
 function rawProfile(outbound, name, reason) {
   const { host, port, count } = rawEndpoint(outbound.settings);
   const portNumber = Number(port);
-  // Один outbound — один сервер: несколько адресов внутри никто, кроме
-  // балансировщика панели, не пишет, а различать их в списке нечем.
+  // One outbound — one server: nobody except the panel's balancer writes several addresses
+  // inside, and there's nothing to tell them apart by in the list.
   if (count !== 1 || !host || !Number.isInteger(portNumber)) return null;
   return {
     proto: "xray",
@@ -421,9 +421,9 @@ function rawProfile(outbound, name, reason) {
 }
 
 // ── WireGuard ──────────────────────────────────────────────
-// В Xray это обычный outbound, а не endpoint, и имена полей свои
-// (secretKey/publicKey/endpoint). Своей share-ссылки у протокола нет, поэтому
-// кладём прямо в модель профиля — как и у импортёра sing-box.
+// In Xray this is a regular outbound, not an endpoint, and the field names are its own
+// (secretKey/publicKey/endpoint). The protocol has no share link of its own, so
+// we put it straight into the profile model — as the sing-box importer does.
 function wireguardProfile(outbound, name) {
   const settings = isPlainObject(outbound.settings) ? outbound.settings : {};
   const peers = (settings.peers || []).filter(isPlainObject).map((peer) => {
@@ -458,7 +458,7 @@ function wireguardProfile(outbound, name) {
     mtu: Number(settings.mtu) || 0,
     listenPort: 0,
     peers,
-    // Шейпинга AmneziaWG у Xray нет.
+    // Xray has no AmneziaWG shaping.
     awg: {
       jc: 0, jmin: 0, jmax: 0, s1: 0, s2: 0, h1: 0, h2: 0, h3: 0, h4: 0,
       i1: "", i2: "", i3: "", i4: "", i5: "",
@@ -467,11 +467,11 @@ function wireguardProfile(outbound, name) {
   };
 }
 
-// Fragment у Xray — это отдельный freedom-outbound, на который сервер ссылается
-// через sockopt.dialerProxy. Такая ссылка путь до сервера не меняет (у Ninety
-// фрагментация своя, общая для приложения), поэтому ноду берём. А вот
-// dialerProxy на настоящий прокси — это цепочка, и без неё нода пошла бы
-// напрямую: не наш случай, называем и пропускаем.
+// A fragment in Xray is a separate freedom outbound the server references
+// via sockopt.dialerProxy. Such a reference doesn't change the path to the server (Ninety
+// has its own app-wide fragmentation), so we take the node. But
+// a dialerProxy to a real proxy is a chain, and without it the node would go
+// direct: not our case, we name it and skip it.
 function chainedThroughProxy(outbound, byTag) {
   const target = outbound?.streamSettings?.sockopt?.dialerProxy;
   if (!target) return false;
@@ -480,8 +480,8 @@ function chainedThroughProxy(outbound, byTag) {
 }
 
 /**
- * Один outbound Xray → ссылки (их может быть несколько: vnext/servers/users —
- * массивы) либо профиль напрямую (WireGuard).
+ * One Xray outbound → links (there may be several: vnext/servers/users are
+ * arrays) or a profile directly (WireGuard).
  * @returns {{links: string[]} | {profile: object} | {unsupported: string} | null}
  */
 export function xrayOutboundToLinks(outbound, name = "", byTag = new Map()) {
@@ -510,7 +510,7 @@ export function xrayOutboundToLinks(outbound, name = "", byTag = new Map()) {
 }
 
 /**
- * Готовый конфиг Xray (или массив конфигов) → профили Ninety.
+ * A ready Xray config (or an array of configs) → Ninety profiles.
  * @returns {{profiles: object[], skipped: number, unsupported: string[]}}
  */
 export function parseXrayConfig(input) {
@@ -528,11 +528,11 @@ export function parseXrayConfig(input) {
   for (const config of configList(root)) {
     const outbounds = Array.isArray(config.outbounds)
       ? config.outbounds.filter(isPlainObject)
-      // Голый массив outbound'ов: элемент списка и есть outbound.
+      // A bare array of outbounds: each element of the list is an outbound.
       : (config.protocol ? [config] : []);
     const byTag = new Map(outbounds.map(o => [o.tag, String(o.protocol || "").toLowerCase()]));
-    // Имя сервера у подписки-массива лежит в remarks конфига; служебный тег
-    // outbound'а («proxy-3») пользователю не говорит ничего.
+    // The server name of an array subscription lies in the config's remarks; the outbound's service
+    // tag ("proxy-3") tells the user nothing.
     const remarks = String(config.remarks || "").trim();
     const servers = outbounds.filter(o => {
       const protocol = String(o.protocol || "").toLowerCase();
@@ -540,8 +540,8 @@ export function parseXrayConfig(input) {
     });
 
     for (const outbound of servers) {
-      // Конфиг с одним сервером именуется своим remarks; если серверов
-      // несколько (у панелей это конфиг-балансировщик), различаем их тегом.
+      // A config with one server is named by its remarks; if there are several
+      // servers (for panels this is a balancer config), we tell them apart by the tag.
       const base = remarks || String(outbound.tag || "");
       const name = servers.length > 1 && remarks && outbound.tag
         ? `${remarks} · ${outbound.tag}`
@@ -550,10 +550,10 @@ export function parseXrayConfig(input) {
       if (!result) continue;
       if (result.unsupported) { note(result.unsupported); continue; }
       if (result.profile) { profiles.push(result.profile); continue; }
-      // Один outbound разворачивается в несколько ссылок, когда в `vnext`
-      // перечислено больше одного пользователя (или в `servers` — больше одного
-      // адреса). Это разные серверы, и общее имя конфига делало их в списке
-      // неразличимыми — нумеруем.
+      // One outbound expands into several links when `vnext`
+      // lists more than one user (or `servers` lists more than one
+      // address). These are different servers, and the shared config name made them
+      // indistinguishable in the list — we number them.
       const numbered = result.links.length > 1;
       for (const [index, link] of result.links.entries()) {
         try {

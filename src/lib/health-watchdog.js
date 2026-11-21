@@ -1,16 +1,16 @@
-// Ninety · health-watchdog (liveness ядер + bridge-reconnect). Вынесено из main.js.
-// Пока connected — раз в 5с дёргаем health_snapshot:
-//   sing-box упал → туннель закрыт: снять прокси, idle, нотифай с причиной, логи.
-//   xray/naive/TT-мост упал → авто-реконнект (пересобирает конфиг и поднимает ядра).
-// После аварийного fail-closed shutdown тот же таймер остаётся в guard-only
-// режиме и следит только за WFP, пока пользователь явно не снимет блок.
-// Всё, что тянется из main (текущее состояние, флаг установки апдейта, гашение ядра,
-// реконнект, переключение вью, движок качества), инжектится — тот же паттерн, что у
+// Ninety · health watchdog (core liveness + bridge reconnect). Moved out of main.js.
+// While connected — call health_snapshot every 5 s:
+//   sing-box crashed → the tunnel is closed: remove the proxy, go idle, notify with the reason, logs.
+//   the xray/naive/TT bridge crashed → auto-reconnect (rebuilds the config and brings up the cores).
+// After an emergency fail-closed shutdown the same timer stays in guard-only
+// mode and watches only WFP until the user explicitly removes the block.
+// Everything pulled from main (current state, the update install flag, killing the core,
+// reconnect, switching views, the quality engine) is injected — the same pattern as in
 // /lib/warp-rescan.js, /lib/dns-guard.js, /lib/wifi-guard.js.
 //
-// Разделение слоёв: ФАКТ смерти ядра приходит событием из Rust (vpn:core-died)
-// мгновенно, а этот модуль решает, что с ним делать. Таймер остаётся вторым
-// контуром: он проверяет WFP, мосты и качество — то, о чём событий нет.
+// Layer separation: the FACT of core death arrives as an event from Rust (vpn:core-died)
+// instantly, and this module decides what to do with it. The timer stays as the second
+// loop: it checks WFP, the bridges and quality — things that have no events.
 
 import { toast } from "/lib/toast.js";
 import { notify } from "/lib/notify.js";
@@ -22,35 +22,35 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
 const HEALTH_TICK_MS = 5000;
-// Ядро может умереть по причине, которую перезапуск не лечит (битый конфиг,
-// занятый порт, убитый антивирусом бинарь). Одна попытка на окно: она покрывает
-// разовый краш под нагрузкой — сценарий, ради которого восстановление и нужно, —
-// и не превращается в цикл «поднялся → умер» с новым туннелем каждые полминуты.
+// The core may die for a reason a restart doesn't fix (a broken config,
+// a busy port, a binary killed by antivirus). One attempt per window: it covers
+// a one-off crash under load — the scenario recovery is needed for —
+// and doesn't turn into an "up → dead" loop with a new tunnel every half minute.
 const CORE_RESTORE_MAX = 1;
 const CORE_RESTORE_WINDOW_MS = 15 * 60_000;
-// Опоздание тика больше этого — таймер WebView задушен (скрытая страница в трее
-// или голодание рендерера). Пишем в журнал, потому что в таком режиме проверка
-// WFP и движок качества работают не на заявленной частоте, и это надо видеть.
+// A tick later than this means the WebView timer is throttled (a hidden page in the tray
+// or renderer starvation). We log it, because in this mode the WFP check
+// and the quality engine don't run at the declared frequency, and that must be visible.
 const TICK_LATE_MS = 15_000;
 const TICK_LATE_REPORT_GAP_MS = 60_000;
-// Кап догоняющих реконнектов мостов (xray/naive/TT). Смерть моста сразу на старте
-// фейлит start_singbox (fail-fast в Rust), но смерть в середине сессии лечится
-// реконнектом — без капа стабильно падающий мост зациклил бы «упал → реконнект →
-// упал» с тостами каждые ~10 секунд навсегда.
+// Cap on catch-up bridge reconnects (xray/naive/TT). A bridge dying right at start
+// fails start_singbox (fail-fast in Rust), but dying mid-session is fixed by
+// a reconnect — without a cap a consistently crashing bridge would loop "crash → reconnect →
+// crash" with toasts every ~10 seconds forever.
 const BRIDGE_RECONNECT_MAX = 3;
 const BRIDGE_RECONNECT_WINDOW_MS = 10 * 60_000;
-// «Шторм соединений» (#168): собственные соединения ядра петляют обратно в
-// TUN, sing-box за минуту набирает десятки тысяч сокетов и не пропускает
-// трафик. Здоровая сессия держит десятки-сотни сокетов, тяжёлая (торрент) —
-// пару тысяч; петля проходит порог за полминуты. Два тика подряд отсекают
-// разовый всплеск.
+// "Connection storm" (#168): the core's own connections loop back into
+// TUN, sing-box racks up tens of thousands of sockets within a minute and passes no
+// traffic. A healthy session holds tens to hundreds of sockets, a heavy one (torrent) —
+// a couple of thousand; a loop crosses the threshold within half a minute. Two ticks in a row cut off
+// a one-off spike.
 const STORM_SOCKETS = 6000;
 const STORM_TICKS = 2;
 
-// getState() → "idle"|"connecting"|"connected"; isUpdateInstalling() → модалка
-// апдейта сама гасит ядра (иначе watchdog найдёт «труп» и слал бы ложную ошибку);
-// shutdownCore/reconnectForSourceChange/switchView — управляющие руки из main;
-// getQualityEngine() → инстанс движка качества (создаётся в main позже, поэтому геттер).
+// getState() → "idle"|"connecting"|"connected"; isUpdateInstalling() → the update modal
+// kills the cores itself (otherwise the watchdog would find a "corpse" and send a false error);
+// shutdownCore/reconnectForSourceChange/switchView — the controlling hands from main;
+// getQualityEngine() → the quality engine instance (created in main later, hence a getter).
 export function initHealthWatchdog({
   getState,
   isUpdateInstalling,
@@ -64,13 +64,13 @@ export function initHealthWatchdog({
   reconcileKillSwitch = async () => true,
   beginRuntimeOperation = null,
   completeRuntimeOperation = async () => false,
-  // Поднять runtime заново после смерти ядра. Не инжектится → сторож ведёт себя
-  // как раньше: гасит и отдаёт решение пользователю.
+  // Bring the runtime back up after core death. Not injected → the watchdog behaves
+  // as before: it shuts down and leaves the decision to the user.
   restoreAfterCoreDeath = null,
-  // Подписка на vpn:core-died. Возвращает функцию отписки.
+  // Subscription to vpn:core-died. Returns an unsubscribe function.
   subscribeCoreDeath = null,
   recordDiagnostic = () => {},
-  // Шторм соединений подтверждён — раз за сессию; main пишет его в ленту.
+  // A connection storm is confirmed — once per session; main writes it to the feed.
   onConnectionStorm = () => {},
   invoke: invokeFn = invoke,
   toast: toastFn = toast,
@@ -130,8 +130,8 @@ export function initHealthWatchdog({
     return true;
   }
 
-  // Бюджет исчерпан — мост падает системно, реконнекты не лечат. Закрываем туннель
-  // целиком (как при смерти sing-box): честная ошибка вместо вечного цикла.
+  // Budget exhausted — the bridge crashes systematically, reconnects don't help. We close the tunnel
+  // entirely (as on sing-box death): an honest error instead of an endless loop.
   async function stopForBridgeLoop(run) {
     if (!active(run)) return;
     const stopped = await withFrontendRecovery(
@@ -146,9 +146,9 @@ export function initHealthWatchdog({
     switchView("logs");
   }
 
-  // Опоздание меряем на самом таймере, а не внутри tick(): tick зовут ещё и
-  // событие смерти ядра, и тесты, и такие вызовы не говорят ничего о частоте
-  // пробуждений WebView.
+  // Lateness is measured on the timer itself, not inside tick(): tick is also called by
+  // the core death event and by tests, and such calls say nothing about how often
+  // the WebView wakes up.
   function timerTick() {
     const at = now();
     if (lastTimerAt) {
@@ -173,12 +173,12 @@ export function initHealthWatchdog({
     systemProxyToast = null;
   }
 
-  // В режиме «Системный прокси» только настройка Windows заворачивает браузеры
-  // в туннель. Другая программа (второй VPN-клиент, сами настройки Windows)
-  // может её перебить: ядро живо, на экране «подключено», а трафик идёт мимо.
-  // Прокси сами не возвращаем — перетягивать настройку у другой программы
-  // значит воевать с ней. Честно сообщаем: переподключение вернёт прокси
-  // Ninety, а чужую настройку восстановит при отключении.
+  // In "System proxy" mode only the Windows setting routes browsers
+  // into the tunnel. Another program (a second VPN client, the Windows settings themselves)
+  // may override it: the core is alive, the screen says "connected", and traffic goes past.
+  // We don't restore the proxy ourselves — pulling the setting back from another program
+  // means fighting with it. We say honestly: reconnecting will restore Ninety's
+  // proxy, and the other setting will be restored on disconnect.
   function reportSystemProxy(snap) {
     if (snap.system_proxy_lost !== true) {
       clearSystemProxyAlert();
@@ -193,9 +193,9 @@ export function initHealthWatchdog({
     notifyFn(tr("conn.systemProxyLost"), tr("conn.systemProxyLostDesc"));
   }
 
-  // Ядро держит тысячи сокетов тик за тиком. Сами не лечим: причина вне
-  // Ninety (чаще всего пересылка IP в Windows), а реконнект только перезапустит
-  // ту же петлю. Говорим человеку и пишем в журнал — вместо немой «Проверки».
+  // The core holds thousands of sockets tick after tick. We don't fix it ourselves: the cause is outside
+  // Ninety (most often IP forwarding in Windows), and a reconnect would only restart
+  // the same loop. We tell the person and write to the log — instead of a mute "Checking".
   function reportConnectionStorm(snap) {
     const sockets = snap.core_sockets;
     if (typeof sockets !== "number") return;
@@ -224,15 +224,15 @@ export function initHealthWatchdog({
       const run = generation;
       const settle = (off) => {
         if (typeof off !== "function") return;
-        // Подписка едет через IPC. Пока она ехала, сторож могли остановить и
-        // запустить заново — тогда она чужая: снимаем её, а не подменяем ею
-        // актуальную, иначе на каждый цикл stop/start копился бы лишний слушатель.
+        // The subscription travels through IPC. While it was traveling, the watchdog may have been stopped and
+        // started again — then it's someone else's: we remove it rather than replace
+        // the current one with it, otherwise an extra listener would pile up on every stop/start cycle.
         if (run !== generation || !timer || unsubscribeCoreDeath) { off(); return; }
         unsubscribeCoreDeath = off;
       };
-      // Событие только СОКРАЩАЕТ задержку: своей логики оно не несёт, а зовёт
-      // тот же tick. Все guard'ы (busy, поколение, установка апдейта) и решение
-      // остаются в одном месте.
+      // The event only SHORTENS the delay: it carries no logic of its own but calls
+      // the same tick. All guards (busy, generation, update install) and the decision
+      // stay in one place.
       const result = subscribeCoreDeath(() => { if (run === generation) void tick(); });
       if (typeof result === "function") settle(result);
       else if (result && typeof result.then === "function") {
@@ -270,10 +270,10 @@ export function initHealthWatchdog({
     }
 
     const restored = await rearmKillSwitch();
-    // Настройку или transition-latch могли снять, пока IPC-rearm уже стоял в
-    // очереди. Side effect к этому моменту мог успеть вернуть старый block-all,
-    // поэтому одной проверки флага недостаточно: последней queued операцией
-    // обязана стать актуальная policy.
+    // The setting or the transition latch may have been removed while an IPC rearm was already
+    // queued. By then the side effect may have managed to restore the old block-all,
+    // so a single flag check isn't enough: the current policy must become
+    // the last queued operation.
     if (!isKillSwitchRequired()) {
       await reconcileKillSwitch();
       killSwitchAlerted = false;
@@ -305,14 +305,14 @@ export function initHealthWatchdog({
     const run = generation;
     busy = true;
     try {
-      // Один агрегирующий вызов вместо четырёх (singbox_running/vpn_last_error/
-      // xray_status/sidecar_status) — снимает лишний IPC-трафик на каждом тике.
+      // One aggregating call instead of four (singbox_running/vpn_last_error/
+      // xray_status/sidecar_status) — removes extra IPC traffic on every tick.
       const snap = await invokeFn("health_snapshot");
       if (!current(run)) return;
 
-      // После аварийного shutdown state уже idle/cleanup_error, но сохранённый
-      // fail-closed WFP должен жить до явного disconnect/выключения настройки.
-      // В этом режиме не проверяем умершее ядро — только dynamic WFP objects.
+      // After an emergency shutdown the state is already idle/cleanup_error, but the saved
+      // fail-closed WFP must live until an explicit disconnect/turning the setting off.
+      // In this mode we don't check the dead core — only the dynamic WFP objects.
       if (guardOnly) {
         await verifyKillSwitch(run, snap);
         return;
@@ -320,16 +320,16 @@ export function initHealthWatchdog({
 
       if (!active(run)) return;
       if (!snap.singbox_running) {
-        // Причину смерти snapshot читает синхронно с running-статусом (до
-        // shutdownCore, который сбрасывает флаги).
+        // The snapshot reads the cause of death synchronously with the running status (before
+        // shutdownCore, which resets the flags).
         const why = snap.last_error;
         if (why) console.warn("sing-box died:", why);
-        // Бюджет списываем ПОСЛЕ подтверждённой остановки. Раньше он считался
-        // до неё, и неудачный stop (очистка не подтверждена — процесс завис,
-        // порт не освободился) съедал единственную попытку окна, ни разу не
-        // дойдя до восстановления: следующие 15 минут ядро уже не поднималось.
-        // Повторного списывания это не даёт — после подтверждённого stop state
-        // уже не connected, и второй раз в эту ветку тик не заходит.
+        // The budget is charged AFTER a confirmed stop. Previously it was counted
+        // before it, and a failed stop (cleanup not confirmed — the process hung,
+        // the port wasn't released) ate the window's only attempt without ever
+        // reaching recovery: for the next 15 minutes the core no longer came up.
+        // This doesn't double-charge — after a confirmed stop the state
+        // is no longer connected, and the tick doesn't enter this branch a second time.
         let restoreAttempted = false;
         const outcome = await withFrontendRecovery(
           { reason: "process_dead" },
@@ -340,9 +340,9 @@ export function initHealthWatchdog({
             if (!stopped) return "stop_failed";
             if (!coreRestoreAllowed()) return "stopped";
             restoreAttempted = true;
-            // Восстановление держим внутри ТОЙ ЖЕ операции: между остановкой и
-            // повторным стартом никакая другая операция не должна вклиниться, а
-            // fail-closed WFP всё это время сохранён shutdownCore'ом.
+            // Recovery is kept inside THE SAME operation: no other operation must squeeze in
+            // between the stop and the restart, and the fail-closed WFP
+            // is kept by shutdownCore all this time.
             toastFn(tr("conn.coreRestoring"), "warn", 4000, { group: "conn", connecting: true });
             const restored = await restoreAfterCoreDeath(
               tr("conn.coreRestoring"),
@@ -363,21 +363,21 @@ export function initHealthWatchdog({
         switchView("logs");
         return;
       }
-      // BFE/Windows Firewall может быть перезапущен независимо от Ninety:
-      // dynamic WFP objects тогда исчезнут, хотя ядро и TUN останутся живы.
-      // На каждом liveness-тике подтверждаем два block-фильтра и атомарно
-      // переармируем policy. Пока восстановление не удалось, не запускаем
-      // автоматические реконнекты: остановка живого TUN без WFP только увеличила
-      // бы риск выхода приложений через физический интерфейс.
+      // BFE/Windows Firewall may be restarted independently of Ninety:
+      // the dynamic WFP objects then disappear, although the core and TUN stay alive.
+      // On every liveness tick we confirm the two block filters and atomically
+      // rearm the policy. Until recovery succeeds, we don't start
+      // automatic reconnects: stopping a live TUN without WFP would only increase
+      // the risk of apps leaving through the physical interface.
       if (!(await verifyKillSwitch(run, snap, { connected: true }))) return;
-      // sing-box жив — проверяем xray-мост (xhttp).
+      // sing-box is alive — check the xray bridge (xhttp).
       if (snap.xray === "died") {
         if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(run); return; }
         if (!active(run)) return;
         toastFn(tr("conn.xhttpDown"), "warn", 4000, { group: "conn", connecting: true });
         notifyFn("Ninety", tr("conn.xhttpNotify"));
-        // reconnectForSourceChange сам ставит needsReconnect и зовёт реконнект,
-        // который поднимет sing-box И xray заново из свежего конфига.
+        // reconnectForSourceChange sets needsReconnect itself and calls a reconnect,
+        // which brings up sing-box AND xray again from a fresh config.
         void withFrontendRecovery(
           { reason: "xhttp_bridge_dead" },
           (operationToken) => reconnectForSourceChange(
@@ -387,7 +387,7 @@ export function initHealthWatchdog({
         ).catch((error) => console.warn("xhttp bridge recovery failed", error));
         return;
       }
-      // sidecar-клиенты naive/trusttunnel — та же логика, что у xray-моста.
+      // naive/trusttunnel sidecar clients — the same logic as the xray bridge.
       if (snap.sidecar === "died") {
         if (!bridgeReconnectAllowed()) { await stopForBridgeLoop(run); return; }
         if (!active(run)) return;
@@ -405,14 +405,14 @@ export function initHealthWatchdog({
       if (!active(run)) return;
       reportSystemProxy(snap);
       reportConnectionStorm(snap);
-      // Liveness OK — отдаём ход движку качества (детект троттла/деградации).
-      // Fire-and-forget: проба до 4с не должна держать busy и тормозить следующий
-      // liveness-тик; у движка свои guard'ы probing/remediating.
+      // Liveness OK — hand over to the quality engine (throttling/degradation detection).
+      // Fire-and-forget: a probe of up to 4 s must not hold busy and slow down the next
+      // liveness tick; the engine has its own probing/remediating guards.
       const engine = getQualityEngine();
-      // Сначала говорим движку, виноват ли хост. Под нехваткой CPU/памяти
-      // деградация канала — следствие, а не причина: лечить её сменой ноды и
-      // реконнектом значит платить самым дорогим действием ровно тогда, когда
-      // машине и так плохо.
+      // First we tell the engine whether the host is to blame. Under a CPU/memory shortage
+      // channel degradation is a consequence, not the cause: treating it with a node switch and
+      // a reconnect means paying with the most expensive action exactly when
+      // the machine is already struggling.
       engine?.setHostPressure?.(snap.host_pressure?.active === true);
       engine?.tick().catch(() => {});
     } catch (e) {

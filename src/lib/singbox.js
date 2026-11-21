@@ -1,5 +1,5 @@
 // Ninety · sing-box 1.13.x config builder
-// Protocol parsers живут в protocol-parsers.js; здесь builder + storage-фасад.
+// Protocol parsers live in protocol-parsers.js; here — the builder + the storage facade.
 
 import { DEFAULT_OPTIONS } from "/lib/options.js";
 import { t } from "/lib/i18n/index.js";
@@ -69,11 +69,11 @@ export const ENGINE_PROCESS_NAMES = [
   "trusttunnel_client-x86_64-pc-windows-msvc.exe",
 ];
 
-// Списки правил — из первоисточников, а не из чужих зеркал (rule-sets.js).
-// Списки вредоносного/фишинга/майнеров ведёт отдельный проект: ни в sing-geosite,
-// ни в sing-geoip таких категорий нет. Теги у них свои, с префиксом: имена из
-// каталога SagerNet получают теги вида geosite-<имя>, и совпадение имени не
-// должно подменить один файл другим.
+// Rule lists come from the original sources, not from third-party mirrors (rule-sets.js).
+// The malware/phishing/miner lists are maintained by a separate project: neither sing-geosite
+// nor sing-geoip has such categories. Their tags are their own, with a prefix: names from
+// the SagerNet catalog get tags like geosite-<name>, and a name match must not
+// substitute one file for another.
 const SECURITY_BASE = "https://raw.githubusercontent.com/Chocolate4U/Iran-sing-box-rules/rule-set";
 
 const BLOCK_AD_SETS = [
@@ -85,24 +85,24 @@ const BLOCK_AD_SETS = [
   ["security-geoip-phishing", `${SECURITY_BASE}/geoip-phishing.srs`],
 ];
 
-// Тег списка из каталога SagerNet: один и тот же файл под одним тегом, кто бы
-// его ни подключил — регион, раздельный Discord или правило пользователя.
-// Иначе один файл качался бы и хранился в кэше дважды.
+// Tag of a list from the SagerNet catalog: the same file under the same tag, whoever
+// wires it — the region, split Discord or a user rule.
+// Otherwise one file would be downloaded and stored in the cache twice.
 export function setTag(ref) {
   return `${ref.kind}-${ref.name}`;
 }
 
-// Регион, база которого действует. «Сделать своими» переносит её правила в
-// пользовательские (regionDetached): регион остаётся выбранным — по нему,
-// например, подбираются сайты для диагностики, — но своих правил не выпускает.
+// The region whose base is in effect. "Make them mine" moves its rules into
+// the user rules (regionDetached): the region stays selected — by it,
+// for example, the sites for diagnostics are picked — but it doesn't emit its own rules.
 function activeRegion(options) {
   const region = options.region;
   if (!region || region === "other" || options.route?.regionDetached) return null;
   return region;
 }
 
-// Списки базы региона: страновой geosite есть не для каждого региона (см.
-// REGION_GEOSITE), geoip — для любого.
+// Region base lists: a country geosite doesn't exist for every region (see
+// REGION_GEOSITE), geoip does for any.
 function regionSetRefs(region) {
   const refs = [];
   if (REGION_GEOSITE[region]) refs.push({ kind: "geosite", name: REGION_GEOSITE[region] });
@@ -110,9 +110,9 @@ function regionSetRefs(region) {
   return refs;
 }
 
-// Ссылки «Готового списка» в правиле. Нераспознанное и не из каталога
-// отбрасываем: sanitizeRule уже не пускает такое в сохранённые правила, но
-// конфиг собирается и из старых или импортированных настроек.
+// "Ready list" references in a rule. Unrecognized ones and those not from the catalog
+// are dropped: sanitizeRule already doesn't let such entries into saved rules, but
+// the config is also built from old or imported settings.
 function customRuleSetRefs(r) {
   const refs = [];
   for (const value of customRuleValues(r)) {
@@ -121,17 +121,17 @@ function customRuleSetRefs(r) {
   }
   return refs;
 }
-// Доменные суффиксы Discord — дублируют geosite-discord на случай, если правило
-// не подтянулось, и ловят по sniffed-SNI. Только домены Discord уходят в direct
-// (без IP-листа: кривой CIDR увёл бы чужой трафик мимо VPN = утечка).
+// Discord domain suffixes — they duplicate geosite-discord in case the rule
+// didn't load, and match by sniffed SNI. Only Discord domains go direct
+// (no IP list: a broken CIDR would send someone else's traffic past the VPN = a leak).
 const DISCORD_SUFFIXES = [
   "discord.com", "discordapp.com", "discordapp.net", "discord.gg",
   "discord.media", "discord.dev", "discordstatus.com", "dis.gd",
 ];
-// Десктопные клиенты Discord. Голосовой медиа-поток идёт по UDP на голый IP:
-// домена в пакете нет, sniff его не достаёт (там не TLS и не QUIC, а RTP +
-// IP discovery), доменные правила по нему не срабатывают. Матчинг по процессу —
-// единственный способ увести голос в direct, не выдумывая CIDR-лист Discord.
+// Discord desktop clients. The voice media stream goes over UDP to a bare IP:
+// there's no domain in the packet, sniff can't get it (it's not TLS or QUIC but RTP +
+// IP discovery), domain rules don't fire on it. Matching by process is
+// the only way to send voice direct without making up a Discord CIDR list.
 const DISCORD_PROCESS_NAMES = [
   "Discord.exe", "DiscordCanary.exe", "DiscordPTB.exe", "DiscordDevelopment.exe",
 ];
@@ -143,22 +143,22 @@ const IPV6_STRATEGY_MAP = {
   only: "ipv6_only",
 };
 
-// Домены «Напрямую» при «Включено (предпочитать IPv4)» резолвим только в IPv4.
-// В TUN у интерфейса есть IPv6-адрес, и приложение уходит на AAAA-ответ; туннель
-// такой адрес довезёт, а direct — только если у провайдера есть IPv6. Без него
-// стек TUN уже принял соединение, а direct тут же падает с «unreachable
-// network» — браузер видит сброс и на IPv4 не переходит. В режимах «Предпочитать
-// IPv6» и «Только IPv6» пользователь выбрал IPv6 сам, их не трогаем.
+// "Direct" domains with "Enabled (prefer IPv4)" are resolved to IPv4 only.
+// In TUN the interface has an IPv6 address, and the app goes for the AAAA answer; the tunnel
+// will carry such an address, while direct only will if the ISP has IPv6. Without it
+// the TUN stack has already accepted the connection, and direct immediately fails with "unreachable
+// network" — the browser sees a reset and doesn't fall back to IPv4. In the "Prefer
+// IPv6" and "IPv6 only" modes the user chose IPv6 themselves, we leave them alone.
 function directDnsAction(options) {
   const mode = options.route?.ipv6Mode;
   const strategy = mode === "enable" ? { strategy: "ipv4_only" } : {};
   return { server: "dns-direct", ...strategy };
 }
 
-// ── общие части (TLS, transport) ───────────────────────────
+// ── shared parts (TLS, transport) ───────────────────────────
 function buildTls(p) {
-  // Для vless reality/tls; vmess/trojan/tuic — обычный TLS
-  const tlsMode = p.tlsMode || p.security; // vmess использует tlsMode, остальные security
+  // For vless reality/tls; vmess/trojan/tuic — regular TLS
+  const tlsMode = p.tlsMode || p.security; // vmess uses tlsMode, the rest use security
   if (tlsMode !== "tls" && tlsMode !== "reality") return null;
   const tls = {
     enabled: true,
@@ -166,14 +166,14 @@ function buildTls(p) {
     utls: { enabled: true, fingerprint: normalizeFingerprint(p.fp) },
   };
   if (p.alpn) tls.alpn = String(p.alpn).split(",").map(s => s.trim()).filter(Boolean);
-  // Пишем только когда ссылка прямо об этом попросила: у reality проверка
-  // сертификата и так своя, а молча снятая проверка — это уже другой протокол
-  // безопасности, чем тот, что видел пользователь.
+  // We write it only when the link explicitly asked for it: reality has its own
+  // certificate check anyway, and a silently removed check is already a different security
+  // protocol than the one the user saw.
   if (p.insecure) tls.insecure = true;
   if (tlsMode === "reality") {
-    // Панели отдают ключ и в обычном base64, и с паддингом, а ядро принимает
-    // только base64url без «=». Нормализуем; заведомо нерабочий ключ отсеивает
-    // nodeConfigIssue ещё до сборки.
+    // Panels return the key both in regular base64 and with padding, while the core accepts
+    // only base64url without "=". We normalize; an obviously broken key is weeded out by
+    // nodeConfigIssue before the build.
     tls.reality = {
       enabled: true,
       public_key: normalizeRealityPublicKey(p.pbk) || p.pbk,
@@ -183,14 +183,14 @@ function buildTls(p) {
   return tls;
 }
 
-// xhttp base-ключи, у которых имена json совпадают в Xray и форке sing-box.
+// xhttp base keys whose json names match in Xray and the sing-box fork.
 const XHTTP_PASS_KEYS = [
   "host", "path", "headers", "xPaddingBytes", "noGRPCHeader", "noSSEHeader",
   "scMaxEachPostBytes", "scMinPostsIntervalMs", "scMaxBufferedPosts",
   "scStreamUpServerSecs", "xmux",
 ];
 
-// Xray tlsSettings/realitySettings → OutboundTLSOptions форка sing-box.
+// Xray tlsSettings/realitySettings → the sing-box fork's OutboundTLSOptions.
 function xrayTlsToSingbox(ds) {
   const sec = ds.security;
   if (sec !== "tls" && sec !== "reality") return null;
@@ -214,8 +214,8 @@ function xrayTlsToSingbox(ds) {
   return tls;
 }
 
-// Xray downloadSettings (StreamSettings) → V2RayXHTTPDownloadOptions форка.
-// address→server, port→server_port, xhttpSettings.* → плоские base-поля, tls.
+// Xray downloadSettings (StreamSettings) → the fork's V2RayXHTTPDownloadOptions.
+// address→server, port→server_port, xhttpSettings.* → flat base fields, tls.
 function xrayDownloadToSingbox(ds) {
   if (!ds || typeof ds !== "object") return null;
   const d = {};
@@ -228,8 +228,8 @@ function xrayDownloadToSingbox(ds) {
   return Object.keys(d).length ? d : null;
 }
 
-// Безопасный мерж Xray-extra в xhttp-транспорт форка. Эмитим только
-// поля, известные форку (иначе unknown-field роняет ВЕСЬ конфиг).
+// Safe merge of the Xray extra into the fork's xhttp transport. We emit only
+// fields known to the fork (otherwise an unknown field brings down the WHOLE config).
 function mergeXhttpExtra(transport, ex) {
   for (const k of XHTTP_PASS_KEYS) if (ex[k] !== undefined) transport[k] = ex[k];
   if (ex.mode) transport.mode = ex.mode;
@@ -245,10 +245,10 @@ function buildTransport(p) {
       const tr = { type: "ws" };
       if (p.path) tr.path = p.path;
       if (p.host_header) tr.headers = { Host: p.host_header };
-      // Ранняя передача данных приходит отдельными параметрами ссылки (ed/eh)
-      // или из импортированного конфига. Форму Xray («/path?ed=2560») сюда не
-      // приводим: ядро отправляет такой путь вместе с query, это работает, и
-      // менять поведение уже добавленных нод незачем.
+      // Early data arrives as separate link parameters (ed/eh)
+      // or from an imported config. The Xray form ("/path?ed=2560") isn't
+      // converted here: the core sends such a path together with the query, it works, and
+      // there's no reason to change the behavior of already added nodes.
       if (p.earlyData > 0) {
         tr.max_early_data = p.earlyData;
         tr.early_data_header_name = p.earlyDataHeader || "Sec-WebSocket-Protocol";
@@ -274,31 +274,31 @@ function buildTransport(p) {
       return tr;
     }
     case "quic":
-      // У v2ray-QUIC в ядре нет опций: дополнительное шифрование транспорта из
-      // Xray оно не реализует (такие ноды отсеивает nodeConfigIssue).
+      // v2ray QUIC has no options in the core: it doesn't implement Xray's additional transport
+      // encryption (nodeConfigIssue weeds out such nodes).
       return { type: "quic" };
     case "xhttp": {
       const tr = { type: "xhttp" };
       if (p.path) tr.path = p.path;
       if (p.host_header) tr.host = p.host_header;
       if (p.mode) tr.mode = p.mode;
-      // extra={...} из ссылки несёт xhttp-подопции (xPaddingBytes,
+      // extra={...} from the link carries xhttp sub-options (xPaddingBytes,
       // scMaxEachPostBytes, downloadSettings, noGRPCHeader, headers, xmux…).
-      // Без них download-канал уходит в дефолт и сервер рвёт handshake.
-      // ВАЖНО: extra — в Xray-схеме. Скаляры и xmux по именам совпадают с
-      // форком sing-box, но downloadSettings — это Xray StreamSettings
-      // (address/port/security/xhttpSettings) и форк его не понимает.
-      // Поэтому мержим только whitelisted-ключи и транслируем downloadSettings,
-      // эмитя строго известные форку поля — иначе один узел роняет весь конфиг
+      // Without them the download channel falls back to the default and the server breaks the handshake.
+      // IMPORTANT: extra is in the Xray schema. Scalars and xmux match the
+      // sing-box fork by name, but downloadSettings is Xray StreamSettings
+      // (address/port/security/xhttpSettings) and the fork doesn't understand it.
+      // So we merge only whitelisted keys and translate downloadSettings,
+      // emitting strictly the fields known to the fork — otherwise one node brings down the whole config
       // (json: unknown field "address").
       if (p.extra) {
         try {
           const ex = JSON.parse(p.extra);
           if (ex && typeof ex === "object") mergeXhttpExtra(tr, ex);
-        } catch { /* битый extra — игнорируем, базовых полей достаточно */ }
+        } catch { /* a broken extra — ignore it, the base fields are enough */ }
       }
-      // Ядро требует непустой mode, иначе падает весь конфиг
-      // ("mode is not set" на этапе загрузки). auto — безопасный дефолт.
+      // The core requires a non-empty mode, otherwise the whole config fails
+      // ("mode is not set" at load time). auto is a safe default.
       if (!tr.mode) tr.mode = "auto";
       return tr;
     }
@@ -317,32 +317,32 @@ function applyMux(out, options) {
   };
 }
 
-// TLS-фрагментация + tls_tricks.
-// ВАЖНО: upstream 1.12 убрал experimental.tls_tricks и перенёс эти трюки в
+// TLS fragmentation + tls_tricks.
+// IMPORTANT: upstream 1.12 removed experimental.tls_tricks and moved these tricks to
 // per-outbound tls{}: fragment / record_fragment / fragment_fallback_delay +
-// tls.tls_tricks{ mixedcase_sni, padding_size }. Парсер 1.12+ строгий — любое
-// неизвестное поле роняет ВЕСЬ конфиг (json: unknown field) и ядро не стартует
-// (это и был баг «при включении ВПН перестаёт работать»). Пишем строго эти поля.
-// Применяем только к прокси-outbound с TCP-TLS handshake; QUIC (hysteria2/tuic)
-// сюда не доходит — те делают return раньше, фрагментация TLS-записей к ним
-// неприменима.
+// tls.tls_tricks{ mixedcase_sni, padding_size }. The 1.12+ parser is strict — any
+// unknown field brings down the WHOLE config (json: unknown field) and the core doesn't start
+// (that was the "VPN stops working when enabled" bug). We write exactly these fields.
+// Applied only to proxy outbounds with a TCP-TLS handshake; QUIC (hysteria2/tuic)
+// doesn't get here — those return earlier, TLS record fragmentation doesn't apply
+// to them.
 function applyTlsTricks(out, options) {
   const tricksCfg = options?.tlsTricks;
   if (!tricksCfg || !out.tls?.enabled) return;
   if (tricksCfg.enableFragment) {
     if (tricksCfg.fragmentMode === "tcp") {
-      // fragment и record_fragment взаимоисключающие — ставим что-то одно.
+      // fragment and record_fragment are mutually exclusive — we set only one.
       out.tls.fragment = true;
       if (tricksCfg.fragmentFallbackDelay) out.tls.fragment_fallback_delay = tricksCfg.fragmentFallbackDelay;
     } else {
       out.tls.record_fragment = true;
     }
   }
-  // Дальше — только tls_tricks. Фрагментация выше применима и к Reality, а вот
-  // сами трюки переписывают ClientHello, который Reality собирает сам и поверх
-  // которого запечатывает аутентификацию. При этом Reality и так шлёт побайтовый
-  // отпечаток браузера с настоящим SNI — ради этого он и существует. Ядро на
-  // такой конфиг отвечает ошибкой, поэтому не шлём.
+  // From here on — only tls_tricks. The fragmentation above also applies to Reality, but
+  // the tricks themselves rewrite the ClientHello, which Reality builds itself and over
+  // which it seals the authentication. Besides, Reality already sends a byte-exact
+  // browser fingerprint with the real SNI — that's what it exists for. The core responds
+  // to such a config with an error, so we don't send it.
   if (out.tls.reality?.enabled) return;
   const tricks = {};
   if (tricksCfg.enablePadding) {
@@ -353,7 +353,7 @@ function applyTlsTricks(out, options) {
   if (Object.keys(tricks).length) out.tls.tls_tricks = tricks;
 }
 
-// ── outbound dispatcher по протоколу ───────────────────────
+// ── outbound dispatcher by protocol ───────────────────────
 function buildOutbound(p, options) {
   const proto = profileProto(p);
   const base = { tag: "proxy", server: p.host, server_port: p.port };
@@ -364,8 +364,8 @@ function buildOutbound(p, options) {
         ...base,
         type: "vmess",
         uuid: p.uuid,
-        // Реестры ядра регистрозависимы: имя шифра/метода из ссылки приводим к
-        // нижнему регистру, иначе «AES-128-GCM» роняет конфиг как неизвестное.
+        // Core registries are case-sensitive: the cipher/method name from the link is
+        // lowercased, otherwise "AES-128-GCM" brings down the config as unknown.
         security: String(p.security || "auto").toLowerCase(),
         alter_id: p.alterId || 0,
         packet_encoding: "xudp",
@@ -395,8 +395,8 @@ function buildOutbound(p, options) {
         type: "hysteria2",
         password: p.password,
       };
-      // Смена портов: ядро принимает список диапазонов вместо одного порта, и
-      // вместе они не допускаются.
+      // Port hopping: the core accepts a list of ranges instead of a single port, and
+      // they aren't allowed together.
       if (Array.isArray(p.ports) && p.ports.length) {
         delete out.server_port;
         out.server_ports = [...p.ports];
@@ -407,7 +407,7 @@ function buildOutbound(p, options) {
         out.obfs = { type: String(p.obfs).toLowerCase() };
         if (p.obfsPassword) out.obfs.password = p.obfsPassword;
       }
-      // hysteria2 всегда поверх QUIC/TLS — TLS обязателен
+      // hysteria2 always runs over QUIC/TLS — TLS is mandatory
       out.tls = {
         enabled: true,
         server_name: p.sni || p.host,
@@ -437,7 +437,7 @@ function buildOutbound(p, options) {
         username: p.username,
         password: p.password,
       };
-      // Без одиночного порта ядру идут только диапазоны (см. parseMieru).
+      // Without a single port only ranges go to the core (see parseMieru).
       if (p.rangesOnly) delete out.server_port;
       if (p.ports?.length) out.server_ports = [...p.ports];
       if (p.multiplexing !== undefined) out.multiplexing = p.multiplexing;
@@ -447,8 +447,8 @@ function buildOutbound(p, options) {
       return out;
     }
     case "hysteria": {
-      // v1: аутентификация строкой, обфускация — общий секрет (строкой же),
-      // скорости идут в контроллер перегрузки Brutal и потому обязательны.
+      // v1: authentication by string, obfuscation is a shared secret (also a string),
+      // speeds go into the Brutal congestion controller and are therefore mandatory.
       out = { ...base, type: "hysteria" };
       if (p.authString) out.auth_str = p.authString;
       if (p.obfs) out.obfs = p.obfs;
@@ -491,9 +491,9 @@ function buildOutbound(p, options) {
     case "naive":
     case "trusttunnel":
     case "xray":
-      // Эти протоколы всегда идут через локальный sidecar-клиент (SOCKS5-мост):
-      // нативного outbound в sing-box нет. Заглушка-socks; реальный порт
-      // подставит bridge-loop в buildConfig (server_port=0 будет перезаписан).
+      // These protocols always go through a local sidecar client (a SOCKS5 bridge):
+      // sing-box has no native outbound for them. A socks placeholder; the real port
+      // will be substituted by the bridge loop in buildConfig (server_port=0 will be overwritten).
       return { ...base, type: "socks", server: "127.0.0.1", server_port: 0, version: "5" };
     case "vless":
     default: {
@@ -503,8 +503,8 @@ function buildOutbound(p, options) {
         uuid: p.uuid,
         packet_encoding: "xudp",
       };
-      // Xray-суффикс «-udp443» ядро не знает; normalizeFlow приводит flow к
-      // тому, что оно принимает (сам протокол на проводе тот же).
+      // The core doesn't know the Xray "-udp443" suffix; normalizeFlow brings the flow to
+      // what it accepts (the protocol on the wire is the same).
       const flow = normalizeFlow(p.flow);
       if (flow) out.flow = flow;
       break;
@@ -548,11 +548,11 @@ function endpointContainsIp(value) {
   return isIpLiteral(raw);
 }
 
-// Все адреса, к которым реально подключается xhttp-клиент. Кроме самого сервера
-// это отдельный download-канал из `extra` (Xray StreamSettings): его адрес
-// уезжает в конфиг xray как есть, а xray в строгом режиме ходит мимо туннеля
-// (process-правило direct) — значит доменное имя оттуда резолвится системным
-// DNS в обход всей политики. Проверка только node.host этого не ловила.
+// All addresses the xhttp client actually connects to. Besides the server itself
+// it's the separate download channel from `extra` (Xray StreamSettings): its address
+// goes into the xray config as is, and in strict mode xray goes past the tunnel
+// (a direct process rule) — so a domain name from there is resolved by the system
+// DNS bypassing the whole policy. Checking only node.host didn't catch this.
 function xhttpEndpointHosts(node) {
   const hosts = [node?.host];
   if (!node?.extra) return hosts;
@@ -562,7 +562,7 @@ function xhttpEndpointHosts(node) {
     if (download && typeof download === "object" && download.address) {
       hosts.push(String(download.address));
     }
-  } catch { /* битый extra — до конфига он всё равно не доедет */ }
+  } catch { /* a broken extra — it won't make it into the config anyway */ }
   return hosts;
 }
 
@@ -590,8 +590,8 @@ function assertStrictBootstrapSafe(node) {
       throw new StrictPrivacyPolicyError("STRICT_PRIVACY_BOOTSTRAP_UNSAFE", t("sb.err.ovpnBootstrap"));
     }
   }
-  // mKCP и VLESS с шифрованием тоже поднимает отдельный xray, который резолвит
-  // адрес сервера сам, мимо DNS-политики строгого режима.
+  // mKCP and VLESS with encryption are also brought up by a separate xray, which resolves
+  // the server address itself, bypassing the strict mode DNS policy.
   if (proto !== "xray" && node?.type !== "xhttp" && needsXrayBridge(node) && !isIpLiteral(node.host)) {
     throw new StrictPrivacyPolicyError(
       "STRICT_PRIVACY_BOOTSTRAP_UNSAFE",
@@ -621,18 +621,18 @@ function assertStrictBootstrapSafe(node) {
   }
 }
 
-// ── rule_sets: регион, реклама, раздельный Discord, правила пользователя ──
-// Канал скачивания — http_client.detour: download_detour в sing-box 1.14
-// объявлен устаревшим и в 1.16 будет удалён.
+// ── rule_sets: region, ads, split Discord, user rules ──
+// The download channel is http_client.detour: download_detour is deprecated
+// in sing-box 1.14 and will be removed in 1.16.
 //
-// optional — дельта ninety-core: список, который не скачался при старте или не
-// успел за общие 3 секунды, подключается пустым и докачивается в фоне, а не
-// роняет всё подключение. «Авто» до первого замера выбирает вслепую, и
-// подвисший сервер в начале подписки иначе держал старт дольше, чем его ждёт
+// optional is a ninety-core delta: a list that didn't download at startup or didn't
+// make it within the shared 3 seconds is attached empty and downloaded in the background instead of
+// bringing down the whole connection. "Auto" picks blindly before the first measurement, and
+// a hanging server at the start of the subscription would otherwise hold the start longer than
 // Ninety.
-// Без него недоступный GitHub или удалённая в первоисточнике категория из
-// правила пользователя оставляли бы человека без VPN вовсе. Пока список пуст,
-// его правила просто не срабатывают и трафик идёт по остальным правилам.
+// Without it an unreachable GitHub or a category removed at the source from
+// a user rule would leave the person without a VPN at all. While the list is empty,
+// its rules simply don't fire and traffic follows the other rules.
 function buildRuleSets(options, mode, downloadDetour = "proxy") {
   const sets = new Map();
   const add = (tag, url) => {
@@ -644,7 +644,7 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
   };
   const addRef = (ref) => add(setTag(ref), setUrl(ref));
 
-  // TUN + split Discord: правило для маршрутизации доменов Discord мимо туннеля.
+  // TUN + split Discord: a rule for routing Discord domains past the tunnel.
   if (mode === "tun" && options.route?.tunSplitDiscord) addRef({ kind: "geosite", name: "discord" });
   const region = activeRegion(options);
   if (region) regionSetRefs(region).forEach(addRef);
@@ -655,14 +655,14 @@ function buildRuleSets(options, mode, downloadDetour = "proxy") {
   return [...sets.values()];
 }
 
-// ── DNS server: парсер строки в новый формат sing-box 1.12+ ─
-// Поддерживаемые входы:
+// ── DNS server: string parser into the new sing-box 1.12+ format ─
+// Supported inputs:
 //   https://host/path   → {type: "https", server, path?}
 //   tls://host[:port]   → {type: "tls",   server, server_port?}
 //   tcp://host[:port]   → {type: "tcp",   server, server_port?}
 //   udp://host[:port]   → {type: "udp",   server, server_port?}
 //   quic://host[:port]  → {type: "quic",  server, server_port?}
-//   1.2.3.4 / host      → {type: "udp",   server} (дефолт)
+//   1.2.3.4 / host      → {type: "udp",   server} (default)
 //   local | system      → {type: "local"}
 export function parseDnsAddress(raw) {
   const s = String(raw || "").trim();
@@ -717,12 +717,12 @@ function parseOptionalHostPort(rest) {
   return { host: s };
 }
 
-// mode — фактический режим runtime. FakeIP имеет смысл ТОЛЬКО в TUN: перехватить
-// выданный 198.18.x.x адрес может лишь TUN-инбаунд. В proxy/systemProxy тот же
-// ответ уезжает в direct-маршруты (bypass, process_name, пользовательские
-// правила direct) и соединение не встаёт — при этом симптом выглядит как
-// «отдельные приложения не работают», а не как проблема DNS. Неизвестный режим
-// трактуем консервативно: без FakeIP.
+// mode is the actual runtime mode. FakeIP makes sense ONLY in TUN: only
+// the TUN inbound can intercept an issued 198.18.x.x address. In proxy/systemProxy the same
+// answer goes into direct routes (bypass, process_name, user
+// direct rules) and the connection doesn't come up — while the symptom looks like
+// "some apps don't work" rather than a DNS problem. An unknown mode
+// is treated conservatively: no FakeIP.
 function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const ipv6Strategy = IPV6_STRATEGY_MAP[options.route.ipv6Mode] || "prefer_ipv4";
 
@@ -733,9 +733,9 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
     detour: protectedOutbound,
   };
 
-  // detour "direct" в sing-box 1.13 не задаём — direct outbound у нас пустой
-  // (без bind_interface), а 1.13 на пустой direct outbound выдаёт
-  // "detour to an empty direct outbound makes no sense" и падает на старте.
+  // We don't set detour "direct" in sing-box 1.13 — our direct outbound is empty
+  // (no bind_interface), and 1.13 on an empty direct outbound reports
+  // "detour to an empty direct outbound makes no sense" and fails at startup.
   const directSrv = {
     tag: "dns-direct",
     ...parseDnsAddress(options.dns.directAddress),
@@ -744,13 +744,13 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
   const dns = {
     servers: [remoteSrv, directSrv],
     rules: [],
-    // independent_cache не задаём: с 1.14 кэш DNS всегда разделён по серверам.
+    // We don't set independent_cache: since 1.14 the DNS cache is always split by server.
     strategy: ipv6Strategy,
     final: "dns-remote",
   };
 
   const fakeIp = !!options.dns.enableFakeDns && mode === "tun";
-  // Пользовательские правила — выше региона, как и в маршрутизации.
+  // User rules go above the region, just as in routing.
   const direct = directDnsAction(options);
   dns.rules.push(...customRulesToDns(options.route?.customRules, fakeIp, direct));
 
@@ -785,20 +785,20 @@ function buildDns(options, protectedOutbound = "proxy", mode = "") {
 }
 
 // ── route ──────────────────────────────────────────────────
-// Пользовательские правила маршрутизации (options.route.customRules) → правила
-// sing-box. Одно правило юзера = один route-rule. Действие: proxy/direct → outbound,
-// block → action:"reject" (как blockAds). Пропускаем выключенные и без значений.
-// Тип:
-//   domain  + match → domain_suffix (дефолт) / domain (exact) / domain_keyword
-//   ip            → ip_cidr (одиночный IP нормализуем в /32, IPv6 в /128)
-//   process       → process_name (работает во ВСЕХ режимах — sing-box резолвит
-//                   процесс по локальному сокету mixed-inbound, привязки к TUN нет)
+// User routing rules (options.route.customRules) → sing-box
+// rules. One user rule = one route rule. Action: proxy/direct → outbound,
+// block → action:"reject" (like blockAds). We skip disabled ones and those without values.
+// Type:
+//   domain  + match → domain_suffix (default) / domain (exact) / domain_keyword
+//   ip            → ip_cidr (a single IP is normalized to /32, IPv6 to /128)
+//   process       → process_name (works in ALL modes — sing-box resolves
+//                   the process by the mixed inbound's local socket, there's no tie to TUN)
 //
-// Действия node/warp уводят правило в КОНКРЕТНЫЙ аутбаунд: тег отдаёт
-// resolveTarget (замыкание buildConfig — только оно знает, какие ноды дожили до
-// конфига и поднят ли WARP). Вернул null — правило падает обратно на
-// protectedOutbound: сервер мог исчезнуть из подписки или уехать в карантин, и
-// ссылка на несуществующий тег уронила бы старт ядра целиком.
+// The node/warp actions send the rule to a SPECIFIC outbound: the tag is provided by
+// resolveTarget (a buildConfig closure — only it knows which nodes made it into
+// the config and whether WARP is up). If it returned null, the rule falls back to
+// protectedOutbound: the server may have disappeared from the subscription or gone into quarantine, and
+// a reference to a nonexistent tag would bring down the core start entirely.
 function customRuleValues(r) {
   return (Array.isArray(r?.values) ? r.values : [])
     .map((v) => String(v).trim())
@@ -829,7 +829,7 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
       if (!refs.length) continue;
       rule.rule_set = refs.map(setTag);
     } else {
-      continue; // неизвестный тип — пропускаем
+      continue; // unknown type — skip
     }
 
     if (r.action === "block") rule.action = "reject";
@@ -843,12 +843,12 @@ function customRulesToSingbox(customRules, protectedOutbound = "proxy", resolveT
   return out;
 }
 
-// DNS-зеркало пользовательских доменных правил. Без него домен с правилом
-// «Напрямую» резолвился через dns-remote, то есть через VPN: CDN отдавал адрес
-// под страну сервера, а соединение шло напрямую. Домен из региона с правилом
-// «Через VPN», наоборот, проигрывал DNS-правилу региона и резолвился у
-// провайдера. «Блок» отвечает отказом уже на DNS. IP- и процессные правила
-// DNS-запросу не соответствуют — их пропускаем.
+// DNS mirror of user domain rules. Without it a domain with a "Direct"
+// rule was resolved via dns-remote, i.e. through the VPN: the CDN returned an address
+// for the server's country, while the connection went direct. A domain from the region with
+// a "Through VPN" rule, conversely, lost to the region's DNS rule and was resolved by
+// the ISP. "Block" answers with a refusal already at DNS. IP and process rules
+// don't correspond to a DNS query — we skip them.
 function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-direct" }) {
   if (!Array.isArray(customRules)) return [];
   const out = [];
@@ -860,8 +860,8 @@ function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-d
       if (!values.length) continue;
       match = { [customDomainField(r)]: values };
     } else if (r.type === "set") {
-      // На DNS-запрос отвечают только списки сайтов: geoip — это адреса,
-      // их у запроса ещё нет.
+      // Only site lists answer a DNS query: geoip is addresses,
+      // and the query doesn't have them yet.
       const sites = customRuleSetRefs(r).filter((ref) => ref.kind === "geosite");
       if (!sites.length) continue;
       match = { rule_set: sites.map(setTag) };
@@ -873,8 +873,8 @@ function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-d
     } else if (r.action === "direct") {
       out.push({ ...match, ...direct });
     } else {
-      // С FakeDNS адреса для туннеля по-прежнему подменные: иначе правило
-      // тихо выключало бы FakeDNS для своих доменов.
+      // With FakeDNS the addresses for the tunnel are still fake: otherwise the rule
+      // would silently turn off FakeDNS for its domains.
       if (fakeIp) out.push({ ...match, query_type: ["A", "AAAA"], server: "dns-fake" });
       out.push({ ...match, server: "dns-remote" });
     }
@@ -882,23 +882,23 @@ function customRulesToDns(customRules, fakeIp = false, direct = { server: "dns-d
   return out;
 }
 
-// Назначения на сам этот ПК. «Доступ из локальной сети» открывает вход на
-// 0.0.0.0, и без отдельного правила соседи по сети получали не только выход в
-// интернет, но и сервисы, которые здесь слушают только 127.0.0.1 (панели,
-// dev-серверы): такое назначение уходило в direct. Разрешаем его только самому
-// ПК — источнику с loopback-адреса. ::ffff:127.x — тот же loopback в форме
-// IPv6-сокета; «неуказанный» адрес часть стеков тоже ведёт на сам хост.
+// Destinations on this PC itself. "Access from the local network" opens an inbound on
+// 0.0.0.0, and without a separate rule network neighbors got not only internet access
+// but also services that listen here only on 127.0.0.1 (panels,
+// dev servers): such a destination went direct. We allow it only for the PC
+// itself — a source with a loopback address. ::ffff:127.x is the same loopback in the form
+// of an IPv6 socket; some stacks also route the "unspecified" address to the host itself.
 const LOOPBACK_CIDRS = ["127.0.0.0/8", "::1/128", "::ffff:127.0.0.0/104"];
 const SELF_DEST_CIDRS = [...LOOPBACK_CIDRS, "0.0.0.0/32", "::/128"];
 
-// Входы, на которые могут прийти соседи: mixed-in без пароля либо отдельный
-// mixed-lan с паролем (тогда mixed-in слушает только loopback).
+// Inbounds neighbors can come to: mixed-in without a password or a separate
+// mixed-lan with a password (then mixed-in listens only on loopback).
 const LAN_INBOUNDS = ["mixed-in", "mixed-lan"];
 
-// "off" — в сеть ничего не открыто; "open" — mixed-in на 0.0.0.0 без пароля;
-// "password" — отдельный mixed-lan с логином и паролем. Пару подставляет
-// бэкенд перед запуском ядра (lan_auth.rs), а без неё убирает этот вход
-// целиком: включённый пароль никогда не превращается в открытый вход.
+// "off" — nothing is open to the network; "open" — mixed-in on 0.0.0.0 without a password;
+// "password" — a separate mixed-lan with a login and password. The pair is substituted by
+// the backend before launching the core (lan_auth.rs), and without it this inbound is removed
+// entirely: an enabled password never turns into an open inbound.
 export function lanInboundPolicy(inbound) {
   if (!inbound?.allowConnectionFromLan) return "off";
   return inbound.lanAuth ? "password" : "open";
@@ -920,13 +920,13 @@ function lanLoopbackGuard() {
   };
 }
 
-// Правило выше видит только то, что пришло в запросе. Домен соседа direct-выход
-// резолвит сам, уже после маршрутизации, поэтому «x.example.ru → 127.0.0.1»
-// (регион, пользовательское «Напрямую») уводило соседа на сервисы, слушающие
-// только loopback. Перед каждым direct-правилом резолвим имя тем же резолвером,
-// которым его резолвил бы direct, и снова проверяем адрес. Резолв стоит вплотную
-// к своему правилу и только для соседей: соединение, которое уйдёт в туннель,
-// и трафик самого ПК не меняются (после resolve ядро дозванивается по IP).
+// The rule above sees only what came in the request. The direct outbound resolves a neighbor's
+// domain itself, after routing, so "x.example.ru → 127.0.0.1"
+// (region, a user "Direct") led the neighbor to services listening
+// only on loopback. Before every direct rule we resolve the name with the same resolver
+// direct would resolve it with, and check the address again. The resolve sits right next
+// to its rule and only for neighbors: a connection that will go into the tunnel
+// and the PC's own traffic don't change (after resolve the core dials by IP).
 function guardLanDirect(rules, resolver) {
   const out = [];
   for (const rule of rules) {
@@ -948,17 +948,17 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   const rules = [
     { action: "sniff" },
     { protocol: "dns", action: "hijack-dns" },
-    // Принудительный process-lookup для ВСЕХ соединений (во всех режимах). В
-    // стоковом sing-box нет глобального find_process — процесс резолвится, только
-    // когда правило его требует. Это правило с несуществующим именем форсит резолв
-    // сокет→PID→exe (sing-box кладёт имя в metadata.process для clash API), но само
-    // НЕ матчится → маршрутизацию не меняет. Благодаря ему монитор соединений
-    // показывает имя приложения у каждого соединения (как Throne), а не только под
-    // process-правилом. Стоит выше bypass/custom/region, чтобы lookup срабатывал до
-    // первого терминального правила. Накладные: один lookup на соединение (sing-box
-    // кэширует TCP-таблицу). Сентинел заведомо не совпадёт ни с одним реальным exe.
-    // Opt-out (route.processLookup === false): монитор перестаёт показывать имена
-    // процессов, зато исчезает per-connection резолв — дешевле на нагруженном канале.
+    // Forced process lookup for ALL connections (in all modes). In
+    // stock sing-box there's no global find_process — the process is resolved only
+    // when a rule requires it. This rule with a nonexistent name forces the resolve
+    // socket→PID→exe (sing-box puts the name into metadata.process for the clash API), but itself
+    // does NOT match → it doesn't change routing. Thanks to it the connection monitor
+    // shows the app name for every connection (like Throne), not only under
+    // a process rule. It sits above bypass/custom/region so the lookup fires before
+    // the first terminal rule. Overhead: one lookup per connection (sing-box
+    // caches the TCP table). The sentinel is guaranteed not to match any real exe.
+    // Opt-out (route.processLookup === false): the monitor stops showing process
+    // names, but the per-connection resolve disappears — cheaper on a busy channel.
     ...(options.route?.processLookup !== false
       ? [{ process_name: ["\u0000ninety-force-process-lookup"], outbound: "direct" }]
       : []),
@@ -967,49 +967,49 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   const lanOpen = mode !== "tun" && lanInboundPolicy(options.inbound) !== "off";
   if (lanOpen) rules.push(lanLoopbackGuard());
 
-  // ProcessName bypass — критично для TUN-режима. Без него собственный трафик
-  // Ninety (Tauri webview HTTP-запросы к ipwho.is и т.п.), самого sing-box и
-  // всех мостов (xray, naive, trusttunnel_client — каждый сам дозванивается до
-  // реального сервера) петлял бы обратно в TUN-интерфейс: коннект к endpoint'у
-  // ловит TUN → final:proxy → socks-мост → снова тот же клиент, рекурсия.
-  // В proxy/systemProxy это bypass-правило не нужно: свой трафик Ninety туда не
-  // петляет (no_proxy reqwest + нет auto_route, перехватывающего всё), поэтому
-  // добавляем только в TUN. ВАЖНО: сам process-матчинг работает во ВСЕХ режимах
-  // (sing-box резолвит процесс по локальному сокету mixed-inbound) — ограничения
-  // «process_name только в TUN» НЕТ; здесь речь исключительно про bypass-петлю.
+  // ProcessName bypass — critical for TUN mode. Without it Ninety's own traffic
+  // (Tauri webview HTTP requests to ipwho.is, etc.), sing-box itself and
+  // all the bridges (xray, naive, trusttunnel_client — each dials the
+  // real server itself) would loop back into the TUN interface: a connect to the endpoint
+  // is caught by TUN → final:proxy → socks bridge → the same client again, recursion.
+  // In proxy/systemProxy this bypass rule isn't needed: Ninety's own traffic doesn't
+  // loop there (no_proxy reqwest + no auto_route intercepting everything), so
+  // we add it only in TUN. IMPORTANT: process matching itself works in ALL modes
+  // (sing-box resolves the process by the mixed inbound's local socket) — there is NO
+  // "process_name only in TUN" restriction; this is solely about the bypass loop.
   if (mode === "tun") {
-    // Проба качества (probe-in) — в туннель, ДО bypass-правила ниже: иначе
-    // process-матч Ninety.exe увёл бы её в direct и мерился бы голый канал
-    // вместо туннеля. При активном WARP buildConfig переставит outbound → warp.
+    // The quality probe (probe-in) goes into the tunnel, BEFORE the bypass rule below: otherwise
+    // the Ninety.exe process match would send it direct and the bare channel would be measured
+    // instead of the tunnel. With WARP active buildConfig will switch the outbound → warp.
     rules.push({ inbound: ["probe-in"], outbound: protectedOutbound });
-    // Список обязан покрывать ВСЕ движки, дозванивающиеся наружу (= ENGINES в
-    // killswitch.rs + Ninety.exe) — пропущенный sidecar зацикливается сам в себя.
-    // В обычном TUN собственные HTTP-запросы Ninety идут напрямую. Строгая
-    // сессия исключает только движки: контроллер тоже обязан идти через TUN,
-    // иначе updater/служебный fetch мог бы раскрыть реальный адрес.
+    // The list must cover ALL engines that dial out (= ENGINES in
+    // killswitch.rs + Ninety.exe) — a missed sidecar loops into itself.
+    // In regular TUN Ninety's own HTTP requests go direct. A strict
+    // session excludes only the engines: the controller must also go through TUN,
+    // otherwise the updater/a service fetch could reveal the real address.
     rules.push({
       process_name: strictPrivacy ? ENGINE_PROCESS_NAMES : ["Ninety.exe", ...ENGINE_PROCESS_NAMES],
       outbound: "direct",
     });
   }
 
-  // TUN + split Discord: Discord идёт direct (мимо туннеля), чтобы winws
-  // десинхрил его на реальном интерфейсе. winws при этом НЕ паузится в TUN (см.
-  // dpi-view.setDpiVpnMode). VPN-нода уже в exclude winws — её трафик не трогаем.
+  // TUN + split Discord: Discord goes direct (past the tunnel) so that winws
+  // desyncs it on the real interface. winws is NOT paused in TUN in this case (see
+  // dpi-view.setDpiVpnMode). The VPN node is already in winws exclude — its traffic is left alone.
   //
-  // Процесс + домены, а не что-то одно: доменные правила покрывают Discord в
-  // браузере, но не голосовой UDP (см. DISCORD_PROCESS_NAMES), а процесс
-  // покрывает десктопный клиент целиком, включая голос. Без процессного правила
-  // голос уходил в туннель — ровно то, что фича должна была убрать.
-  // Пользовательские правила — ВЫШЕ региона/рекламы/LAN (приоритетнее базы), но
-  // ниже служебных safety-правил. Порядок в массиве = приоритет (первое совпадение
-  // выигрывает): кастом перекрывает регион (напр. «Telegram → через VPN» победит
-  // .ru-direct для трафика Telegram), а весь остальной трафик слушает базу ниже.
+  // Process + domains, not just one: domain rules cover Discord in
+  // the browser but not voice UDP (see DISCORD_PROCESS_NAMES), while the process
+  // covers the desktop client entirely, including voice. Without the process rule
+  // voice went into the tunnel — exactly what the feature was supposed to remove.
+  // User rules go ABOVE region/ads/LAN (they take priority over the base), but
+  // below the service safety rules. Order in the array = priority (the first match
+  // wins): custom overrides the region (e.g. "Telegram → through VPN" beats
+  // .ru-direct for Telegram traffic), and all other traffic follows the base below.
   //
-  // Split-Discord стоит НИЖЕ кастома (а не выше, как было): иначе правило
-  // «discord.com → через VPN», созданное пользователем вручную, молча не
-  // работало — совпадение находилось раньше, в блоке split. Настройка split
-  // остаётся базой, но явное правило пользователя её перекрывает.
+  // Split Discord sits BELOW custom (not above, as it used to): otherwise a rule
+  // "discord.com → through VPN" created by the user manually silently didn't
+  // work — the match was found earlier, in the split block. The split setting
+  // stays the base, but the user's explicit rule overrides it.
   rules.push(...customRulesToSingbox(options.route?.customRules, protectedOutbound, resolveTarget));
 
   if (mode === "tun" && options.route?.tunSplitDiscord) {
@@ -1046,34 +1046,34 @@ function buildRoute(options, mode, protectedOutbound = "proxy", strictPrivacy = 
   return route;
 }
 
-// ── inbounds (sing-box 1.13: sniff/tun.address — через route rules / inet4_address) ─
-// Возвращает МАССИВ инбаундов. В TUN, кроме tun-in, поднимаем probe-in — mixed
-// на loopback для пробы движка качества: собственный трафик Ninety.exe в TUN
-// уходит в direct bypass-правилом (защита от петли), поэтому «прямая» проба
-// мерила бы голый канал, а не туннель. Правило inbound=probe-in → proxy/warp
-// в buildRoute стоит ВЫШЕ bypass и гонит пробу сквозь аутбаунд.
-// ULA-префикс для TUN: в публичную маршрутизацию не попадает.
+// ── inbounds (sing-box 1.13: sniff/tun.address — via route rules / inet4_address) ─
+// Returns an ARRAY of inbounds. In TUN, besides tun-in, we bring up probe-in — mixed
+// on loopback for the quality engine probe: Ninety.exe's own traffic in TUN
+// goes direct via the bypass rule (loop protection), so a "direct" probe
+// would measure the bare channel, not the tunnel. The inbound=probe-in → proxy/warp rule
+// in buildRoute sits ABOVE bypass and drives the probe through the outbound.
+// ULA prefix for TUN: it doesn't get into public routing.
 const TUN_IPV4 = "172.19.0.1/30";
 const TUN_IPV6 = "fdfe:dcba:9876::1/126";
 
 /**
- * Адреса TUN-интерфейса.
+ * TUN interface addresses.
  *
- * IPv4 + IPv6 нужны оба: auto_route строит маршруты только для тех семейств,
- * чей адрес есть на интерфейсе. С одним IPv4-адресом весь нативный IPv6-трафик
- * уходит мимо туннеля физическим интерфейсом — приложения со своим резолвером
- * (Chromium/Electron с DoH получают AAAA в обход hijack-dns) утекают с реальным
- * адресом даже в TUN.
+ * Both IPv4 + IPv6 are needed: auto_route builds routes only for the families
+ * whose address is on the interface. With only an IPv4 address all native IPv6 traffic
+ * goes past the tunnel via the physical interface — apps with their own resolver
+ * (Chromium/Electron with DoH get AAAA bypassing hijack-dns) leak with the real
+ * address even in TUN.
  *
- * Исключение ровно одно: система, где IPv6 отключён целиком. Там назначение
- * адреса падает («set ipv6 address: Element not found»), и ядро умирает вместе
- * со всем TUN-режимом. Терять при этом нечего — раз стек выключен, IPv6-трафика
- * не бывает и защищать нечего.
+ * There's exactly one exception: a system where IPv6 is disabled entirely. There assigning
+ * the address fails ("set ipv6 address: Element not found"), and the core dies together
+ * with the whole TUN mode. Nothing is lost — since the stack is off, there's no IPv6 traffic
+ * and nothing to protect.
  *
- * `systemIpv6` троичен и приходит из пробы Rust: снимаем адрес ТОЛЬКО на
- * явном false. Неизвестность (проба не отработала, не-Windows, машина офлайн)
- * оставляет сегодняшнее поведение: ошибиться в сторону защиты дешевле, чем
- * молча снять её на здоровой машине.
+ * `systemIpv6` is ternary and comes from the Rust probe: we drop the address ONLY on
+ * an explicit false. Unknown (the probe didn't run, non-Windows, the machine is offline)
+ * keeps today's behavior: erring on the side of protection is cheaper than
+ * silently removing it on a healthy machine.
  */
 function tunAddresses(systemIpv6) {
   return systemIpv6 === false ? [TUN_IPV4] : [TUN_IPV4, TUN_IPV6];
@@ -1108,8 +1108,8 @@ function buildInbounds(mode, options, systemIpv6) {
     listen_port: options.inbound.mixedPort || 7890,
   }];
   if (lan === "password") {
-    // users здесь нет намеренно: их вписывает бэкенд из зашифрованного
-    // хранилища, а без них убирает этот вход.
+    // users are deliberately absent here: the backend writes them from the encrypted
+    // storage, and without them removes this inbound.
     inbounds.push({
       type: "mixed",
       tag: "mixed-lan",
@@ -1121,19 +1121,19 @@ function buildInbounds(mode, options, systemIpv6) {
 }
 
 // ── WARP endpoint (Cloudflare WireGuard) ───────────────────
-// Принимает WarpInfo из Tauri-команды warp_status (см. src-tauri/src/warp.rs)
-// и собирает sing-box endpoint type=wireguard. Возвращает [endpoint, finalTag]
-// или null если WARP не сконфигурирован.
+// Takes WarpInfo from the warp_status Tauri command (see src-tauri/src/warp.rs)
+// and builds a sing-box endpoint type=wireguard. Returns [endpoint, finalTag]
+// or null if WARP isn't configured.
 //
-//   mode "direct": WARP — единственный outbound, route.final = "warp",
-//                  proxy selector в outbounds для UI/clash-API остаётся.
-//   mode "chain":  WARP поверх proxy (endpoint.detour = "proxy"), route.final = "warp".
+//   mode "direct": WARP is the only outbound, route.final = "warp",
+//                  the proxy selector stays in the outbounds for the UI/clash API.
+//   mode "chain":  WARP on top of proxy (endpoint.detour = "proxy"), route.final = "warp".
 function buildWarpEndpoint(warpOpts, warpInfo) {
   if (!warpOpts?.enabled || !warpInfo?.private_key || !warpInfo?.peer_public_key) {
     return null;
   }
   const endpointStr = warpOpts.endpoint || "engage.cloudflareclient.com:2408";
-  // hostPort: либо host:port, либо auto4/auto6/auto → host = строка, port = 2408
+  // hostPort: either host:port, or auto4/auto6/auto → host = the string, port = 2408
   let host = endpointStr, port = 2408;
   if (/^auto[46]?$/.test(endpointStr)) {
     host = endpointStr;
@@ -1143,11 +1143,11 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
       host = h;
       if (p) port = p;
     } catch {
-      // fallback: оставляем endpointStr как host
+      // fallback: keep endpointStr as the host
     }
   }
 
-  // client_id base64 → 3 байта reserved (CF проверяет первые 3)
+  // client_id base64 → 3 reserved bytes (CF checks the first 3)
   const clientIdRaw = safeAtob(warpInfo.client_id || "");
   const reserved = [];
   for (let i = 0; i < 3; i++) reserved.push(clientIdRaw.charCodeAt(i) || 0);
@@ -1174,9 +1174,9 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
     ],
   };
 
-  // AmneziaWG-обфускация. Поле noise.fake_packet
-  // вписывается прямо в WG-endpoint sing-box форка (см. hsb/option/wireguard.go).
-  // Range сериализуется как "from-to" string (Range.MarshalJSON в ядре).
+  // AmneziaWG obfuscation. The noise.fake_packet field
+  // is written straight into the sing-box fork's WG endpoint (see hsb/option/wireguard.go).
+  // Range is serialized as a "from-to" string (Range.MarshalJSON in the core).
   const noisePreset = warpOpts.noisePreset || "off";
   let noise = WARP_NOISE_PRESETS[noisePreset];
   if (noisePreset === "custom") {
@@ -1187,17 +1187,17 @@ function buildWarpEndpoint(warpOpts, warpInfo) {
   }
 
   if (warpOpts.mode === "chain") {
-    // detour: WG-пакеты WARP отправляются через активный selector "proxy"
+    // detour: WARP WG packets are sent through the active "proxy" selector
     endpoint.detour = "proxy";
   }
   return endpoint;
 }
 
-// WireGuard-нода пользователя (импорт .conf). В sing-box 1.13 wireguard-outbound
-// удалён, остался endpoint — поэтому нода живёт не в outbounds, а в endpoints.
-// Тег при этом обычный, node-*: группы (селектор, urltest, balancer) ссылаются
-// на него так же, как на любой outbound, потому что менеджер ядра при промахе
-// по outbound-тегам ищет тег среди endpoint'ов (adapter/outbound/manager.go).
+// A user WireGuard node (.conf import). In sing-box 1.13 the wireguard outbound
+// was removed, only the endpoint remains — so the node lives in endpoints, not outbounds.
+// The tag is regular, node-*: groups (selector, urltest, balancer) reference
+// it the same way as any outbound, because on a miss the core's manager
+// looks the tag up among the endpoints by outbound tags (adapter/outbound/manager.go).
 function buildWireguardEndpoint(p, tag, pinServerResolver = false) {
   const peers = (p.peers?.length ? p.peers : [{
     host: p.host, port: p.port, publicKey: p.publicKey,
@@ -1217,8 +1217,8 @@ function buildWireguardEndpoint(p, tag, pinServerResolver = false) {
       };
       if (peer.presharedKey) out.pre_shared_key = peer.presharedKey;
       if (peer.keepalive) out.persistent_keepalive_interval = peer.keepalive;
-      // Три байта reserved несёт WARP и совместимые с ним пиры. В .conf такого
-      // поля нет — оно приходит только из импортированного конфига ядра.
+      // Three reserved bytes are carried by WARP and peers compatible with it. A .conf has no such
+      // field — it comes only from an imported core config.
       if (Array.isArray(peer.reserved) && peer.reserved.length === 3) {
         out.reserved = peer.reserved.map(Number);
       }
@@ -1229,16 +1229,16 @@ function buildWireguardEndpoint(p, tag, pinServerResolver = false) {
   if (p.listenPort) endpoint.listen_port = p.listenPort;
   const amnezia = buildAmneziaNoise(p.awg);
   if (amnezia) endpoint.noise = { amnezia };
-  // Адрес пира резолвится до того, как тоннель поднят — тот же случай, что и
-  // адрес обычного сервера (см. pinServerResolver в buildConfig).
+  // The peer address is resolved before the tunnel is up — the same case as
+  // the address of a regular server (see pinServerResolver in buildConfig).
   if (pinServerResolver && peers.some((peer) => !isIpLiteral(peer.host))) {
     endpoint.domain_resolver = "dns-direct";
   }
   return endpoint;
 }
 
-// OpenVPN, как и WireGuard, живёт в endpoints. Копия сохраняет исходную
-// модель профиля при смене тега и применении политики DNS.
+// OpenVPN, like WireGuard, lives in endpoints. The copy keeps the original
+// profile model when changing the tag and applying the DNS policy.
 function buildOpenvpnEndpoint(profile, tag, pinServerResolver = false) {
   const endpoint = structuredClone(profile.endpoint);
   endpoint.type = "openvpn-client";
@@ -1250,9 +1250,9 @@ function buildOpenvpnEndpoint(profile, tag, pinServerResolver = false) {
   return endpoint;
 }
 
-// Шейпинг AmneziaWG едет в ядро именами из .conf (см. noise/amnezia.go в
-// ninety-wireguard-go). Пустой блок не пишем вовсе: обычному WireGuard он не
-// нужен, а ядро отвергает частично заполненный набор H1..H4.
+// AmneziaWG shaping goes to the core with the names from .conf (see noise/amnezia.go in
+// ninety-wireguard-go). An empty block isn't written at all: regular WireGuard doesn't
+// need it, and the core rejects a partially filled H1..H4 set.
 function buildAmneziaNoise(awg) {
   if (!awg) return null;
   const noise = {};
@@ -1263,12 +1263,12 @@ function buildAmneziaNoise(awg) {
   }
   if (awg.s1 > 0) noise.s1 = awg.s1;
   if (awg.s2 > 0) noise.s2 = awg.s2;
-  // S3/S4 — AmneziaWG 2.0: padding у cookie reply и у каждого транспортного пакета.
+  // S3/S4 — AmneziaWG 2.0: padding for the cookie reply and for every transport packet.
   if (awg.s3 > 0) noise.s3 = awg.s3;
   if (awg.s4 > 0) noise.s4 = awg.s4;
-  // H1..H4 = 1,2,3,4 — это и есть типы сообщений WireGuard: файл повторяет
-  // дефолт, менять протокол не просят. Значение уходит как есть: число (1.x)
-  // или строка «от-до» (диапазон 2.0) — ядро читает обе формы.
+  // H1..H4 = 1,2,3,4 are exactly the WireGuard message types: the file repeats
+  // the default, nobody asks to change the protocol. The value goes as is: a number (1.x)
+  // or a "from-to" string (a 2.0 range) — the core reads both forms.
   const headers = [awg.h1, awg.h2, awg.h3, awg.h4].map((value) => parseAwgHeader(value) || 0);
   if (headers.some((value, index) => value && value !== index + 1)) {
     headers.forEach((value, index) => {
@@ -1278,7 +1278,7 @@ function buildAmneziaNoise(awg) {
   for (const key of ["i1", "i2", "i3", "i4", "i5"]) {
     if (awg[key]) noise[key] = awg[key];
   }
-  // AmneziaWG 3: защита заголовков, padding содержимого, случайные хвосты.
+  // AmneziaWG 3: header protection, content padding, random trailers.
   if (awg.headerProtectionKey) noise.header_protection_key = awg.headerProtectionKey;
   if (awg.contentPaddingAddition) noise.content_padding_addition = awg.contentPaddingAddition;
   if (awg.randomTrailers) noise.random_trailers = true;
@@ -1301,7 +1301,7 @@ const WARP_NOISE_PRESETS = {
     delay: "5-15",
     mode: "random",
   },
-  custom: null, // собирается из warp.customNoise через buildCustomNoise
+  custom: null, // built from warp.customNoise via buildCustomNoise
 };
 
 function buildCustomNoise(cn) {
@@ -1321,23 +1321,23 @@ function buildCustomNoise(cn) {
   };
 }
 
-// ── two-core bridge: xhttp через xray-core ─────────────────
-// Порт xhttp в форке sing-box (packet-up) надёжно тащит только пинг, реальный
-// поток рассыпается. Эталон — xray-core. Поэтому xhttp-ноды уводим в локальный
-// xray (per-node socks-inbound), а в sing-box оставляем socks-мост на 127.0.0.1.
-// urltest/balancer sing-box продолжают пинговать ноду сквозь socks → xray.
-// Важно: xhttpSettings для xray — это РОВНО то, что в ссылке (host/path/mode +
-// extra с downloadSettings в Xray-схеме), без какой-либо трансляции.
+// ── two-core bridge: xhttp via xray-core ─────────────────
+// The xhttp port in the sing-box fork (packet-up) reliably carries only ping, a real
+// stream falls apart. The reference is xray-core. So xhttp nodes are moved to a local
+// xray (a per-node socks inbound), and sing-box keeps a socks bridge on 127.0.0.1.
+// sing-box urltest/balancer keep pinging the node through socks → xray.
+// Important: xhttpSettings for xray are EXACTLY what's in the link (host/path/mode +
+// extra with downloadSettings in the Xray schema), without any translation.
 const XRAY_BRIDGE_BASE_PORT = 31100;
-// Локальные SOCKS5-порты sidecar-клиентов naive / trusttunnel_client. Раздельные
-// диапазоны, чтобы не пересечься между собой и с xray (31100+).
+// Local SOCKS5 ports of the naive / trusttunnel_client sidecar clients. Separate
+// ranges so they don't overlap with each other or with xray (31100+).
 const NAIVE_BRIDGE_BASE_PORT = 31200;
 const TT_BRIDGE_BASE_PORT = 31300;
 
-// Сколько loopback-мостов нужно источнику — по одному порту на xhttp/naive/TT
-// ноду. main.js по этим счётчикам просит Rust (plan_bridge_ports) подобрать
-// свободные базы bind-пробой: дефолтные 31100+ может занять чужой процесс, и
-// мост умирал бы на старте. Результат уходит в buildConfig({ bridgePorts }).
+// How many loopback bridges the source needs — one port per xhttp/naive/TT
+// node. Using these counters main.js asks Rust (plan_bridge_ports) to pick
+// free bases with a bind probe: the default 31100+ may be taken by a foreign process, and
+// the bridge would die at startup. The result goes into buildConfig({ bridgePorts }).
 export function bridgeNeeds(nodes) {
   const needs = { xray: 0, naive: 0, trusttunnel: 0 };
   for (const n of nodes || []) {
@@ -1349,10 +1349,10 @@ export function bridgeNeeds(nodes) {
   return needs;
 }
 
-// config.json клиента naive (klzgrad): один proxy → один локальный SOCKS5.
-// IPv6-литерал в authority URL обязан быть в скобках: парсер снимает их при
-// разборе ссылки, и без обратной сборки получался `https://u:p@2001:db8::1:443`,
-// который klzgrad-клиент не разбирает — нода молча не поднималась.
+// config.json of the naive client (klzgrad): one proxy → one local SOCKS5.
+// An IPv6 literal in the URL authority must be in brackets: the parser strips them when
+// parsing the link, and without putting them back the result was `https://u:p@2001:db8::1:443`,
+// which the klzgrad client can't parse — the node silently didn't come up.
 function urlAuthorityHost(host) {
   const value = String(host || "");
   return value.includes(":") && !value.startsWith("[") ? `[${value}]` : value;
@@ -1368,11 +1368,11 @@ function naiveSidecarConfig(p, port) {
   }, null, 2);
 }
 
-// Экранирование значения для TOML basic-string. Помимо \ и ", обязательно
-// экранируем управляющие символы: TOML запрещает сырой перевод строки/таб
-// внутри basic-string, поэтому поле подписки с \n (username/password/customSni/
-// certificate) иначе даёт невалидный конфиг → trusttunnel_client падает на
-// парсинге и нода молча не поднимается.
+// Escaping a value for a TOML basic string. Besides \ and ", we must
+// escape control characters: TOML forbids a raw line break/tab
+// inside a basic string, so a subscription field with \n (username/password/customSni/
+// certificate) would otherwise produce an invalid config → trusttunnel_client fails on
+// parsing and the node silently doesn't come up.
 function tomlStr(v) {
   const s = String(v ?? "")
     .replace(/\\/g, "\\\\")
@@ -1380,8 +1380,8 @@ function tomlStr(v) {
     .replace(/\n/g, "\\n")
     .replace(/\r/g, "\\r")
     .replace(/\t/g, "\\t")
-    // прочие control-символы (U+0000–U+001F, плюс DEL U+007F); \n \r \t уже
-    // заменены выше и в диапазон не попадут.
+    // other control characters (U+0000–U+001F, plus DEL U+007F); \n \r \t are already
+    // replaced above and won't fall into the range.
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, (c) =>
       `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`
@@ -1392,8 +1392,8 @@ function tomlArr(list) {
   return `[${(list || []).map(tomlStr).join(", ")}]`;
 }
 
-// Уровень логов из настроек (opts.log.level) → формат конкретного движка.
-// Настройка одна, но движки называют уровни по-разному. Базовая шкала —
+// Log level from settings (opts.log.level) → a specific engine's format.
+// There's one setting, but the engines name levels differently. The base scale is
 // sing-box: trace/debug/info/warn/error.
 const SB_LEVELS = ["trace", "debug", "info", "warn", "error"];
 function sbLevel(opts) {
@@ -1404,23 +1404,23 @@ function sbLevel(opts) {
 function xrayLevel(opts) {
   return ({ trace: "debug", debug: "debug", info: "info", warn: "warning", error: "error" })[sbLevel(opts)] || "warning";
 }
-// trusttunnel: trace/debug/info/warn/error — имена совпадают с sing-box.
+// trusttunnel: trace/debug/info/warn/error — the names match sing-box.
 function ttLevel(opts) { return sbLevel(opts); }
 
-// trusttunnel_client.toml в режиме SOCKS5-листенера (без TUN → без админ-прав).
-// killswitch выключен: в socks-мосте он не нужен и мог бы резать локальный трафик.
+// trusttunnel_client.toml in SOCKS5 listener mode (no TUN → no admin rights).
+// killswitch is off: it isn't needed in a socks bridge and could cut local traffic.
 function trustTunnelSidecarConfig(p, port, opts) {
   const lines = [
     `loglevel = ${tomlStr(ttLevel(opts))}`,
-    // vpn_mode обязателен (top-level): клиент падает «Unexpected VPN mode: » при
-    // его отсутствии (build_config парсит его до listener). general = весь трафик
-    // socks-листенера в endpoint; selective гонит в туннель только exclusions —
-    // нам нужен general, т.к. маршрутизацию делает sing-box, а TT — чистый мост.
+    // vpn_mode is mandatory (top-level): the client fails with "Unexpected VPN mode: " when
+    // it's missing (build_config parses it before the listener). general = all socks
+    // listener traffic into the endpoint; selective sends only exclusions into the tunnel —
+    // we need general, because sing-box does the routing, and TT is a pure bridge.
     `vpn_mode = "general"`,
     `killswitch_enabled = false`,
-    // Дефолт официального setup_wizard — true; выравниваем 1:1 (post-quantum
-    // группа в TLS-handshake). Не влияет на auth, но убирает единственное
-    // расхождение нашего settings-конфига с каноническим выводом визарда.
+    // The official setup_wizard default is true; we align 1:1 (a post-quantum
+    // group in the TLS handshake). It doesn't affect auth, but removes the only
+    // difference between our settings config and the wizard's canonical output.
     `post_quantum_group_enabled = true`,
     ``,
     `[endpoint]`,
@@ -1433,9 +1433,9 @@ function trustTunnelSidecarConfig(p, port, opts) {
     `upstream_protocol = ${tomlStr(p.upstreamProtocol || "http2")}`,
     `anti_dpi = ${p.antiDpi ? "true" : "false"}`,
   ];
-  // custom_sni: переопределяет SNI/authority для endpoint'а. Если подписка его
-  // задаёт, без него запрос уходит на неверный vhost → сервер может вернуть
-  // «Authorization Required». Раньше поле терялось.
+  // custom_sni: overrides the SNI/authority for the endpoint. If the subscription
+  // sets it, without it the request goes to the wrong vhost → the server may return
+  // "Authorization Required". The field used to get lost.
   if (p.customSni) lines.push(`custom_sni = ${tomlStr(p.customSni)}`);
   if (p.clientRandom) lines.push(`client_random = ${tomlStr(p.clientRandom)}`);
   if (p.certificate) lines.push(`certificate = ${tomlStr(p.certificate)}`);
@@ -1444,8 +1444,8 @@ function trustTunnelSidecarConfig(p, port, opts) {
   return lines.join("\n") + "\n";
 }
 
-// Xray завершается на незнакомом отпечатке, а его список уже, чем у sing-box.
-// Отпечаток — лишь маскировка ClientHello: как и для ядра, подменяем на chrome.
+// Xray exits on an unfamiliar fingerprint, and its list is narrower than sing-box's.
+// A fingerprint is just a ClientHello disguise: as for the core, we replace it with chrome.
 const XRAY_FINGERPRINTS = new Set([
   "chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq",
   "random", "randomized", "randomizednoalpn",
@@ -1457,8 +1457,8 @@ function xrayFingerprint(raw) {
 }
 
 function nodeToXrayStream(p) {
-  // Мост поднимается не только под xhttp: mKCP ядро не умеет вовсе, а xray умеет.
-  // Обычный TCP (raw) идёт сюда только ради шифрования VLESS, которого нет в ядре.
+  // The bridge is brought up not only for xhttp: the core doesn't support mKCP at all, while xray does.
+  // Regular TCP (raw) goes here only for VLESS encryption, which the core doesn't have.
   const network = p.type === "kcp" ? "kcp" : XRAY_RAW_TYPES.has(String(p.type || "")) ? "raw" : "xhttp";
   const ss = { network };
   const sec = p.tlsMode || p.security;
@@ -1479,8 +1479,8 @@ function nodeToXrayStream(p) {
   }
   if (network === "raw") return ss;
   if (network === "kcp") {
-    // Остальные параметры mKCP (mtu/tti/окна/congestion) в ссылках не передают —
-    // оставляем дефолты xray, они совпадают с дефолтами серверной стороны.
+    // Other mKCP parameters (mtu/tti/windows/congestion) aren't passed in links —
+    // we keep the xray defaults, they match the server side's defaults.
     ss.kcpSettings = { header: { type: p.headerType || "none" } };
     if (p.seed) ss.kcpSettings.seed = p.seed;
     return ss;
@@ -1488,47 +1488,47 @@ function nodeToXrayStream(p) {
   const xs = { host: p.host_header || p.sni || "", path: p.path || "/", mode: p.mode || "auto" };
   if (p.extra) {
     try { const ex = JSON.parse(p.extra); if (ex && typeof ex === "object") Object.assign(xs, ex); }
-    catch { /* битый extra — базовых полей достаточно */ }
+    catch { /* a broken extra — the base fields are enough */ }
   }
   ss.xhttpSettings = xs;
   return ss;
 }
 
-// Протоколы, которые локальный xray-мост умеет поднять для xhttp. Раньше сюда
-// проваливалось ВСЁ, что не trojan: vmess+xhttp собирался как vless-outbound с
-// его же uuid — конфиг валиден, ядро стартует, нода мертва без единой строки в
-// логе. Предикат один на bridgeNeeds и на сборку конфига: расхождение этих двух
-// мест означало бы, что портов запланировано не столько, сколько занято.
+// Protocols the local xray bridge can bring up for xhttp. Previously EVERYTHING
+// that wasn't trojan fell through here: vmess+xhttp was built as a vless outbound with
+// its own uuid — the config is valid, the core starts, the node is dead without a single line in
+// the log. There's one predicate for bridgeNeeds and for building the config: a divergence between these two
+// places would mean that the number of planned ports differs from the number used.
 const XRAY_BRIDGE_PROTOS = new Set(["vless", "vmess", "trojan"]);
-// Транспорты, которых нет в ядре: их несёт локальный xray, а в sing-box
-// остаётся socks-мост.
+// Transports the core doesn't have: they're carried by the local xray, and sing-box
+// keeps a socks bridge.
 const XRAY_BRIDGE_TYPES = new Set(["xhttp", "kcp"]);
-// Обычный TCP. Через xray идёт только VLESS с шифрованием (см. ниже).
+// Regular TCP. Only VLESS with encryption goes through xray (see below).
 const XRAY_RAW_TYPES = new Set(["", "tcp", "raw"]);
 export function needsXrayBridge(node) {
-  // Готовый outbound Xray (сервер, который ссылкой не передать: finalmask,
-  // шифрование VLESS) ядро не поднимет вовсе — только xray.
+  // A ready Xray outbound (a server that can't be expressed by a link: finalmask,
+  // VLESS encryption) can't be brought up by the core at all — only by xray.
   if (profileProto(node) === "xray") return true;
-  // Шифрование VLESS (ML-KEM и т.п.) есть только в xray: нативный outbound
-  // sing-box поле молча терял, и нода была мертва без единой строки в логе.
-  // Остальные транспорты с шифрованием отсеивает валидация ссылки.
+  // VLESS encryption (ML-KEM, etc.) exists only in xray: the native sing-box
+  // outbound silently lost the field, and the node was dead without a single line in the log.
+  // Other transports with encryption are weeded out by link validation.
   if (vlessEncryptionOf(node) && XRAY_RAW_TYPES.has(String(node?.type || ""))) return true;
   return XRAY_BRIDGE_TYPES.has(node?.type) && XRAY_BRIDGE_PROTOS.has(profileProto(node));
 }
 
-// DNS для xray-моста. Без него xray резолвит адрес сервера системным
-// резолвером Windows (Go → GetAddrInfoW → служба DNS Client), а при Kill Switch
-// WFP пропускает только процессы движков: запрос службы блокировался, и
-// доменные XHTTP/mKCP-ноды переставали подключаться, как только истекал кэш.
-// Берём тот же прямой DNS, которым sing-box уже резолвит адреса своих серверов,
-// и только если он задан IP-адресом (иначе его самого пришлось бы резолвить).
-// «+local» — запрос идёт прямо из xray.exe, а не через его outbound'ы. Для
-// обычного UDP такой формы нет: xray отправил бы его через dispatcher, то есть
-// в прокси-outbound, которому для этого сначала нужен свой же адрес.
+// DNS for the xray bridge. Without it xray resolves the server address with the Windows system
+// resolver (Go → GetAddrInfoW → the DNS Client service), and with the Kill Switch
+// WFP lets through only the engine processes: the service's request was blocked, and
+// domain-based XHTTP/mKCP nodes stopped connecting as soon as the cache expired.
+// We take the same direct DNS that sing-box already uses to resolve its servers' addresses,
+// and only if it's given as an IP address (otherwise it itself would need resolving).
+// "+local" — the query goes straight from xray.exe, not through its outbounds. For
+// regular UDP there's no such form: xray would send it through the dispatcher, i.e.
+// into a proxy outbound, which first needs its own address for that.
 function xrayDnsServer(directAddress) {
   let parsed;
   try { parsed = parseDnsAddress(directAddress); } catch { return null; }
-  // URL.hostname отдаёт IPv6 уже в скобках — снимаем, чтобы не удвоить.
+  // URL.hostname returns IPv6 already in brackets — we strip them to avoid doubling.
   const ip = String(parsed?.server || "").replace(/^\[(.*)\]$/, "$1");
   if (!ip || !isIpLiteral(ip)) return null;
   const host = ip.includes(":") ? `[${ip}]` : ip;
@@ -1537,12 +1537,12 @@ function xrayDnsServer(directAddress) {
     case "https": return `https+local://${host}${port}${parsed.path || "/dns-query"}`;
     case "tcp": return `tcp+local://${host}${port}`;
     case "quic": return `quic+local://${host}${port}`;
-    default: return null; // UDP и DoT — остаётся системный резолвер, как раньше
+    default: return null; // UDP and DoT — the system resolver stays, as before
   }
 }
 
-// Адрес сервера резолвить встроенным DNS xray. UseIP, а не ForceIP: если DoH
-// недоступен, xray возвращается к системному резолверу, как раньше.
+// Resolve the server address with xray's built-in DNS. UseIP, not ForceIP: if DoH
+// is unavailable, xray falls back to the system resolver, as before.
 function preferXrayDns(outbound) {
   const ss = outbound?.streamSettings;
   if (!ss || typeof ss !== "object") return;
@@ -1556,9 +1556,9 @@ function preferXrayDns(outbound) {
 function nodeToXrayOutbound(p, tag) {
   const proto = profileProto(p);
   if (proto === "xray") {
-    // Глубокой копией: объект ноды живёт в хранилище и общий для всех сборок,
-    // а tag у каждой сборки свой. Файловые поля снимаем и здесь: профили,
-    // сохранённые до этой проверки, ещё могут их содержать.
+    // A deep copy: the node object lives in storage and is shared by all builds,
+    // while each build has its own tag. File fields are stripped here too: profiles
+    // saved before this check may still contain them.
     return { ...stripXrayFileFields(JSON.parse(JSON.stringify(p.outbound || {}))), tag };
   }
   if (proto === "trojan") {
@@ -1569,8 +1569,8 @@ function nodeToXrayOutbound(p, tag) {
     };
   }
   if (proto === "vmess") {
-    // alterId>0 — это legacy MD5-аутентификация, которой в текущем xray-core уже
-    // нет; шлём 0, как это делают все актуальные панели.
+    // alterId>0 is legacy MD5 authentication, which current xray-core no longer
+    // has; we send 0, as all current panels do.
     const user = { id: p.uuid, alterId: 0, security: p.security || "auto" };
     return {
       tag, protocol: "vmess",
@@ -1587,20 +1587,20 @@ function nodeToXrayOutbound(p, tag) {
   };
 }
 
-// ── главный builder ────────────────────────────────────────
-// Поддерживает оба вызова:
-//   buildConfig({ profile, mode, options }) — одиночный vless (legacy)
+// ── main builder ────────────────────────────────────────
+// Supports both calls:
+//   buildConfig({ profile, mode, options }) — a single vless (legacy)
 //   buildConfig({ source, mode, options })  — { kind, profile|nodes }
-// Если nodes.length >= 2 → собирает urltest group: outbound "auto" с
-// дочерними vless'ами; route.final → auto.
+// If nodes.length >= 2 → builds a urltest group: an "auto" outbound with
+// child vless outbounds; route.final → auto.
 //
-// warpInfo: опциональный объект WarpInfo от warp_status команды.
-//   Если options.warp.enabled === true и warpInfo передан с валидными ключами —
-//   добавляется WireGuard endpoint и route.final переключается на "warp".
+// warpInfo: an optional WarpInfo object from the warp_status command.
+//   If options.warp.enabled === true and warpInfo is passed with valid keys,
+//   a WireGuard endpoint is added and route.final switches to "warp".
 //
-// runtimePolicy: чистая runtime-политика из strict-privacy-policy.js. Строгая
-// политика всегда переводит builder в TUN, применяет безопасную копию options и
-// для multi-node подписки требует один конкретный selectedNodeTag.
+// runtimePolicy: the pure runtime policy from strict-privacy-policy.js. The strict
+// policy always switches the builder to TUN, applies a safe copy of options and
+// for a multi-node subscription requires one specific selectedNodeTag.
 export function buildConfig({
   profile,
   source,
@@ -1622,8 +1622,8 @@ export function buildConfig({
   const src = source ?? (profile ? { kind: "single", profile } : null);
 
   const warpEndpoint = buildWarpEndpoint(opts.warp, warpInfo);
-  // Пир WARP по домену: с dns-remote (detour через WARP) резолвился бы через сам
-  // WARP. Как и у адресов серверов, ему — прямой dns-direct.
+  // A WARP peer by domain: with dns-remote (detour through WARP) it would be resolved through
+  // WARP itself. Like the server addresses, it gets direct dns-direct.
   if (warpEndpoint && opts.route?.resolveDestination
       && (warpEndpoint.peers || []).some((peer) => peer?.address && !isIpLiteral(peer.address))) {
     warpEndpoint.domain_resolver = "dns-direct";
@@ -1631,26 +1631,26 @@ export function buildConfig({
   const warpOnly = !src && !!warpEndpoint && opts.warp?.mode === "direct";
   if (!src && !warpOnly) throw new Error(t("sb.err.buildNoSource"));
 
-  // Базы портов loopback-мостов: план из plan_bridge_ports (свободные диапазоны)
-  // либо статические дефолты (экспорт конфига, тесты — там bind не нужен).
+  // Loopback bridge port bases: the plan from plan_bridge_ports (free ranges)
+  // or static defaults (config export, tests — bind isn't needed there).
   const basePorts = {
     xray: bridgePorts?.xray || XRAY_BRIDGE_BASE_PORT,
     naive: bridgePorts?.naive || NAIVE_BRIDGE_BASE_PORT,
     trusttunnel: bridgePorts?.trusttunnel || TT_BRIDGE_BASE_PORT,
   };
 
-  // URL/интервал теста соединения — из настроек (ключи connectionTestUrl/intervalSec,
-  // Раньше buildConfig читал несуществующие url/interval и
-  // конфиг юзера игнорировался.
+  // Connection test URL/interval from settings (keys connectionTestUrl/intervalSec,
+  // Previously buildConfig read nonexistent url/interval and
+  // the user's config was ignored.
   const testUrl = opts.urlTest?.connectionTestUrl || "https://www.gstatic.com/generate_204";
   const intervalSec = Number(opts.urlTest?.intervalSec) > 0 ? Number(opts.urlTest.intervalSec) : 600;
   const testInterval = `${intervalSec}s`;
 
   let nodes = warpOnly ? [] : (src.kind === "sub" ? src.nodes : [src.profile]);
   if (!warpOnly && !nodes?.length) throw new Error(t("sb.err.buildNoNodes"));
-  // Ядро инициализирует конфиг целиком: одна нода с параметрами, которых оно не
-  // принимает, роняет весь старт. Подписку чистим и работаем на оставшихся,
-  // одиночный профиль чистить нечем — отдаём понятную ошибку вместо FATAL ядра.
+  // The core initializes the config as a whole: one node with parameters it doesn't
+  // accept brings down the whole start. We clean the subscription and work on the remaining ones,
+  // a single profile has nothing to clean — we return a clear error instead of a core FATAL.
   if (!warpOnly && src.kind === "sub") {
     nodes = withoutPlaceholders(usableNodes(nodes).filter(node => !isNodeQuarantined(node)));
     if (!nodes.length) throw new Error(t("sb.err.buildAllNodesInvalid"));
@@ -1671,12 +1671,12 @@ export function buildConfig({
   const protectedOutbound = warpEndpoint ? "warp" : "proxy";
   const useUrltest = nodes.length >= 2;
 
-  // Правило «через конкретный сервер» (action:"node") хранит ссылку на ноду, а
-  // не готовый тег: на одной ноде подписки тег вообще другой ("proxy", группы
-  // нет), а карантин и usableNodes могли выбросить ноду из этой сборки. Карту
-  // строим по тем нодам, что реально доехали до конфига, и ищем сначала по
-  // тегу-хешу, затем по имени. Не нашли — resolveRuleTarget вернёт null, и
-  // правило уйдёт в protectedOutbound вместо ссылки на несуществующий тег.
+  // A "through a specific server" rule (action:"node") stores a reference to the node, not
+  // a ready tag: on a single-node subscription the tag is different altogether ("proxy", there's no
+  // group), and the quarantine and usableNodes may have dropped the node from this build. We build the map
+  // from the nodes that actually made it into the config, and search first by
+  // the hash tag, then by name. Not found — resolveRuleTarget returns null, and
+  // the rule goes to protectedOutbound instead of referencing a nonexistent tag.
   const outboundByNodeTag = new Map();
   const outboundByNodeName = new Map();
   nodes.forEach((node, i) => {
@@ -1686,8 +1686,8 @@ export function buildConfig({
     if (name && !outboundByNodeName.has(name)) outboundByNodeName.set(name, actual);
   });
   const resolveRuleTarget = (rule) => {
-    // WARP как цель существует, только когда endpoint собран: иначе тега "warp"
-    // в конфиге нет вовсе.
+    // WARP as a target exists only when the endpoint is built: otherwise there's no "warp" tag
+    // in the config at all.
     if (rule?.action === "warp") return warpEndpoint ? "warp" : null;
     if (rule?.action !== "node") return null;
     const tag = String(rule?.target?.tag || "").trim();
@@ -1697,17 +1697,17 @@ export function buildConfig({
   };
 
   const route = buildRoute(opts, effectiveMode, protectedOutbound, runtime.strictPrivacy, resolveRuleTarget);
-  // WireGuard и OpenVPN собираются в endpoints, остальные — в outbounds. Массив
-  // общий и по индексам совпадает с nodes: теги, группы и карта «объект → нода»
-  // обязаны видеть один и тот же порядок, иначе диагностика начнёт называть
-  // чужую ноду. Что из этого endpoint, помнит nodeEndpoints.
+  // WireGuard and OpenVPN are built into endpoints, the rest into outbounds. The array
+  // is shared and matches nodes by index: tags, groups and the "object → node" map
+  // must see the same order, otherwise diagnostics would start naming
+  // someone else's node. Which of them are endpoints is remembered by nodeEndpoints.
   const nodeEndpoints = new Set();
-  // Адрес самого VPN-сервера неизбежно резолвится до готовности туннеля. Когда
-  // резолвер по умолчанию — dns-remote (строгий режим или «Определять адреса
-  // сайтов внутри туннеля»), а он ходит через тот же proxy, адрес сервера
-  // резолвился бы через сам сервер, и ни одна доменная нода не поднималась.
-  // Поэтому адресу сервера — прямой dns-direct (в strict это IP-hosted DoH без
-  // detour); DNS пользовательских назначений по-прежнему идёт через dns-remote.
+  // The VPN server's own address is inevitably resolved before the tunnel is ready. When
+  // the default resolver is dns-remote (strict mode or "Resolve site addresses
+  // inside the tunnel"), and it goes through the same proxy, the server address
+  // would be resolved through the server itself, and not a single domain node would come up.
+  // So the server address gets direct dns-direct (in strict mode this is IP-hosted DoH without
+  // a detour); DNS for user destinations still goes through dns-remote.
   const pinServerResolver = runtime.strictPrivacy || !!opts.route?.resolveDestination;
   const vlessOutbounds = nodes.map((n, i) => {
     const tag = useUrltest ? nodeTag(i, n) : "proxy";
@@ -1729,7 +1729,7 @@ export function buildConfig({
     return ob;
   });
 
-  // Two-core bridge: xhttp-ноды → локальный xray, в sing-box остаётся socks-мост.
+  // Two-core bridge: xhttp nodes → local xray, sing-box keeps a socks bridge.
   let xrayConfig = null;
   if (xray) {
     const xIn = [], xOut = [], xRules = [];
@@ -1741,8 +1741,8 @@ export function buildConfig({
       xIn.push({ tag: inTag, listen: "127.0.0.1", port, protocol: "socks", settings: { auth: "noauth", udp: true } });
       xOut.push(nodeToXrayOutbound(n, outTag));
       xRules.push({ type: "field", inboundTag: [inTag], outboundTag: outTag });
-      // Мост вместо vless+xhttp; тег outbound'а сохраняем — селектор/urltest
-      // ссылаются на него.
+      // A bridge instead of vless+xhttp; the outbound tag is kept — the selector/urltest
+      // reference it.
       vlessOutbounds[i] = {
         tag: vlessOutbounds[i].tag,
         type: "socks", server: "127.0.0.1", server_port: port, version: "5",
@@ -1763,10 +1763,10 @@ export function buildConfig({
     }
   }
 
-  // Sidecar-мост для naive / trusttunnel (всегда, не зависит от флага xray):
-  // у этих протоколов нет нативного outbound — каждая нода поднимает свой
-  // клиент-процесс на 127.0.0.1:PORT (SOCKS5), а в sing-box остаётся socks-мост.
-  // urltest/balancer пингуют ноду сквозь socks → клиент, как и с xray.
+  // Sidecar bridge for naive / trusttunnel (always, independent of the xray flag):
+  // these protocols have no native outbound — each node brings up its own
+  // client process on 127.0.0.1:PORT (SOCKS5), and sing-box keeps a socks bridge.
+  // urltest/balancer ping the node through socks → the client, as with xray.
   const sidecars = [];
   let naiveN = 0, ttN = 0;
   nodes.forEach((n, i) => {
@@ -1790,16 +1790,16 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (useUrltest) {
-    // "Auto" — это НЕ URLTest, а Balancer со strategy=lowest-delay: он выбирает
-    // outbound с минимальной задержкой, а interrupt_exist_connections обрывает
-    // старые соединения при смене лидера → реальное "live" переключение.
+    // "Auto" is NOT a URLTest but a Balancer with strategy=lowest-delay: it picks
+    // the outbound with the minimum latency, and interrupt_exist_connections tears down
+    // old connections when the leader changes → a real "live" switch.
     //
-    // Замеры он ведёт САМ (url/interval ниже). Раньше рядом стоял отдельный
-    // health-чекер "lowest" типа urltest, и это не работало: периодическую
-    // проверку urltest-группа запускает из Touch(), а Touch зовётся только
-    // когда трафик дозванивается через саму группу. Через "lowest" не шло
-    // ничего, тикер не стартовал ни разу, и задержки застывали на единственном
-    // проходе при старте ядра — дальше balancer выбирал из мёртвых цифр.
+    // It does the measurements ITSELF (url/interval below). Previously there was a separate
+    // "lowest" health checker of urltest type next to it, and it didn't work: a urltest group
+    // starts its periodic check from Touch(), and Touch is called only
+    // when traffic is dialed through the group itself. Nothing went through "lowest",
+    // the ticker never started once, and latencies froze at the single
+    // pass at core startup — after that the balancer chose from dead numbers.
     const nodeTags = vlessOutbounds.map(o => o.tag);
 
     const auto = {
@@ -1809,15 +1809,15 @@ export function buildConfig({
       strategy: "lowest-delay",
       url: testUrl,
       interval: testInterval,
-      // Порог, ниже которого разница не стоит обрыва соединений. Он обязан
-      // быть меньше реального разброса между серверами: при 50 мс и подписке,
-      // где живые ноды укладываются в 59-76 мс, весь диапазон оказывался внутри
-      // порога — balancer не мог переключиться в принципе, и выбранный сервер
-      // так и оставался хуже соседей по списку.
+      // The threshold below which a difference isn't worth tearing down connections. It must
+      // be smaller than the real spread between servers: with 50 ms and a subscription
+      // where live nodes fit into 59-76 ms, the whole range was inside
+      // the threshold — the balancer couldn't switch in principle, and the selected server
+      // stayed worse than its neighbors in the list.
       tolerance: 15,
-      // Нода, через которую не удалось дозвониться, выбывает из выборов на это
-      // время (дальше — экспоненциально). Иначе «самая быстрая по замеру, но
-      // мёртвая» переизбирается сразу же после каждого провала.
+      // A node that couldn't be dialed drops out of the elections for this
+      // time (then exponentially). Otherwise "the fastest by measurement but
+      // dead" one is re-elected right after every failure.
       failure_cooldown: "30s",
       interrupt_exist_connections: true,
     };
@@ -1826,11 +1826,11 @@ export function buildConfig({
       tag: "proxy",
       outbounds: ["auto", ...nodeTags],
       default: "auto",
-      // Рвёт старые соединения при смене выбора — но только те, которые ядро
-      // само дозвонило через селектор как dialer (dns detour, WARP-цепочка).
-      // Трафик из inbound идёт мимо: Selector.NewConnectionEx отдаёт соединение
-      // прямо в выбранный outbound, и interrupt-группа селектора остаётся
-      // пустой. Его рвёт clash_close_proxy_connections после смены ноды.
+      // Tears down old connections when the choice changes — but only those the core
+      // dialed itself through the selector as a dialer (dns detour, the WARP chain).
+      // Inbound traffic goes past it: Selector.NewConnectionEx hands the connection
+      // straight to the selected outbound, and the selector's interrupt group stays
+      // empty. It's torn down by clash_close_proxy_connections after a node switch.
       interrupt_exist_connections: true,
     };
     outbounds = [
@@ -1840,8 +1840,8 @@ export function buildConfig({
       { type: "direct", tag: "direct" },
     ];
   } else if (nodeEndpoints.has(vlessOutbounds[0])) {
-    // Единственная нода — endpoint: в outbounds её нет вовсе, тег "proxy"
-    // принадлежит endpoint'у, на который ссылаются route.final и DNS.
+    // The only node is an endpoint: it isn't in the outbounds at all, the "proxy" tag
+    // belongs to the endpoint referenced by route.final and DNS.
     outbounds = [
       { type: "direct", tag: "direct" },
     ];
@@ -1852,12 +1852,12 @@ export function buildConfig({
     ];
   }
 
-  // WARP endpoint (опционально): подмешиваем wireguard endpoint и
-  // переключаем route.final на "warp".
+  // WARP endpoint (optional): mix in the wireguard endpoint and
+  // switch route.final to "warp".
   if (warpEndpoint) {
     route.final = "warp";
-    // Проба качества следует за final: мерить надо то плечо, которым реально
-    // идёт трафик (правило probe-in в buildRoute собрано с outbound=proxy).
+    // The quality probe follows final: we must measure the leg through which traffic actually
+    // goes (the probe-in rule in buildRoute is built with outbound=proxy).
     for (const r of route.rules) {
       if (Array.isArray(r.inbound) && r.inbound.includes("probe-in")) r.outbound = "warp";
     }
@@ -1866,7 +1866,7 @@ export function buildConfig({
   const config = {
     log: {
       level: sbLevel(opts),
-      timestamp: true, // нужен для парсера/фильтра экрана Логи
+      timestamp: true, // needed for the Logs screen parser/filter
       ...(opts.log?.disabled ? { disabled: true } : {}),
     },
     dns: buildDns(opts, warpEndpoint ? "warp" : "proxy", effectiveMode),
@@ -1874,8 +1874,8 @@ export function buildConfig({
     outbounds,
     route,
     experimental: {
-      // store_rdrc в 1.14 устарел и кэшировал только отказы DNS-правил с
-      // фильтром по адресу ответа, а таких правил здесь нет.
+      // store_rdrc is deprecated in 1.14 and only cached refusals of DNS rules with
+      // a filter on the answer address, and there are no such rules here.
       cache_file: { enabled: true },
     },
   };
@@ -1883,33 +1883,33 @@ export function buildConfig({
   if (warpEndpoint) endpoints.push(warpEndpoint);
   if (endpoints.length) config.endpoints = endpoints;
 
-  // clash_api — не опция, а панель управления рантаймом: через него идут выбор
-  // ноды, пинги, трафик и вся диагностика, а Rust вообще отказывается стартовать
-  // без external_controller. Раньше это стояло под флагом, и снятый флаг (руками
-  // или из старого бэкапа) давал конфиг, с которым подключение не поднималось
-  // ни в одном режиме. Порт остаётся настраиваемым; loopback дожимает Rust.
+  // clash_api isn't an option but the runtime control panel: node selection,
+  // pings, traffic and all diagnostics go through it, and Rust refuses to start at all
+  // without external_controller. Previously this was behind a flag, and a cleared flag (by hand
+  // or from an old backup) produced a config with which the connection didn't come up
+  // in any mode. The port stays configurable; Rust enforces loopback.
   config.experimental.clash_api = {
     external_controller: `127.0.0.1:${opts.experimental?.clashApiPort || 9090}`,
   };
 
-  // Unified delay: ядро делает второй замер по уже поднятому соединению и отдаёт
-  // чистый RTT без TCP/TLS-хендшейка. Без него пинг для VLESS+Reality раздут в
-  // 2-3 раза. Глобальный флаг — влияет и на UI-пинг (urltest history + ручной
-  // /delay), и на balancer "auto".
+  // Unified delay: the core makes a second measurement over the already established connection and returns
+  // a clean RTT without the TCP/TLS handshake. Without it the ping for VLESS+Reality is inflated
+  // 2-3 times. A global flag — it affects both the UI ping (urltest history + manual
+  // /delay) and the "auto" balancer.
   config.experimental.unified_delay = { enabled: true };
 
-  // TLS-tricks (фрагментация/padding/mixedcase) более НЕ пишутся глобально:
-  // experimental.tls_tricks в ядре нет. Теперь они
-  // применяются per-outbound в applyTlsTricks() при сборке прокси-outbound.
+  // TLS tricks (fragmentation/padding/mixedcase) are NO LONGER written globally:
+  // the core has no experimental.tls_tricks. Now they're
+  // applied per outbound in applyTlsTricks() when building a proxy outbound.
 
   validateConfigReferences(config);
-  // Карта «индекс outbound'а → нода»: именно этим индексом ядро называет
-  // виновника в «initialize outbound[N]». Считать его арифметикой по позиции
-  // селектора нельзя — состав outbound'ов меняется от режима к режиму.
+  // The "outbound index → node" map: it's exactly this index the core uses to name
+  // the culprit in "initialize outbound[N]". Computing it by arithmetic over the selector
+  // position isn't possible — the outbound set changes from mode to mode.
   const nodeByOutbound = new Map(vlessOutbounds.map((outbound, i) => [outbound, nodes[i]]));
   const outboundNodes = outbounds.map(outbound => nodeByOutbound.get(outbound) || null);
-  // Ядро нумерует endpoints отдельным списком («initialize endpoint[N]»), так
-  // что по outboundNodes виновника endpoint-ноды не найти.
+  // The core numbers endpoints as a separate list ("initialize endpoint[N]"), so
+  // the culprit endpoint node can't be found via outboundNodes.
   const endpointNodes = endpoints.map(endpoint => nodeByOutbound.get(endpoint) || null);
   return {
     config,
@@ -1926,16 +1926,16 @@ export function buildConfig({
   };
 }
 
-// Semantic guard поверх JSON-схемы: sing-box принимает ссылки на теги строками,
-// поэтому опечатка/ветка WARP-only иначе обнаруживается только при запуске ядра.
+// A semantic guard on top of the JSON schema: sing-box accepts tag references as strings,
+// so a typo/the WARP-only branch would otherwise be discovered only when the core starts.
 export function validateConfigReferences(config) {
   const outboundTags = new Set([
     ...(config.outbounds || []).map((o) => o?.tag),
     ...(config.endpoints || []).map((o) => o?.tag),
   ].filter(Boolean));
   const dnsTags = new Set((config.dns?.servers || []).map((s) => s?.tag).filter(Boolean));
-  // rule_set-ссылки ядро резолвит так же строго, как outbound-теги: правило,
-  // указывающее на невыпущенный набор, роняет старт целиком.
+  // The core resolves rule_set references as strictly as outbound tags: a rule
+  // pointing at a set that wasn't emitted brings down the start entirely.
   const ruleSetTags = new Set((config.route?.rule_set || []).map((s) => s?.tag).filter(Boolean));
   const missing = [];
   const requireOutbound = (tag, path) => {
@@ -1952,8 +1952,8 @@ export function validateConfigReferences(config) {
   };
 
   requireOutbound(config.route?.final, "route.final");
-  // Наборы правил ядро ищет и во вложенных правилах logical-обёрток (защита
-  // LAN копирует туда direct-правила вместе с их rule_set).
+  // The core also looks for rule sets in nested rules of logical wrappers (LAN
+  // protection copies direct rules there together with their rule_set).
   const requireNestedRuleSets = (rule, path) => {
     requireRuleSets(rule?.rule_set, `${path}.rule_set`);
     for (const [j, sub] of (Array.isArray(rule?.rules) ? rule.rules : []).entries()) {
@@ -1976,8 +1976,8 @@ export function validateConfigReferences(config) {
     requireOutbound(outbound?.detour, `outbounds[${i}].detour`);
     requireDns(outbound?.domain_resolver, `outbounds[${i}].domain_resolver`);
   }
-  // endpoints (WARP) участвуют в маршрутизации наравне с outbound'ами: в chain
-  // WARP уходит detour'ом в selector, и опечатка там так же не даёт ядру встать.
+  // endpoints (WARP) take part in routing on par with outbounds: in chain
+  // WARP goes via a detour into the selector, and a typo there also keeps the core from coming up.
   for (const [i, endpoint] of (config.endpoints || []).entries()) {
     requireOutbound(endpoint?.detour, `endpoints[${i}].detour`);
     requireDns(endpoint?.domain_resolver, `endpoints[${i}].domain_resolver`);
@@ -1998,12 +1998,12 @@ export function validateConfigReferences(config) {
   return true;
 }
 
-// Единая логика тэга outbound'а для multi-node подписки.
-// Должна совпадать между builder'ом и proxies-view, иначе селектор будет бить мимо.
-// Тег зависит только от самой ноды, а считается он хешем по её содержимому.
-// Экран серверов, трей и движок качества спрашивают тег для каждой ноды по
-// многу раз в секунду, поэтому результат держим при объекте ноды: на подписке
-// в сотни серверов пересчёт занимал заметную долю каждого обновления списка.
+// A single outbound tag logic for a multi-node subscription.
+// Must match between the builder and proxies-view, otherwise the selector will miss.
+// The tag depends only on the node itself and is computed as a hash of its contents.
+// The servers screen, the tray and the quality engine ask for the tag for every node
+// many times a second, so the result is kept with the node object: on a subscription
+// of hundreds of servers recomputing it took a noticeable share of every list update.
 const nodeTagCache = new WeakMap();
 
 export function nodeTag(i, node) {
@@ -2017,7 +2017,7 @@ export function nodeTag(i, node) {
   return tag;
 }
 
-// ── профили (storage) ──────────────────────────────────────
+// ── profiles (storage) ──────────────────────────────────────
 export function loadProfiles() {
   return loadProfilesFromStore();
 }
@@ -2044,7 +2044,7 @@ export function addProfileFromVless(raw) {
   return addProfileFromLink(raw);
 }
 
-// Универсальный добавитель — работает для любого supported протокола.
+// A universal adder — works for any supported protocol.
 function storeProfile(parsed) {
   const id = uid("p_");
   const list = loadProfiles();
@@ -2057,28 +2057,28 @@ export function addProfileFromLink(raw) {
   return storeProfile(parseLink(raw));
 }
 
-// Профиль, разобранный не из ссылки: импорт готового конфига sing-box отдаёт
-// уже нормализованные ноды (в том числе WireGuard-endpoint, у которого своей
-// share-ссылки нет вовсе).
+// A profile not parsed from a link: importing a ready sing-box config returns
+// already normalized nodes (including a WireGuard endpoint, which has no
+// share link of its own at all).
 export function addParsedProfile(profile) {
   return storeProfile(profile);
 }
 
-// Импорт TrustTunnel из endpoint-.toml (вставлен текстом или загружен файлом).
+// Importing TrustTunnel from an endpoint .toml (pasted as text or loaded as a file).
 export function addTrustTunnelFromToml(tomlText, displayName) {
   return storeProfile(parseTrustTunnelToml(tomlText, displayName));
 }
 
-// Импорт WireGuard / AmneziaWG из .conf. Возвращает ещё и ignored — строки
-// файла, которые в профиль не перенеслись: о них говорят пользователю, иначе
-// тоннель молча ведёт себя не так, как в клиенте, откуда конфиг принесли.
+// Importing WireGuard / AmneziaWG from a .conf. Also returns ignored — lines
+// of the file that didn't carry over into the profile: the user is told about them, otherwise
+// the tunnel silently behaves differently than in the client the config came from.
 export function addWireguardFromConf(confText, displayName) {
   const parsed = parseWireguardConf(confText, displayName);
   const stored = storeProfile(parsed);
   return { ...stored, ignored: parsed.ignored || [] };
 }
 
-// Оригинал .ovpn остаётся в профиле для экспорта; в ядро идут только опции.
+// The original .ovpn stays in the profile for export; only the options go into the core.
 export function addOpenvpnFromConf(confText, displayName, credentials = {}) {
   const parsed = parseOpenvpnConf(confText, displayName, credentials);
   const stored = storeProfile(parsed);
@@ -2099,9 +2099,9 @@ function loadSubsRaw() {
 }
 
 /**
- * Источник по записи подписки. Ноды, которые ядро не примет, отсекаются прямо
- * здесь, а не в сборщике: конфиг, список серверов, clash-теги и fingerprint
- * обязаны видеть один и тот же набор нод, иначе топология не сойдётся.
+ * A source from a subscription record. Nodes the core won't accept are cut off right
+ * here, not in the builder: the config, the server list, clash tags and the fingerprint
+ * must see the same set of nodes, otherwise the topology won't add up.
  */
 export function subscriptionSource(sub) {
   if (!sub) return null;
@@ -2111,10 +2111,10 @@ export function subscriptionSource(sub) {
 }
 
 /**
- * Возвращает текущий активный источник для коннекта.
- * { kind: "single", profile } — одиночный vless
- * { kind: "sub", subscription, nodes } — подписка (>=1 нод)
- * null — ничего не активно
+ * Returns the current active source for connecting.
+ * { kind: "single", profile } — a single vless
+ * { kind: "sub", subscription, nodes } — a subscription (>=1 nodes)
+ * null — nothing is active
  */
 export function getActiveSource() {
   const kind = getActiveKind();
@@ -2138,9 +2138,9 @@ export function removeProfile(id) {
   }
 }
 
-// Массовая очистка одиночных профилей одним стором-коммитом. Цикл по
-// removeProfile здесь не годится: он на каждом шаге переносит активный профиль
-// на следующий из списка, и вызывающий получил бы серию ложных смен источника.
+// Bulk cleanup of single profiles with one store commit. A loop over
+// removeProfile doesn't work here: on every step it moves the active profile
+// to the next one in the list, and the caller would get a series of false source changes.
 export function removeAllProfiles() {
   const removed = loadProfiles().length;
   if (!removed) return 0;
@@ -2149,7 +2149,7 @@ export function removeAllProfiles() {
   return removed;
 }
 
-// Точечное обновление полей одиночного профиля (rename и т.п.).
+// Targeted update of a single profile's fields (rename, etc.).
 export function updateProfile(id, patch) {
   const list = loadProfiles();
   const idx = list.findIndex(p => p.id === id);
@@ -2159,20 +2159,20 @@ export function updateProfile(id, patch) {
   return list[idx];
 }
 
-// 3 режима:
-//   proxy       — sing-box локально на 127.0.0.1:mixedPort, системный прокси НЕ
-//                 трогаем. Юзер сам направляет браузер/приложения в SOCKS+HTTP.
-//   systemProxy — sing-box + автоматически выставляем HKCU Internet Settings.
-//                 Это default на desktop.
-//   tun         — TUN intercept всего трафика. sing-box поднимает TUN-интерфейс
-//                 как наш child (Ninety запущен от админа, Throne-style).
+// 3 modes:
+//   proxy       — sing-box locally on 127.0.0.1:mixedPort, the system proxy is NOT
+//                 touched. The user points the browser/apps at SOCKS+HTTP themselves.
+//   systemProxy — sing-box + we automatically set HKCU Internet Settings.
+//                 This is the default on desktop.
+//   tun         — TUN interception of all traffic. sing-box brings up the TUN interface
+//                 as our child (Ninety runs as admin, Throne-style).
 //
-// Старое значение "proxy" из pre-alpha34 = systemProxy (мы всегда выставляли
-// system proxy). При чтении мигрируем — старые юзеры не теряют поведение.
+// The old "proxy" value from pre-alpha34 = systemProxy (we always set the
+// system proxy). We migrate on read — old users don't lose the behavior.
 const VALID_MODES = new Set(["proxy", "systemProxy", "tun"]);
 
-// Режим только на текущую сессию: отказ от UAC при автозапуске не должен
-// навсегда заменять выбранный пользователем TUN. Сбрасывается через setMode.
+// A mode for the current session only: declining UAC at autostart must not
+// permanently replace the TUN the user chose. Reset via setMode.
 let sessionModeOverride = null;
 
 export function setSessionMode(m) {
@@ -2185,8 +2185,8 @@ export function getMode() {
   if (m === "tun") return "tun";
   if (m === "systemProxy") return "systemProxy";
   if (m === "proxy") {
-    // Миграция: если флаг миграции стоит — это новый "proxy" (без системного),
-    // иначе старое поведение → systemProxy.
+    // Migration: if the migration flag is set — it's the new "proxy" (without the system one),
+    // otherwise the old behavior → systemProxy.
     if (localStorage.getItem(MODE_KEY + ".migrated") === "1") return "proxy";
     localStorage.setItem(MODE_KEY, "systemProxy");
     localStorage.setItem(MODE_KEY + ".migrated", "1");

@@ -1,5 +1,5 @@
-// Ninety · Edit Modal — переименование, авто-обновление, интервал
-// Используется и для подписок (полная форма), и для одиночных профилей (только rename).
+// Ninety · Edit Modal — rename, auto-update, interval
+// Used both for subscriptions (full form) and for single profiles (rename only).
 
 import { updateSubscription } from "/lib/subscriptions.js";
 import { subscriptionHwid } from "/lib/hwid.js";
@@ -60,14 +60,14 @@ function build({ title, fields, onSave }) {
     }
   });
 
-  // Enter в input → save
+  // Enter in input → save
   root.querySelectorAll("input[type=text]").forEach(inp => {
     inp.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); saveBtn.click(); }
     });
   });
 
-  // Auto-focus первое поле
+  // Auto-focus the first field
   const first = root.querySelector("input[type=text], input[type=range]");
   if (first) setTimeout(() => first.focus(), 30);
   return root;
@@ -139,20 +139,20 @@ export function openEditSubscription(sub, { onSaved, onToast } = {}) {
         name,
         autoUpdate,
         hwid: nextHwid,
-        // Отказ от подсказки снимается вместе с ручным решением: следующий
-        // ответ панели снова вправе о нём напомнить.
+        // Dismissing the hint is cleared together with the manual decision: the panel's next
+        // response is again allowed to remind about it.
         hwidPromptDismissed: nextHwid,
         updateIntervalMode,
         updateIntervalHours: updateIntervalMode === "manual" ? interval : (sub.serverUpdateIntervalHours ?? null),
       });
       onToast?.(t("edit.saved"), "success", 1400);
-      // Список серверов зависит от того, ушёл ли HWID: смена флага требует
-      // перезагрузки подписки, иначе на экране остаётся ответ старого запроса.
+      // The server list depends on whether the HWID was sent: changing the flag requires
+      // reloading the subscription, otherwise the old request's response stays on screen.
       onSaved?.({ hwidChanged: nextHwid !== hwid });
     },
   });
-  // У каждого провайдера свой HWID (см. hwid.js): показываем ровно то
-  // значение, что получит панель этой подписки, — его и называют провайдеру.
+  // Each provider has its own HWID (see hwid.js): we show exactly the
+  // value this subscription's panel will receive — that's the one to tell the provider.
   const hwidRow = root.querySelector(".edit-modal__hwid");
   const hwidValue = subscriptionHwid(sub);
   hwidValue

@@ -1,4 +1,4 @@
-// Ninety · «Поделиться» — копирование URL, экспорт sing-box JSON, QR-код.
+// Ninety · "Share" — copying the URL, exporting sing-box JSON, the QR code.
 
 import { buildConfig, getMode, lanInboundPolicy, profileProto, wireguardConfText } from "/lib/singbox.js";
 import { loadOptions } from "/lib/options.js";
@@ -20,9 +20,9 @@ export async function copySubscriptionUrl(sub, toast) {
   }
 }
 
-// QR-modal для подписки. URL длинный (200+ символов) — typeNumber=0 (auto),
-// errorCorrectionLevel "M" (15% избыточности — компромисс между плотностью
-// и устойчивостью к свертке/бликам на экране телефона).
+// QR modal for a subscription. The URL is long (200+ characters) — typeNumber=0 (auto),
+// errorCorrectionLevel "M" (15% redundancy — a compromise between density
+// and robustness against folding/glare on a phone screen).
 export function openQRModal(sub) {
   if (!sub?.url) return;
 
@@ -83,22 +83,22 @@ function onQRKey(e) {
   if (e.key === "Escape") closeQRModal();
 }
 
-// Транспорты, которые приложение обслуживает отдельным ядром на локальном
-// socks-мосту: в одиночном конфиге их воспроизвести нечем.
+// Transports the app serves with a separate core on a local
+// socks bridge: there's nothing to reproduce them with in a standalone config.
 const BRIDGE_ONLY_TYPES = new Set(["xhttp", "kcp"]);
-// То же самое, но на уровне протокола: naive и TrustTunnel поднимает отдельный
-// sidecar-клиент (готовый outbound Xray — локальный xray), а в конфиг уходит
-// socks на 127.0.0.1. Без этой проверки
-// экспорт отдавал внешне валидный файл, который у получателя ведёт в его же
-// localhost — то есть молча нерабочий.
+// The same, but at the protocol level: naive and TrustTunnel are brought up by a separate
+// sidecar client (a ready Xray outbound by the local xray), while the config gets
+// socks on 127.0.0.1. Without this check
+// the export produced an outwardly valid file that leads the recipient to their own
+// localhost — i.e. silently broken.
 const BRIDGE_ONLY_PROTOS = new Set(["naive", "trusttunnel", "xray"]);
 
 function isBridgeOnly(node) {
   return BRIDGE_ONLY_TYPES.has(node?.type) || BRIDGE_ONLY_PROTOS.has(profileProto(node));
 }
 
-// У WireGuard нет share-ссылки — обмениваются файлом. Отдаём тот же .conf,
-// который приняли: с ним профиль открывается и в Amnezia, и в wg-quick.
+// WireGuard has no share link — people exchange a file. We return the same .conf
+// that we accepted: with it the profile opens both in Amnezia and in wg-quick.
 export async function copyWireguardConf(profile, toast) {
   if (profileProto(profile) !== "wireguard") {
     toast?.(t("share.confNotWireguard"), "error", 2000);
@@ -112,8 +112,8 @@ export async function copyWireguardConf(profile, toast) {
   }
 }
 
-// Возвращаем исходный .ovpn: сертификаты, ключи и настройки провайдера
-// остаются пригодны для переноса в другой OpenVPN-клиент.
+// We return the original .ovpn: certificates, keys and provider settings
+// stay usable for moving to another OpenVPN client.
 export async function copyOpenvpnConf(profile, toast) {
   if (profileProto(profile) !== "openvpn") {
     toast?.(t("share.ovpnNotOpenvpn"), "error", 2000);
@@ -133,10 +133,10 @@ export async function exportSingboxJson(source, toast) {
     return;
   }
   try {
-    // Экспорт — самодостаточный конфиг, без loopback-мостов, которые поднимает
-    // само приложение. Узлы, живущие только за таким мостом, в него не попадут:
-    // ядро их транспорт не поддерживает, и конфиг с ними просто не запустился бы.
-    // Пропускаем их и говорим об этом, а не отдаём молча нерабочий файл.
+    // The export is a self-contained config, without the loopback bridges the app
+    // brings up itself. Nodes that live only behind such a bridge don't get into it:
+    // the core doesn't support their transport, and a config with them simply wouldn't start.
+    // We skip them and say so, rather than silently handing over a broken file.
     const all = source.kind === "sub" ? (source.nodes || []) : [source.profile];
     const exportable = all.filter((node) => !isBridgeOnly(node));
     const skipped = all.length - exportable.length;
@@ -144,8 +144,8 @@ export async function exportSingboxJson(source, toast) {
       toast?.(t("share.exportNoNodes"), "error", 2500);
       return;
     }
-    // Пару логин-пароль в LAN-вход подставляет только бэкенд при запуске. В файле
-    // такой вход остался бы открытым для всей сети, поэтому в экспорт он не идёт.
+    // The login/password pair is substituted into the LAN inbound only by the backend at launch. In a file
+    // such an inbound would stay open to the whole network, so it doesn't go into the export.
     const options = loadOptions();
     const { config } = buildConfig({
       source: source.kind === "sub" ? { ...source, nodes: exportable } : source,

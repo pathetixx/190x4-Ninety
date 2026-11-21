@@ -1,12 +1,12 @@
-// Ninety · распознавание формата чужого конфига.
+// Ninety · detecting the format of a foreign config.
 //
-// Лист без зависимостей: и импортёры, и вызывающие спрашивают формат здесь,
-// поэтому знать про них он не должен.
+// A leaf without dependencies: both importers and callers ask for the format here,
+// so it must not know about them.
 //
-// Ключ `outbounds` есть и у sing-box, и у Xray — различает их форма записи
-// сервера: у sing-box это `type` и плоские поля, у Xray — `protocol` плюс
-// `settings`/`streamSettings`. Ошибиться тут дороже, чем не распознать: разбор
-// не тем импортёром даст «конфиг без серверов» на здоровом файле.
+// Both sing-box and Xray have an `outbounds` key — what tells them apart is how
+// a server is written: in sing-box it's `type` and flat fields, in Xray `protocol` plus
+// `settings`/`streamSettings`. Getting it wrong is costlier than not recognizing it: parsing
+// with the wrong importer would give "config without servers" on a healthy file.
 
 export function safeJsonParse(text) {
   const s = String(text ?? "").trim();
@@ -18,7 +18,7 @@ function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-// Xray-подписка v2rayN — это массив целых конфигов, а не один конфиг.
+// A v2rayN Xray subscription is an array of whole configs, not a single config.
 function configList(root) {
   if (Array.isArray(root)) return root.filter(isPlainObject);
   return isPlainObject(root) ? [root] : [];
@@ -28,7 +28,7 @@ function outboundsOf(root) {
   const out = [];
   for (const config of configList(root)) {
     if (Array.isArray(config.outbounds)) out.push(...config.outbounds.filter(isPlainObject));
-    // Голый массив outbound'ов: сам элемент и есть outbound.
+    // A bare array of outbounds: each element is itself an outbound.
     else if (config.type || config.protocol) out.push(config);
   }
   return out;
@@ -44,10 +44,10 @@ function looksLikeSingbox(root) {
   return outboundsOf(root).some(item => typeof item.type === "string" && !item.protocol);
 }
 
-// Clash обычно YAML, но JSON — его подмножество, и панели этим пользуются:
-// BPB-Worker-Panel отдаёт clash-подписку именно как JSON. Проверять только
-// YAML значит не узнать формат ровно там, где он чаще всего и встречается.
-// Разбирать его здесь всё равно нечем — распознаём, чтобы назвать по имени.
+// Clash is usually YAML, but JSON is its subset, and panels make use of that:
+// BPB-Worker-Panel serves the clash subscription exactly as JSON. Checking only
+// YAML means not recognizing the format exactly where it occurs most often.
+// We have nothing to parse it with here anyway — we recognize it to name it.
 const CLASH_YAML_RE = /^\s*proxies\s*:/m;
 
 function looksLikeClash(root) {
@@ -55,12 +55,12 @@ function looksLikeClash(root) {
     && config.proxies.some(proxy => isPlainObject(proxy) && proxy.name && proxy.type && proxy.server));
 }
 
-// ZIP: сигнатура локального заголовка. Тело подписки приезжает строкой, но эти
-// четыре байта — ASCII и управляющие, лоссовое декодирование их не трогает.
+// ZIP: the local header signature. The subscription body arrives as a string, but these
+// four bytes are ASCII and control characters, lossy decoding doesn't touch them.
 const ZIP_SIGNATURE = "PK\u0003\u0004";
 
 /**
- * @returns {"sing-box"|"xray"|"clash"|"archive"|null} null — это не конфиг клиента.
+ * @returns {"sing-box"|"xray"|"clash"|"archive"|null} null — this isn't a client config.
  */
 export function detectConfigFormat(text) {
   const s = String(text ?? "");
@@ -76,7 +76,7 @@ export function detectConfigFormat(text) {
   return null;
 }
 
-// Имя формата пишем так, как его пишет сам проект.
+// The format name is written the way the project itself writes it.
 export const CONFIG_FORMAT_NAMES = {
   "sing-box": "sing-box",
   xray: "Xray",

@@ -1,25 +1,25 @@
-// Ninety · окно наружу для perfObserver.
+// Ninety · a window to the outside for perfObserver.
 //
-// Коллектор в performance-observer.js считает тайминги и счётчики с самого
-// старта, но посмотреть их было негде: devtools в релизной сборке выключены, а
-// снимок никуда не выводился. Здесь два недостающих куска:
+// The collector in performance-observer.js counts timings and counters from the very
+// start, but there was nowhere to look at them: devtools are disabled in the release build, and
+// the snapshot wasn't output anywhere. Here are the two missing pieces:
 //
-//   1) наблюдатель длинных задач главного потока — ровно то, что пользователь
-//      ощущает как фриз, с пометкой экрана, на котором задача случилась;
-//   2) выгрузка всего снимка в буфер обмена по Ctrl+Alt+P.
+//   1) an observer of main-thread long tasks — exactly what the user
+//      perceives as a freeze, tagged with the screen on which the task happened;
+//   2) dumping the whole snapshot to the clipboard with Ctrl+Alt+P.
 //
-// Наружу (в сеть, в телеметрию) отсюда не уходит ничего: снимок содержит только
-// длительности и счётчики и попадает ровно туда, куда его скопировал сам
-// пользователь.
+// Nothing goes out from here (to the network, to telemetry): the snapshot contains only
+// durations and counters and ends up exactly where the user copied it
+// themselves.
 
 import { perfObserver } from "/lib/performance-observer.js";
 import { activityController } from "/lib/activity-controller.js";
 
-// 50 мс — порог, с которого Long Tasks API вообще заводит запись; кадр при
-// этом уже пропущен. Пишем всё, что он отдаёт.
+// 50 ms is the threshold from which the Long Tasks API creates an entry at all; a frame
+// is already dropped by then. We record everything it returns.
 const LONGTASK_MIN_MS = 50;
-// Отдельная отсечка для счётчика «тяжёлых» задач: 50 мс — это подтормаживание,
-// а вот от 200 мс интерфейс ощущается зависшим.
+// A separate cutoff for the "heavy" task counter: 50 ms is a stutter,
+// but from 200 ms the interface feels frozen.
 const LONGTASK_HEAVY_MS = 200;
 
 let longTaskObserver = null;
@@ -38,16 +38,16 @@ function startLongTaskObserver() {
         if (duration >= LONGTASK_HEAVY_MS) perfObserver.increment("longtask.heavy");
       }
     });
-    // buffered: длинные задачи старта (разбор модулей, первый рендер) случаются
-    // до того, как этот модуль успевает подписаться.
+    // buffered: startup long tasks (module parsing, the first render) happen
+    // before this module gets a chance to subscribe.
     longTaskObserver.observe({ type: "longtask", buffered: true });
   } catch {
     longTaskObserver = null;
   }
 }
 
-// Снимок + минимум контекста, без которого цифры не читаются: какой экран
-// открыт сейчас и на каком движке всё это крутится (версия WebView2 живёт в UA).
+// The snapshot + the minimum context without which the numbers can't be read: which screen
+// is open now and on which engine it all runs (the WebView2 version lives in the UA).
 export function perfSnapshot() {
   const activity = activityController.snapshot();
   return {
@@ -67,7 +67,7 @@ export function perfSnapshot() {
 export function initPerfProbe({ onToast, onCopied } = {}) {
   startLongTaskObserver();
 
-  // Доступ из консоли отладочной сборки — там же, где обычно и смотрят.
+  // Access from the debug build console — where people usually look.
   try { globalThis.__ninetyPerf = perfSnapshot; } catch { /* ignore */ }
 
   if (hotkeyBound) return;

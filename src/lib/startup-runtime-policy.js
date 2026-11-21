@@ -1,8 +1,8 @@
 export const STARTUP_CONNECT_MODES = ["off", "restore", "always"];
 
-// Подключаться ли при обычном (ручном) запуске по настройке «При запуске».
-// restore — только если VPN был подключён, когда Ninety закрылась: ручное
-// «Отключить» записывает "off", и следующий запуск остаётся без VPN.
+// Whether to connect on a regular (manual) launch per the "On launch" setting.
+// restore — only if the VPN was connected when Ninety was closed: a manual
+// "Disconnect" writes "off", and the next launch stays without the VPN.
 export function startupConnectRequested({ setting, lastState }) {
   if (setting === "always") return true;
   if (setting === "restore") return lastState === "on";

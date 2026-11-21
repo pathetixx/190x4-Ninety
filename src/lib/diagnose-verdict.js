@@ -1,19 +1,19 @@
-// Ninety · Диагностика — вердикт: одна фраза вместо простыни замеров.
+// Ninety · Diagnostics — the verdict: one sentence instead of a sheet of measurements.
 //
-// Здесь только правила вывода, без DOM и IPC: на вход — сырые результаты трёх
-// проверок, на выход — { kind, severity, params, action }. Подпись собирает
-// каталог i18n по kind, действие исполняет экран.
+// Only inference rules here, no DOM and no IPC: the input is the raw results of three
+// checks, the output is { kind, severity, params, action }. The label is built by
+// the i18n catalog by kind, the action is performed by the screen.
 //
-// Порядок правил = приоритет. Он не случайный: сначала то, что ломает
-// соединение целиком (фильтр в пути, мёртвый сервер), потом то, что ломает
-// отдельные сервисы, и лишь потом наблюдения про приватность. Иначе вердикт
-// говорил бы про утечку IPv6 в момент, когда у человека вообще ничего не
-// открывается.
+// Rule order = priority. It isn't random: first what breaks
+// the connection entirely (a filter on the path, a dead server), then what breaks
+// individual services, and only then privacy observations. Otherwise the verdict
+// would talk about an IPv6 leak at a moment when nothing opens for the person
+// at all.
 
 import { forwardingAliases, forwardingProblem } from "/lib/forwarding.js";
 
-// Доля целей, ниже которой «часть сервисов» не превращается в вывод про сеть:
-// одна упавшая цель — это упавшая цель, а не блокировка.
+// The share of targets below which "some services" doesn't turn into a conclusion about the network:
+// one failed target is a failed target, not a block.
 const BLOCK_SHARE = 0.34;
 
 const isBlockedState = (state) => state === "timeout" || state === "refused" || state === "dns" || state === "tls";
@@ -25,13 +25,13 @@ function shareOf(rows, predicate) {
   return considered.filter(predicate).length / considered.length;
 }
 
-/// Строки, где туннель спасает: напрямую не открывается, через Ninety — да.
+/// Rows where the tunnel helps: doesn't open directly, opens through Ninety.
 export function blockedDirectRows(rows) {
   return (rows || []).filter((row) => isBlockedState(row.direct?.state) && isOkState(row.tunnel?.state));
 }
 
-/// Строки, где мешает сам туннель: напрямую открывается, через Ninety — нет.
-/// Это и есть кандидаты на правило «пустить напрямую».
+/// Rows where the tunnel itself gets in the way: opens directly, doesn't open through Ninety.
+/// These are the candidates for a "send direct" rule.
 export function blockedTunnelRows(rows) {
   return (rows || []).filter(
     (row) =>
@@ -40,13 +40,13 @@ export function blockedTunnelRows(rows) {
   );
 }
 
-/// Строки, где сервис ответил отказом именно адресу сервера (403/429 и т.п.).
+/// Rows where the service refused specifically the server's address (403/429, etc.).
 export function refusedByServiceRows(rows) {
   return (rows || []).filter((row) => row.tunnel?.state === "http" && (row.tunnel?.httpStatus ?? 0) >= 400);
 }
 
-/// Вердикт по собранным данным. Любая часть может отсутствовать (проверку не
-/// запускали или она не смогла отработать) — правила это учитывают.
+/// Verdict based on the collected data. Any part may be missing (the check wasn't
+/// run or couldn't complete) — the rules account for this.
 export function buildVerdict({
   reach = [],
   trace = null,
@@ -58,9 +58,9 @@ export function buildVerdict({
 } = {}) {
   const rows = Array.isArray(reach) ? reach : [];
 
-  // 0. Пересылка IP на внешнем адаптере. В TUN она зацикливает собственные
-  // соединения ядра, и не работает ничего — остальные замеры тогда описывают
-  // уже следствие. В режиме прокси петли нет, и молчим.
+  // 0. IP forwarding on the external adapter. In TUN it loops the core's own
+  // connections, and nothing works — the other measurements then describe
+  // the consequence. In proxy mode there's no loop, and we stay silent.
   if (tunMode && forwardingProblem(forwarding)) {
     return {
       kind: "ipForwarding",
@@ -70,32 +70,32 @@ export function buildVerdict({
     };
   }
 
-  // 1. Соединение до сервера. Вывод строится на ТРЁХ замерах сразу: дошёл ли
-  // ping, открылся ли порт и открылся ли контрольный адрес. Поодиночке они
-  // ничего не доказывают: закрытый порт и мёртвая сеть выглядят одинаково.
+  // 1. Connection to the server. The conclusion is built on THREE measurements at once: whether
+  // the ping got through, whether the port opened and whether the control address opened. Individually they
+  // prove nothing: a closed port and a dead network look the same.
   if (trace && !trace.tcpOpen) {
     const controlOk = trace.control?.state === "open";
     const params = { ip: trace.resolvedIp || "", port: trace.port };
     if (!controlOk) {
-      // Даже контрольный адрес не открывается — рвётся не сервер, а сеть.
+      // Even the control address doesn't open — it's the network breaking, not the server.
       return { kind: "localNetwork", severity: "err", action: null, params };
     }
     if (trace.tcp?.state === "refused") {
-      // На той стороне ответили отказом: порт закрыт или сервер не наш.
+      // The other side answered with a refusal: the port is closed or the server isn't ours.
       return { kind: "serverPortSilent", severity: "err", action: "switchNode", params };
     }
     if (trace.icmpReached) {
-      // Пакеты до сервера доходят, а соединение на порт молча съедают.
+      // Packets reach the server, but the connection to the port is silently swallowed.
       return { kind: "filterInPath", severity: "err", action: "dpi", params };
     }
     return { kind: "serverUnreachable", severity: "err", action: "switchNode", params };
   }
 
-  // 3. Туннель мешает конкретным сервисам (банк, госуслуги, локальные сервисы).
+  // 3. The tunnel gets in the way of specific services (bank, government services, local services).
   const tunnelBroken = blockedTunnelRows(rows);
   const serviceRefused = refusedByServiceRows(rows);
 
-  // 4. Сеть блокирует часть интернета, а туннель её открывает.
+  // 4. The network blocks part of the internet, and the tunnel opens it.
   const rescued = blockedDirectRows(rows);
   const rescuedShare = shareOf(rows, (row) => isBlockedState(row.direct?.state) && isOkState(row.tunnel?.state));
 
@@ -126,7 +126,7 @@ export function buildVerdict({
     };
   }
 
-  // 5. Приватность: смотрим только когда со связью всё в порядке.
+  // 5. Privacy: we look only when connectivity is fine.
   if (leaks) {
     if (leaks.dnsInTunnel?.state === "err") {
       return { kind: "dnsBroken", severity: "warn", action: null, params: {} };
@@ -143,8 +143,8 @@ export function buildVerdict({
     return { kind: "idle", severity: "info", action: "run", params: {} };
   }
 
-  // Матрица не собралась: остальные проверки могли пройти, но объявлять сеть
-  // чистой не на чем.
+  // The matrix didn't come together: the other checks may have passed, but there's nothing to declare
+  // the network clean on.
   if (reachFailed) {
     return { kind: "partial", severity: "warn", action: "run", params: {} };
   }
@@ -157,16 +157,16 @@ export function buildVerdict({
   };
 }
 
-/// Короткая сводка фактов под вердиктом (плитка «DNS / TCP / канал …»).
-/// Возвращает массив { key, state, value } — рендер и перевод на стороне UI.
+/// A short summary of facts under the verdict (the "DNS / TCP / channel …" tile).
+/// Returns an array of { key, state, value } — rendering and translation are on the UI side.
 export function verdictFacts({ trace = null, leaks = null, reach = [] } = {}) {
   const facts = [];
   if (trace) {
     facts.push({
       key: "trace",
       state: trace.tcpOpen ? "ok" : "err",
-      // Показываем время соединения на порт, а не RTT последнего хопа: именно
-      // оно отвечает на вопрос «дозвонились или нет».
+      // We show the connection time to the port, not the RTT of the last hop: it's
+      // what answers the question "did we get through or not".
       value: trace.tcpOpen && trace.tcp?.ms != null ? String(trace.tcp.ms) : "",
     });
   }
@@ -182,16 +182,16 @@ export function verdictFacts({ trace = null, leaks = null, reach = [] } = {}) {
   return facts;
 }
 
-/// Сколько находок дал прогон — число для подсказки в меню. Находка это то, что
-/// человек может починить: сервис, который открывается только с одной стороны,
-/// оборванная трасса, замечание по утечкам. Строки, работающие с обеих сторон,
-/// находками не считаются.
+/// How many findings the run produced — a number for the hint in the menu. A finding is something
+/// the person can fix: a service that opens only from one side,
+/// a broken trace, a leak remark. Rows that work from both sides
+/// don't count as findings.
 export function countFindings({ reach = [], trace = null, leaks = null, forwarding = null, tunMode = false } = {}) {
   const rows = Array.isArray(reach) ? reach : [];
   let count = blockedTunnelRows(rows).length + refusedByServiceRows(rows).length;
   if (tunMode && forwardingProblem(forwarding)) count += 1;
-  // Одна строка может попасть в оба списка (403 через туннель при живом
-  // прямом доступе) — не считаем её дважды.
+  // One row can end up in both lists (403 through the tunnel with live
+  // direct access) — we don't count it twice.
   const both = rows.filter(
     (row) => isOkState(row.direct?.state) && row.tunnel?.state === "http" && (row.tunnel?.httpStatus ?? 0) >= 400,
   ).length;
@@ -204,14 +204,14 @@ export function countFindings({ reach = [], trace = null, leaks = null, forwardi
   return Math.max(0, count);
 }
 
-/// Уходит ли адрес напрямую по правилу маршрутизации — региональному или
-/// пользовательскому. Нужно не для решения, а для ПОДПИСИ: при региональном
-/// правиле колонка «через Ninety» меряет прямое соединение, которое сделало
-/// само ядро, и без пояснения два одинаковых «ок» выглядят странно.
+/// Whether the address goes direct by a routing rule — regional or
+/// user-defined. Needed not for the decision but for the LABEL: with a regional
+/// rule the "through Ninety" column measures a direct connection made by
+/// the core itself, and without an explanation two identical "ok"s look strange.
 ///
-/// Локально проверяем то, что можем: суффикс страны и доменные правила
-/// пользователя. Списки geosite живут в ядре, и здесь их не развернуть —
-/// поэтому отсутствие совпадения не означает «точно идёт в туннель».
+/// Locally we check what we can: the country suffix and the user's domain
+/// rules. geosite lists live in the core and can't be expanded here —
+/// so the absence of a match doesn't mean "definitely goes into the tunnel".
 export function matchesDirectRule({ host = "", region = "", customRules = [] } = {}) {
   const name = String(host).toLowerCase();
   if (!name) return false;

@@ -1,26 +1,26 @@
-// Ninety · предполётная проверка нод перед сборкой конфига.
+// Ninety · preflight check of nodes before building the config.
 //
-// sing-box инициализирует конфиг ЦЕЛИКОМ: одна нода с параметрами, которые ядро
-// не принимает, роняет весь старт — «create service: initialize outbound[72]:
-// invalid public_key», и подписка из трёхсот серверов не работает вообще из-за
-// одного битого сервера панели. Проверяем ровно то, что ядро отвергает на
-// инициализации, и такие ноды не пускаем ни в конфиг, ни в списки.
+// sing-box initializes the config AS A WHOLE: one node with parameters the core
+// doesn't accept brings down the whole start — "create service: initialize outbound[72]:
+// invalid public_key", and a subscription of three hundred servers doesn't work at all because of
+// one broken panel server. We check exactly what the core rejects at
+// initialization, and don't let such nodes into either the config or the lists.
 //
-// Проверки намеренно узкие. Нода, которая просто не отвечает, здесь валидна:
-// её отбраковывает health-checker, а не сборщик конфига.
+// The checks are deliberately narrow. A node that simply doesn't respond is valid here:
+// the health checker weeds it out, not the config builder.
 
 import { awgHeaderRange, parseAwgHeader, profileProto, vlessEncryptionOf, vlessEncryptionValid } from "/lib/protocol-parsers.js";
 import { openvpnEndpointIssue } from "/lib/openvpn.js";
 
-// Ядро декодирует public_key строго как base64url без паддинга и требует ровно
-// 32 байта (X25519). Панели иногда отдают ключ в обычном алфавите или с «=» —
-// это лечится нормализацией, а не отбраковкой.
+// The core decodes public_key strictly as base64url without padding and requires exactly
+// 32 bytes (X25519). Panels sometimes return the key in the regular alphabet or with "=" —
+// this is fixed by normalization, not by rejection.
 function decodedLength(base64Url) {
   const s = String(base64Url || "");
   if (!s || /[^A-Za-z0-9\-_]/.test(s)) return -1;
   const std = s.replace(/-/g, "+").replace(/_/g, "/");
   const pad = (4 - (std.length % 4)) % 4;
-  if (pad === 3) return -1; // длина % 4 === 1 — такого base64 не бывает
+  if (pad === 3) return -1; // length % 4 === 1 — such base64 doesn't exist
   try {
     return atob(std + "=".repeat(pad)).length;
   } catch {
@@ -29,8 +29,8 @@ function decodedLength(base64Url) {
 }
 
 /**
- * Приводит reality public_key к тому виду, который принимает ядро.
- * @returns {string} нормализованный ключ или "" если это не 32-байтный ключ.
+ * Brings the reality public_key into the form the core accepts.
+ * @returns {string} the normalized key, or "" if it isn't a 32-byte key.
  */
 export function normalizeRealityPublicKey(raw) {
   const s = String(raw || "").trim();
@@ -39,23 +39,23 @@ export function normalizeRealityPublicKey(raw) {
   return decodedLength(urlSafe) === 32 ? urlSafe : "";
 }
 
-// short_id ядро декодирует из hex в 8 байт: нечётная длина, не-hex символ или
-// больше 16 символов — фатальная ошибка инициализации.
+// The core decodes short_id from hex into 8 bytes: an odd length, a non-hex character or
+// more than 16 characters is a fatal initialization error.
 function shortIdValid(raw) {
   const s = String(raw || "").trim();
-  if (!s) return true; // пустой short_id допустим
+  if (!s) return true; // an empty short_id is allowed
   return /^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0 && s.length <= 16;
 }
 
-// Ядро принимает у vless ровно два значения flow: пустое и «xtls-rprx-vision»
-// (sing-vmess, NewClient). Xray-вариант «…-udp443» отличается только тем, что
-// UDP:443 у него идёт мимо туннеля локально — на провод уходит тот же
-// «xtls-rprx-vision», поэтому суффикс просто снимаем, а не выбрасываем ноду.
-// Всё остальное ядро отвергает при инициализации и роняет весь конфиг.
+// The core accepts exactly two flow values for vless: empty and "xtls-rprx-vision"
+// (sing-vmess, NewClient). The Xray variant "…-udp443" differs only in that
+// UDP:443 goes past the tunnel locally — the same "xtls-rprx-vision" goes on the wire,
+// so we simply strip the suffix rather than throw the node away.
+// The core rejects everything else at initialization and brings down the whole config.
 const SINGBOX_FLOWS = new Set(["", "xtls-rprx-vision"]);
 
 /**
- * @returns {string|null} flow для sing-box или null, если ядро его не примет.
+ * @returns {string|null} flow for sing-box, or null if the core won't accept it.
  */
 export function normalizeFlow(raw) {
   const flow = String(raw || "").trim();
@@ -63,9 +63,9 @@ export function normalizeFlow(raw) {
   return SINGBOX_FLOWS.has(base) ? base : null;
 }
 
-// Список отпечатков uTLS, которые знает ядро (common/tls/utls_client.go).
-// Незнакомое имя — фатальная ошибка конфига, но отпечаток это лишь маскировка
-// ClientHello: подменить его на chrome безопаснее, чем потерять сервер.
+// The list of uTLS fingerprints the core knows (common/tls/utls_client.go).
+// An unfamiliar name is a fatal config error, but a fingerprint is just a disguise
+// for the ClientHello: replacing it with chrome is safer than losing the server.
 const UTLS_FINGERPRINTS = new Set([
   "chrome", "chrome_psk", "chrome_psk_shuffle", "chrome_padding_psk_shuffle",
   "chrome_pq", "chrome_pq_psk", "firefox", "edge", "safari", "360", "qq",
@@ -77,11 +77,11 @@ export function normalizeFingerprint(raw) {
   return UTLS_FINGERPRINTS.has(fp) ? fp : "chrome";
 }
 
-// Остальные строго проверяемые ядром значения. Списки сняты с исходников самого
-// ядра (ninety-core v1.13.19-ninety.4 и его зависимостей), а не с документации:
+// Other values the core checks strictly. The lists are taken from the sources of the
+// core itself (ninety-core v1.13.19-ninety.4 and its dependencies), not from the documentation:
 //   vmess security      — sing-vmess/client.go
 //   shadowsocks method  — sing-shadowsocks2 (shadowaead / _2022 / shadowstream / none)
-//   hysteria2 obfs      — protocol/hysteria2/outbound.go (только salamander, пароль обязателен)
+//   hysteria2 obfs      — protocol/hysteria2/outbound.go (salamander only, password required)
 //   tuic congestion     — sing-quic/tuic/client.go
 const VMESS_SECURITY = new Set([
   "", "auto", "none", "zero", "aes-128-cfb", "aes-128-gcm", "chacha20-poly1305",
@@ -100,27 +100,27 @@ const MIERU_MULTIPLEXING = new Set([
   "MULTIPLEXING_DEFAULT", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH",
 ]);
 const MIERU_HANDSHAKE = new Set(["HANDSHAKE_DEFAULT", "HANDSHAKE_STANDARD", "HANDSHAKE_NO_WAIT"]);
-// transport/sip003: неизвестный плагин — «plugin not found» на инициализации.
+// transport/sip003: an unknown plugin → "plugin not found" at initialization.
 const SHADOWSOCKS_PLUGINS = new Set(["obfs-local", "v2ray-plugin"]);
-// Длина ключа методов 2022 в байтах (sing-shadowsocks2/shadowaead_2022).
+// Key length of the 2022 methods in bytes (sing-shadowsocks2/shadowaead_2022).
 const SHADOWSOCKS_2022_KEY_BYTES = {
   "2022-blake3-aes-128-gcm": 16,
   "2022-blake3-aes-256-gcm": 32,
   "2022-blake3-chacha20-poly1305": 32,
 };
 
-// Транспорты, которые приложение реально умеет провести: часть несёт само ядро
-// (ws/grpc/http/httpupgrade/quic), xhttp и mKCP — локальный xray-мост. Всё
-// остальное (например, старый v2ray «tcp+http-обфускация» или неизвестные
-// названия) молча собиралось как обычный TCP: конфиг валиден, ядро стартует,
-// нода мертва без единой строки в логе. Такую ноду честнее не брать.
+// Transports the app can actually handle: some are carried by the core itself
+// (ws/grpc/http/httpupgrade/quic), xhttp and mKCP by the local xray bridge. Everything
+// else (e.g. the old v2ray "tcp+http obfuscation" or unknown
+// names) was silently built as regular TCP: the config is valid, the core starts,
+// the node is dead without a single line in the log. It's more honest not to take such a node.
 const TRANSPORT_TYPES = new Set([
   "", "tcp", "raw", "ws", "grpc", "http", "h2", "httpupgrade", "quic", "xhttp", "kcp",
 ]);
-// Транспорт есть только у протоколов v2ray-семейства; у остальных поле означает
-// другое или его нет вовсе.
+// Only v2ray-family protocols have a transport; for the others the field means
+// something else or doesn't exist at all.
 const TRANSPORT_PROTOS = new Set(["vless", "vmess", "trojan"]);
-// Протоколы готового outbound Xray (proto "xray"), которые несёт xray-мост.
+// Protocols of a ready Xray outbound (proto "xray") that the xray bridge carries.
 const XRAY_RAW_PROTOCOLS = new Set(["vless", "vmess", "trojan", "shadowsocks", "hysteria"]);
 
 function realityRequested(node) {
@@ -128,13 +128,13 @@ function realityRequested(node) {
   return String(mode || "").toLowerCase() === "reality";
 }
 
-// Проверку зовут на каждое чтение активного источника, а тот отдаёт один и тот
-// же набор объектов нод, пока хранилище не переписали. Кэш по ссылке снимает
-// повторный разбор трёхсот нод; объекты нод неизменяемы — их заменяют целиком.
+// The check is called on every read of the active source, and the source returns the same
+// set of node objects until the storage is rewritten. A cache by reference removes
+// the repeated parsing of three hundred nodes; node objects are immutable — they're replaced entirely.
 const issueCache = new WeakMap();
 
 /**
- * Причина, по которой ядро не примет ноду. null — нода пригодна.
+ * The reason the core won't accept the node. null — the node is usable.
  * @returns {{code: string} | null}
  */
 export function nodeConfigIssue(node) {
@@ -145,9 +145,9 @@ export function nodeConfigIssue(node) {
   return issue;
 }
 
-// WireGuard живёт в endpoints, а не в outbounds, но правило то же: ядро
-// инициализирует конфиг целиком, и один битый ключ роняет весь запуск.
-// Проверяем ровно то, что ядро и наш форк wireguard-go отвергают на старте.
+// WireGuard lives in endpoints, not in outbounds, but the rule is the same: the core
+// initializes the config as a whole, and one broken key brings down the whole launch.
+// We check exactly what the core and our wireguard-go fork reject at startup.
 function wireguardKeyValid(value) {
   return decodedLength(String(value || "").trim().replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")) === 32;
 }
@@ -169,8 +169,8 @@ function wireguardIssue(node) {
       return { code: "endpoint" };
     }
     if (peer.reserved !== undefined) {
-      // Три байта, каждый — обычный октет. Приходят только из импортированного
-      // конфига ядра: в .conf такого поля нет.
+      // Three bytes, each a regular octet. They come only from an imported
+      // core config: there's no such field in .conf.
       const reserved = peer.reserved;
       if (!Array.isArray(reserved) || reserved.length !== 3
         || reserved.some(v => !Number.isInteger(Number(v)) || Number(v) < 0 || Number(v) > 255)) {
@@ -181,22 +181,22 @@ function wireguardIssue(node) {
   }
   const awgIssue = amneziaIssue(node.awg);
   if (awgIssue) return awgIssue;
-  // reserved и шейпинг AmneziaWG на одном пире несовместимы — ядро отвергает
-  // такой endpoint целиком, а вместе с ним и весь конфиг.
+  // reserved and AmneziaWG shaping on the same peer are incompatible — the core rejects
+  // such an endpoint entirely, and the whole config with it.
   if (anyReserved && amneziaActive(node.awg)) return { code: "wgReservedNoise" };
   return null;
 }
 
-// OpenVPN, как WireGuard, живёт в endpoints. Проверяем и сохранённые .ovpn,
-// и настройки, импортированные непосредственно из JSON sing-box.
+// OpenVPN, like WireGuard, lives in endpoints. We check both saved .ovpn files
+// and settings imported directly from sing-box JSON.
 export function openvpnIssue(node) {
   if (String(node?.dev || "").toLowerCase().startsWith("tap")) return { code: "ovpnTun" };
   if (node?.network !== undefined && !["udp", "tcp"].includes(node.network)) return { code: "ovpnNetwork" };
   return openvpnEndpointIssue(node?.endpoint, node?.authUserPass === true);
 }
 
-// Шейпинг включён, если задано хоть одно поле, которое дойдёт до ядра. Условия
-// повторяют buildAmneziaNoise: пустой блок в конфиг не попадает вовсе.
+// Shaping is on if at least one field that will reach the core is set. The conditions
+// repeat buildAmneziaNoise: an empty block doesn't get into the config at all.
 function amneziaActive(awg) {
   if (!awg) return false;
   const num = (value) => Number(awg[value]) || 0;
@@ -207,7 +207,7 @@ function amneziaActive(awg) {
   return ["i1", "i2", "i3", "i4", "i5"].some(key => awg[key]);
 }
 
-// Ключ защиты заголовков: base64, как в .conf, или hex, как в UAPI AmneziaWG.
+// Header protection key: base64, as in .conf, or hex, as in the AmneziaWG UAPI.
 function headerKeyLength(raw) {
   const text = String(raw || "").trim();
   if (/^[0-9a-fA-F]{64}$/.test(text)) return 32;
@@ -216,8 +216,8 @@ function headerKeyLength(raw) {
   try { return atob(std + "=".repeat((4 - (std.length % 4)) % 4)).length; } catch { return -1; }
 }
 
-// H1..H4 отличаются от типов сообщений WireGuard (1..4). Диапазон — всегда
-// отличие: 2.0 без своих заголовков не бывает.
+// H1..H4 differ from the WireGuard message types (1..4). A range is always
+// different: 2.0 doesn't exist without its own headers.
 function customAwgHeaders(awg) {
   return ["h1", "h2", "h3", "h4"].some((key, index) => {
     const range = awgHeaderRange(awg[key]);
@@ -225,9 +225,9 @@ function customAwgHeaders(awg) {
   });
 }
 
-// Шейпинг AmneziaWG: те же инварианты, что проверяет ядро (noise/amnezia.go).
-// Ловим их здесь, чтобы нода отсеялась со своей причиной, а не утащила за
-// собой весь конфиг.
+// AmneziaWG shaping: the same invariants the core checks (noise/amnezia.go).
+// We catch them here so that the node is weeded out with its own reason rather than dragging
+// the whole config down with it.
 const WG_MESSAGE_SIZES = { initiation: 148, response: 92 };
 
 function amneziaIssue(awg) {
@@ -238,17 +238,17 @@ function amneziaIssue(awg) {
   if (jc > 0 && (jmax <= 0 || jmin > jmax || jmax > 1280)) return { code: "wgJunkSize" };
   const s1 = num(awg.s1), s2 = num(awg.s2);
   if (s1 < 0 || s1 > 1280 || s2 < 0 || s2 > 1280) return { code: "wgHandshakeJunk" };
-  // Дополненные init и response не должны совпасть по длине: получатель
-  // различает их сначала по размеру.
+  // Padded init and response must not match in length: the receiver
+  // tells them apart by size first.
   if (s1 + WG_MESSAGE_SIZES.initiation === s2 + WG_MESSAGE_SIZES.response) {
     return { code: "wgHandshakeJunk" };
   }
-  // S3 — cookie reply, S4 — каждый транспортный пакет (AmneziaWG 2.0).
+  // S3 — cookie reply, S4 — every transport packet (AmneziaWG 2.0).
   const s3 = num(awg.s3), s4 = num(awg.s4);
   if (s3 < 0 || s3 > 1280) return { code: "wgHandshakeJunk" };
   if (s4 < 0 || s4 > 256) return { code: "wgTransportJunk" };
-  // AmneziaWG 3: ключ защиты заголовков — 32 байта; nonce берётся из начала
-  // padding'а перед каждым сообщением, поэтому каждое S не меньше 12.
+  // AmneziaWG 3: the header protection key is 32 bytes; the nonce is taken from the start
+  // of the padding before each message, so each S is at least 12.
   if (awg.headerProtectionKey) {
     if (headerKeyLength(awg.headerProtectionKey) !== 32) return { code: "wgHeaderKey" };
     if ([num(awg.s1), num(awg.s2), s3, s4].some((padding) => padding < 12)) return { code: "wgHeaderKey" };
@@ -260,9 +260,9 @@ function amneziaIssue(awg) {
   const keys = ["h1", "h2", "h3", "h4"];
   if (keys.some((key) => parseAwgHeader(awg[key]) === null)) return { code: "wgMagicHeaders" };
   if (customAwgHeaders(awg)) {
-    // Незаданный заголовок сборщик дополняет типом WireGuard; приёмник
-    // различает сообщения по тому, в чей диапазон попал тип, — пересекаться
-    // диапазонам нельзя даже одним значением.
+    // An unset header is filled in by the builder with the WireGuard type; the receiver
+    // tells messages apart by whose range the type falls into — the ranges must not
+    // overlap even by one value.
     const effective = keys.map((key, index) => awgHeaderRange(awg[key]) || { from: index + 1, to: index + 1 });
     for (let i = 0; i < effective.length; i++) {
       for (let j = i + 1; j < effective.length; j++) {
@@ -275,7 +275,7 @@ function amneziaIssue(awg) {
   return null;
 }
 
-// Диапазоны смены портов hysteria2 в форме ядра: «начало:конец».
+// hysteria2 port hopping ranges in the core's form: "start:end".
 function validPortRanges(ports) {
   if (!Array.isArray(ports) || !ports.length) return false;
   return ports.every((range) => {
@@ -287,7 +287,7 @@ function validPortRanges(ports) {
   });
 }
 
-// У Mieru диапазон записывается через дефис, в отличие от hysteria2.
+// Mieru writes the range with a hyphen, unlike hysteria2.
 function validMieruPortRanges(ports) {
   if (!Array.isArray(ports) || !ports.length) return false;
   return ports.every((range) => {
@@ -299,7 +299,7 @@ function validMieruPortRanges(ports) {
   });
 }
 
-// Строгий base64 с паддингом: так ядро декодирует PSK и закреплённый хеш ключа.
+// Strict base64 with padding: that's how the core decodes the PSK and the pinned key hash.
 function strictBase64Length(raw) {
   const s = String(raw || "");
   if (!s || s.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(s)) return -1;
@@ -310,12 +310,12 @@ function strictBase64Length(raw) {
   }
 }
 
-// «ipsk:upsk» — несколько ключей через двоеточие, каждый нужной длины.
+// "ipsk:upsk" — several keys separated by a colon, each of the required length.
 function shadowsocks2022KeysValid(password, keyBytes) {
   return String(password || "").split(":").every((key) => strictBase64Length(key) === keyBytes);
 }
 
-// Ядро принимает формы gofrs/uuid: с дефисами, без них, в скобках и urn:uuid:.
+// The core accepts gofrs/uuid forms: with hyphens, without them, in braces and urn:uuid:.
 function uuidValid(raw) {
   const s = String(raw || "").trim().toLowerCase().replace(/^urn:uuid:/, "").replace(/^\{(.*)\}$/, "$1");
   return /^[0-9a-f]{32}$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s);
@@ -323,8 +323,8 @@ function uuidValid(raw) {
 
 function computeNodeConfigIssue(node) {
   const proto = profileProto(node);
-  // Sidecar-протоколы (naive/trusttunnel) в sing-box уходят socks-мостом:
-  // их параметры ядро не разбирает, проверять по его правилам нечего.
+  // Sidecar protocols (naive/trusttunnel) go into sing-box via a socks bridge:
+  // the core doesn't parse their parameters, there's nothing to check by its rules.
   if (proto === "naive" || proto === "trusttunnel") return null;
 
   const port = Number(node.port);
@@ -335,8 +335,8 @@ function computeNodeConfigIssue(node) {
   if (proto === "wireguard") return wireguardIssue(node);
   if (proto === "openvpn") return openvpnIssue(node);
 
-  // Готовый outbound Xray ядро не разбирает: его поднимает xray-мост как есть.
-  // Проверяем только, что внутри действительно сервер, который мост примет.
+  // The core doesn't parse a ready Xray outbound: the xray bridge brings it up as is.
+  // We only check that inside there really is a server the bridge will accept.
   if (proto === "xray") {
     const outbound = node.outbound;
     const protocol = String(outbound?.protocol || "").toLowerCase();
@@ -349,9 +349,9 @@ function computeNodeConfigIssue(node) {
   if (proto === "vless" && normalizeFlow(node.flow) === null) {
     return { code: "flow" };
   }
-  // Шифрование VLESS поднимает только xray, а мост умеет его для xhttp, mKCP и
-  // обычного TCP. С другим транспортом нода была бы мертва без единой строки в
-  // логе — честнее отсеять её с причиной.
+  // VLESS encryption is brought up only by xray, and the bridge supports it for xhttp, mKCP and
+  // regular TCP. With another transport the node would be dead without a single line in
+  // the log — it's more honest to weed it out with a reason.
   if (vlessEncryptionOf(node)) {
     if (!vlessEncryptionValid(node.encryption)) return { code: "encryption" };
     const type = String(node.type || "");
@@ -378,9 +378,9 @@ function computeNodeConfigIssue(node) {
     return { code: "endpoint" };
   }
 
-  // Ядро ждёт base64 SHA-256 публичного ключа (32 байта). Hex-отпечаток сертификата
-  // из оригинального клиента — другая величина: с двоеточиями он роняет конфиг,
-  // а без них не совпадает никогда, и снимать пин ради подключения нельзя.
+  // The core expects a base64 SHA-256 of the public key (32 bytes). A hex certificate fingerprint
+  // from the original client is a different quantity: with colons it brings down the config,
+  // and without them it never matches, and dropping the pin just to connect is not allowed.
   if (proto === "hysteria2" && node.pinSHA256 && strictBase64Length(node.pinSHA256) !== 32) {
     return { code: "certPin" };
   }
@@ -400,13 +400,13 @@ function computeNodeConfigIssue(node) {
   if (TRANSPORT_PROTOS.has(proto)) {
     const type = String(node.type || "").toLowerCase();
     if (!TRANSPORT_TYPES.has(type)) return { code: "transport" };
-    // HTTP-обфускацию TCP ядро не реализует: нода собралась бы обычным TCP,
-    // ядро стартовало бы, а сервер молча не отвечал.
+    // The core doesn't implement TCP HTTP obfuscation: the node would be built as regular TCP,
+    // the core would start, and the server would silently not respond.
     if ((type === "tcp" || type === "raw") && String(node.headerType || "").toLowerCase() === "http") {
       return { code: "transport" };
     }
-    // Ядро поднимает «сырой» QUIC; дополнительное шифрование транспорта из Xray
-    // оно не реализует, и такая нода не встанет в любом случае.
+    // The core brings up "raw" QUIC; it doesn't implement Xray's additional transport encryption,
+    // and such a node won't come up in any case.
     if (type === "quic") {
       const quicSecurity = String(node.quicSecurity || "").toLowerCase();
       if (quicSecurity && quicSecurity !== "none") return { code: "quicSecurity" };
@@ -427,8 +427,8 @@ function computeNodeConfigIssue(node) {
   }
 
   if (proto === "hysteria") {
-    // Ядро реализует только обычный UDP: faketcp и wechat-video из
-    // оригинального клиента v1 ему неизвестны.
+    // The core implements only regular UDP: faketcp and wechat-video from
+    // the original v1 client are unknown to it.
     const wire = String(node.hysteriaProtocol || "udp").toLowerCase();
     if (wire !== "udp") return { code: "hysteriaProtocol" };
   }
@@ -442,7 +442,7 @@ function computeNodeConfigIssue(node) {
 }
 
 /**
- * Делит список на пригодные ноды и отбракованные с причиной.
+ * Splits the list into usable nodes and rejected ones with a reason.
  * @returns {{usable: object[], skipped: {node: object, issue: {code: string}}[]}}
  */
 export function partitionNodes(nodes) {
@@ -460,10 +460,10 @@ export function usableNodes(nodes) {
   return partitionNodes(nodes).usable;
 }
 
-// Провайдеры кладут в подписку строки «осталось трафика», «тариф до …»,
-// «включите HWID» в виде ненастоящих серверов на 127.0.0.1 или 0.0.0.0. В
-// «Авто» такая нода первой в списке: до первого замера ядро шлёт через неё
-// загрузку наборов правил, получает отказ соединения и не стартует вовсе.
+// Providers put lines like "traffic left", "plan until …",
+// "enable HWID" into the subscription as fake servers on 127.0.0.1 or 0.0.0.0. In
+// "Auto" such a node is first in the list: before the first measurement the core sends
+// rule set downloads through it, gets a connection refusal and doesn't start at all.
 function placeholderHost(raw) {
   const host = String(raw || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
   if (!host) return false;
@@ -473,9 +473,9 @@ function placeholderHost(raw) {
 }
 
 /**
- * Нода-заглушка подписки: адрес никуда не ведёт за пределы этого ПК.
- * Ручные профили так не проверяются — там 127.0.0.1 бывает осознанным
- * (например, локальный туннель).
+ * A subscription placeholder node: the address leads nowhere beyond this PC.
+ * Manual profiles aren't checked this way — there 127.0.0.1 may be deliberate
+ * (e.g. a local tunnel).
  */
 export function isPlaceholderNode(node) {
   if (!node || typeof node !== "object") return false;
@@ -485,9 +485,9 @@ export function isPlaceholderNode(node) {
 }
 
 /**
- * Ноды подписки без заглушек — если после отсева остаётся хоть один сервер.
- * Подписка из одних заглушек — это ответ панели (HWID, истёкший тариф), и её
- * оставляем как есть: пусть вызывающий разбирает её по своим правилам.
+ * Subscription nodes without placeholders — if at least one server remains after weeding out.
+ * A subscription consisting only of placeholders is the panel's response (HWID, expired plan), and it
+ * is left as is: let the caller handle it by its own rules.
  */
 export function withoutPlaceholders(nodes) {
   const list = Array.isArray(nodes) ? nodes : [];

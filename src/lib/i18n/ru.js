@@ -1,5 +1,5 @@
-// Ninety · каталог RU — базовый, источник истины (извлечён из интерфейса).
-// Структура вложенная по областям; рантайм флэттит в точечные ключи (onb.welcome.title).
+// Ninety · RU catalog — the base, the source of truth (extracted from the interface).
+// The structure is nested by area; the runtime flattens it into dotted keys (onb.welcome.title).
 export const ru = {
   titlebar: { min: "Свернуть", max: "Развернуть", close: "Закрыть" },
 
@@ -64,7 +64,7 @@ export const ru = {
     channelTitle: "Качество канала",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Показать Ninety",
     connect: "Подключиться",

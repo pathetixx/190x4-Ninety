@@ -1,13 +1,13 @@
-// Ninety · поповеры титулбара (сейчас только «Режим подключения»). Вынесено из
-// main.js. Самодостаточно: элементы берёт по id, вешает открытие/закрытие с
-// позиционированием под кнопкой, закрытие по клику-вне/Escape и репозицию на resize.
-// Возвращает { closeAll } — main зовёт его при открытии модалок (напр. add-sub).
+// Ninety · titlebar popovers (currently only "Connection mode"). Moved out of
+// main.js. Self-contained: takes elements by id, attaches open/close with
+// positioning under the button, closing on click-outside/Escape and repositioning on resize.
+// Returns { closeAll } — main calls it when opening modals (e.g. add-sub).
 
 const POPOVERS = {
   mode: { btnId: "mode-toggle", elId: "mode-popover" },
 };
 
-// Минимальный зазор от края окна при клампе.
+// Minimum gap from the window edge when clamping.
 const EDGE = 8;
 
 export function initPopovers() {
@@ -27,14 +27,14 @@ export function initPopovers() {
     }
   }
 
-  // Позиционируем через left: якорим по логической стороне кнопки (в LTR правый
-  // край поповера по правому краю кнопки, в RTL — левый по левому) и держим в
-  // границах окна. Жёсткое `right` уводило поповер за левый край в fa/ar: там
-  // тулбар зеркалится к левому краю, а карточка шире расстояния до него.
+  // Positioned via left: anchored to the button's logical side (in LTR the popover's right
+  // edge at the button's right edge, in RTL the left one at the left one) and kept within
+  // the window bounds. A hard `right` pushed the popover past the left edge in fa/ar: there
+  // the toolbar is mirrored to the left edge, and the card is wider than the distance to it.
   function place(p) {
     const el = p.el;
     const wasHidden = el.hidden;
-    // Ширина нужна до показа: у hidden-элемента она нулевая.
+    // The width is needed before showing: for a hidden element it's zero.
     if (wasHidden) { el.style.visibility = "hidden"; el.hidden = false; }
     const r = p.btn.getBoundingClientRect();
     const w = el.offsetWidth;

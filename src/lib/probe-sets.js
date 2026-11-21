@@ -1,23 +1,23 @@
-// Ninety · наборы целей для матрицы доступности («Диагностика»).
+// Ninety · target sets for the reachability matrix ("Diagnostics").
 //
-// Набор собирается из трёх слоёв:
-//   global — одинаков для всех: мессенджеры, видео, игры, ИИ, инфраструктура;
-//   region — пакет страны, где человек живёт: банки и госсервисы, которые
-//            обычно НЕ пускают зарубежный адрес, то есть ломаются как раз от
-//            включённого туннеля;
-//   pinned — то, что пользователь закрепил сам после ручной проверки.
+// The set is built from three layers:
+//   global — the same for everyone: messengers, video, games, AI, infrastructure;
+//   region — the pack of the country where the person lives: banks and government services that
+//            usually DON'T let in a foreign address, i.e. break precisely because of
+//            the enabled tunnel;
+//   pinned — what the user pinned themselves after a manual check.
 //
-// Региональный пакет — не «российская специфика», а обязательная часть
-// диагностики в любой стране: локальный банк отказывает туннельному адресу
-// одинаково и в Москве, и в Берлине. Список стран здесь ШИРЕ, чем в настройке
-// «Регион» (та правит маршрутизацию и ограничена наборами geosite/geoip ядра),
-// поэтому пакет выбирается своим ключом diagnose.regionPack.
+// The regional pack isn't a "Russian specific" but a mandatory part of
+// diagnostics in any country: a local bank refuses a tunnel address
+// equally in Moscow and in Berlin. The list of countries here is WIDER than in the
+// "Region" setting (that one controls routing and is limited to the core's geosite/geoip sets),
+// so the pack is chosen with its own key, diagnose.regionPack.
 //
-// Требования к адресу цели: отвечает быстро, не требует авторизации, стабилен
-// годами. Идеал — endpoint вида /generate_204 или /cdn-cgi/trace: там ответ
-// маленький и однозначный.
+// Requirements for a target address: responds quickly, doesn't require authorization, stable
+// for years. Ideally an endpoint like /generate_204 or /cdn-cgi/trace: the response there is
+// small and unambiguous.
 
-// Ядро: то, что спрашивают в любой стране.
+// The core: what people ask about in any country.
 export const GLOBAL_TARGETS = [
   { id: "cloudflare", name: "Cloudflare", url: "https://cloudflare.com/cdn-cgi/trace" },
   { id: "google", name: "Google", url: "https://www.gstatic.com/generate_204" },
@@ -36,8 +36,8 @@ export const GLOBAL_TARGETS = [
   { id: "wikipedia", name: "Wikipedia", url: "https://www.wikipedia.org/" },
 ];
 
-// Пакеты стран: банк + госуслуги + крупный локальный сервис. Больше трёх целей
-// на страну не берём — это диагностика, а не каталог.
+// Country packs: a bank + government services + a big local service. We don't take more than three targets
+// per country — this is diagnostics, not a catalog.
 export const REGION_TARGETS = {
   ru: [
     { id: "ru-bank", name: "Сбербанк Онлайн", url: "https://online.sberbank.ru/" },
@@ -123,8 +123,8 @@ function normalizeUrl(raw) {
   }
 }
 
-/// Закреплённая пользователем цель. Имя показываем как есть, адрес обязан быть
-/// http(s): всё остальное бэкенд всё равно отвергнет, но лучше не доводить.
+/// A target pinned by the user. The name is shown as is, the address must be
+/// http(s): the backend would reject everything else anyway, but better not to get there.
 export function normalizePinned(entry) {
   const url = normalizeUrl(entry?.url);
   if (!url) return null;
@@ -133,10 +133,10 @@ export function normalizePinned(entry) {
   return { id, name, url };
 }
 
-/// Итоговый набор целей для одного прогона.
+/// The final set of targets for one run.
 ///
-/// Порядок важен: сначала личные цели (человек проверял их только что), затем
-/// региональные (они чаще всего и ломаются от туннеля), затем глобальные.
+/// Order matters: first personal targets (the person just checked them), then
+/// regional ones (they're the ones that break from the tunnel most often), then global ones.
 export function buildProbeSet({ regionPack = "", pinned = [] } = {}) {
   const pack = String(regionPack || "").toLowerCase();
   const regional = REGION_TARGETS[pack] || [];
@@ -158,9 +158,9 @@ export function buildProbeSet({ regionPack = "", pinned = [] } = {}) {
   return out;
 }
 
-/// Полный каталог целей по id — для подписей уже полученных результатов.
-/// Набор мог смениться между прогоном и отрисовкой, и без общего каталога
-/// строка теряла имя сервиса и показывала сырой идентификатор.
+/// The full catalog of targets by id — for labels of already received results.
+/// The set may have changed between the run and rendering, and without a shared catalog
+/// a row lost the service name and showed a raw identifier.
 export function targetsById(pinned = []) {
   const map = new Map();
   for (const target of GLOBAL_TARGETS) map.set(target.id, { ...target, scope: "global" });
@@ -174,14 +174,14 @@ export function targetsById(pinned = []) {
   return map;
 }
 
-/// «Ещё не выбирали»: до первого осознанного выбора пакет угадывается.
+/// "Not chosen yet": until the first deliberate choice the pack is guessed.
 export const AUTO_PACK = "auto";
-/// Осознанный выбор «только глобальный набор». Отдельное значение, а не пустая
-/// строка: пустая исторически means «ничего не сохранено», и трактовать её как
-/// выбор значило бы менять поведение старым конфигам при обновлении.
+/// A deliberate choice of "global set only". A separate value, not an empty
+/// string: historically an empty one means "nothing saved", and treating it as
+/// a choice would mean changing behavior for old configs on update.
 export const GLOBAL_PACK = "global";
 
-/// Какой пакет использовать: "" (только глобальные цели) или код страны.
+/// Which pack to use: "" (global targets only) or a country code.
 export function resolveRegionPack({ stored, region = "", lang = "" } = {}) {
   const pack = String(stored ?? "").toLowerCase();
   if (!pack || pack === AUTO_PACK) return defaultRegionPack({ region, lang });
@@ -189,9 +189,9 @@ export function resolveRegionPack({ stored, region = "", lang = "" } = {}) {
   return REGION_TARGETS[pack] ? pack : "";
 }
 
-/// Пакет по умолчанию: сначала настройка маршрутизации (человек уже указал свою
-/// страну), затем язык интерфейса. Не угадали — остаётся только глобальное ядро,
-/// и это честнее, чем показывать чужие банки.
+/// Default pack: first the routing setting (the person has already specified their
+/// country), then the interface language. If we didn't guess, only the global core remains,
+/// and that's more honest than showing someone else's banks.
 export function defaultRegionPack({ region = "", lang = "" } = {}) {
   const byRegion = String(region || "").toLowerCase();
   if (REGION_TARGETS[byRegion]) return byRegion;

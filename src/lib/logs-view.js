@@ -1,8 +1,8 @@
-// Ninety · экран «Логи»: чтение хвоста лог-файлов движков (sing-box/xray/naive/
-// trusttunnel/dpi), парсинг в записи, фильтр по уровню/тексту, подсветка.
-// Выделен из main.js: вью самодостаточно (свои DOM-refs и invoke); main зовёт
-// mountLogsView() на старте, onLogsViewEnter/Leave при навигации и
-// rerenderLogsView() при смене языка.
+// Ninety · the "Logs" screen: reading the tail of engine log files (sing-box/xray/naive/
+// trusttunnel/dpi), parsing into records, filtering by level/text, highlighting.
+// Split out of main.js: the view is self-contained (its own DOM refs and invoke); main calls
+// mountLogsView() at startup, onLogsViewEnter/Leave on navigation and
+// rerenderLogsView() on a language change.
 
 import { activityController } from "/lib/activity-controller.js";
 import { perfObserver } from "/lib/performance-observer.js";
@@ -29,16 +29,16 @@ let logsView, logsPath, logsSize, logsAuto, logsRefreshBtn, logsCopyBtn,
 let logsTimer = null;
 let logsActive = false;
 let logsLastValue = "";
-// Позиция в файле, с которой backend дочитает в следующий раз. null = читать
-// хвост целиком (первый заход, смена источника, очистка лога, составной
-// источник вроде naive/trusttunnel — у тех единой позиции нет).
+// The position in the file from which the backend will continue reading next time. null = read
+// the whole tail (first visit, source change, log cleared, a composite
+// source like naive/trusttunnel — those have no single position).
 let logsOffset = null;
-// Версия накопленного хвоста. Ключ рендера считает по ней, а не по длине буфера:
-// при дописывании сверху отрезается столько же, сколько пришло снизу, и длина
-// может совпасть с прошлой — рендер решил бы, что показывать нечего нового.
+// Version of the accumulated tail. The render key is computed from it, not from the buffer length:
+// when appending, as much is cut off at the top as arrived at the bottom, and the length
+// may match the previous one — the render would decide there's nothing new to show.
 let logsBufferVersion = 0;
-// Выборка (источник + фильтры), под которую собран текущий DOM, и признак того,
-// что в контейнере лежит служебная строка, а не записи журнала.
+// The selection (source + filters) the current DOM was built for, and a flag
+// that the container holds a service line rather than log records.
 let logsRenderedScope = null;
 let logsRenderedInfo = true;
 let logsEntries = [];
@@ -51,9 +51,9 @@ let logsRequestId = 0;
 
 function currentLogSource() { return logsSource?.value || "singbox"; }
 
-// Тег активной ноды знает только main.js (эффективный сервер приходит из clash).
-// Без него журнал прячет все отчёты health-checker'а — они и относятся к нодам,
-// через которые трафик не идёт.
+// Only main.js knows the active node's tag (the effective server comes from clash).
+// Without it the log hides all health checker reports — they're about nodes
+// the traffic doesn't go through.
 let getActiveNodeTag = () => null;
 
 export function configureLogsRuntime({ getActiveNodeTag: getter } = {}) {
@@ -67,9 +67,9 @@ function formatBytes(n) {
 }
 
 // sing-box stdout: `+0300 2025-01-01 12:34:56 INFO [tag] message`
-//                  `12:34:56.123 INFO message`           (timestamp без даты)
-//                  `INFO message`                        (timestamp выключен)
-//                  `+0300 INFO message`                  (offset без timestamp)
+//                  `12:34:56.123 INFO message`           (timestamp without a date)
+//                  `INFO message`                        (timestamp disabled)
+//                  `+0300 INFO message`                  (offset without a timestamp)
 const LOG_LINE_RE = /^(?:([+-]\d{4})\s+)?(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?)?\s*(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC)\s+(.*)$/i;
 const LOG_ANSI_RE = /\x1b\[[0-9;]*m/g;        // eslint-disable-line no-control-regex
 const LOG_STD_PREFIX_RE = /^(?:STDERR|STDOUT):\s*/;
@@ -79,12 +79,12 @@ function escapeLog(s) {
   return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
 }
 
-// Порядок подстановок значим. IP и URL подсвечиваем ПЕРВЫМИ — по плоскому
-// экранированному тексту. Если делать наоборот, жадный `[^\s]+` URL-регэкспа
-// захватывает уже вставленную разметку (`https://x]</b>` внутри `[tag]`) и
-// ломает вложенность тегов: браузер закрывает <b> не там, и остаток строки
-// уезжает по стилю. Классы символов сужены так, чтобы совпадение не могло
-// перешагнуть в тег: `[^\s<]` для URL, `[^\]<]` для тега.
+// The order of substitutions matters. IPs and URLs are highlighted FIRST — on the flat
+// escaped text. Done the other way around, the URL regex's greedy `[^\s]+`
+// captures already inserted markup (`https://x]</b>` inside `[tag]`) and
+// breaks tag nesting: the browser closes <b> in the wrong place, and the rest of the line
+// gets the wrong style. The character classes are narrowed so that a match can't
+// step into a tag: `[^\s<]` for URLs, `[^\]<]` for a tag.
 function highlightMessage(msg) {
   return escapeLog(msg)
     .replace(/\b(\d+\.\d+\.\d+\.\d+)(?::\d+)?\b/g, '<span class="acc">$&</span>')
@@ -105,14 +105,14 @@ function attachLogFlagFallbacks(root) {
 }
 
 const LOG_RENDER_MAX_LINES = 800;
-// Хвост читается ровно под то, что вью в состоянии показать: рендер всё равно
-// обрезан LOG_RENDER_MAX_LINES, а прежние 256 КБ каждые две секунды гонялись
-// через IPC и парсились целиком, чтобы половину сразу отбросить.
+// The tail is read exactly to what the view is able to show: the render is
+// cut to LOG_RENDER_MAX_LINES anyway, and the former 256 KB was sent every two seconds
+// through IPC and parsed entirely just to throw half of it away right away.
 const LOG_TAIL_BYTES = 128 * 1024;
 
-// Длина в байтах без второй копии хвоста в памяти. Blob([text]) и
-// TextEncoder().encode() ради одного числа аллоцировали ещё сотню килобайт на
-// каждом тике таймера.
+// Length in bytes without a second copy of the tail in memory. Blob([text]) and
+// TextEncoder().encode() allocated another hundred kilobytes for a single number on
+// every timer tick.
 function utf8Size(text) {
   let bytes = 0;
   for (let i = 0; i < text.length; i++) {
@@ -129,19 +129,19 @@ const LOG_LEVEL_GROUP = {
   warn: ["WARN", "WARNING"], error: ["ERROR", "FATAL", "PANIC"],
 };
 
-// Парс выполняется только при получении нового file tail. Изменение search/level
-// фильтрует уже готовые entries и больше не split/regex-парсит 800 строк заново.
+// Parsing happens only when a new file tail arrives. Changing search/level
+// filters the already prepared entries and no longer splits/regex-parses 800 lines anew.
 //
-// carry — последняя уже разобранная запись, когда парсится ДОПИСАННЫЙ кусок лога:
-// многострочная запись (стек, дамп конфига) разрывается на границе куска, и её
-// продолжение должно приклеиться к той записи, а не стать новой безуровневой.
-// Запись при этом мутируется на месте и в результат не попадает — она уже в списке.
+// carry is the last already parsed record, when an APPENDED chunk of the log is parsed:
+// a multiline record (a stack, a config dump) is split at the chunk boundary, and its
+// continuation must stick to that record rather than become a new levelless one.
+// The record is mutated in place and doesn't get into the result — it's already in the list.
 export function parseLogEntries(text, activeNodeTag = getActiveNodeTag(), { carry = null } = {}) {
   const lines = String(text || "").split(/\r?\n/).slice(-LOG_RENDER_MAX_LINES);
   const entries = [];
   let cur = carry;
-  // Отброшенная запись забирает с собой и свои продолжения: иначе хвост
-  // многострочной ошибки прилип бы к предыдущей, ни к чему не относящейся.
+  // A dropped record takes its continuations with it: otherwise the tail
+  // of a multiline error would stick to the previous, unrelated one.
   let dropped = false;
   for (const raw0 of lines) {
     const raw = cleanLogLine(raw0);
@@ -194,48 +194,48 @@ function logsInfoLine(text) {
   return `<div class="log-line"><span class="log-line__t">—</span><span class="log-line__l log-line__l--info">···</span><span class="log-line__m" style="font-style:italic;color:var(--text-lo)">${escapeLog(text)}</span></div>`;
 }
 
-// Дешёвый ключ вместо сравнения собранного HTML целиком. Прежняя проверка
-// требовала сначала склеить всю разметку и только затем сравнить её посимвольно
-// с прошлым результатом — и то и другое на каждом тике таймера, даже когда
-// показывать нечего нового.
+// A cheap key instead of comparing the whole assembled HTML. The former check
+// required first gluing all the markup together and only then comparing it character by character
+// with the previous result — both on every timer tick, even when
+// there's nothing new to show.
 //
-// Числа отрисованных строк в ключе больше нет: версия буфера меняется при любом
-// изменении содержимого, а фильтры входят в ключ сами — значит считать
-// отфильтрованный список ради одного ключа не нужно.
+// The number of rendered lines is no longer in the key: the buffer version changes on any
+// content change, and the filters are part of the key themselves — so there's no need to compute
+// the filtered list just for one key.
 function logsRenderKey() {
   return `${currentLogSource()}\u0000${logsBufferVersion}\u0000${logsFilterQuery}\u0000${logsFilterLevel}`;
 }
 
-// Что нарисовано прямо сейчас. Дописывать в конец можно, только пока это тот же
-// источник с теми же фильтрами и пока в контейнере лежат строки журнала, а не
-// служебная строка «лог пуст» / «ничего не найдено».
+// What is drawn right now. Appending to the end is possible only while it's the same
+// source with the same filters and while the container holds log lines, not
+// the "log is empty" / "nothing found" service line.
 function logsRenderScope() {
   return `${currentLogSource()}\u0000${logsFilterQuery}\u0000${logsFilterLevel}`;
 }
 
-// Дописать в конец вместо пересборки. Дельта уже известна — незачем собирать и
-// парсить разметку восьмисот строк, каждая с флагом и подсветкой, ради одной
-// новой. false = дописать нельзя, зовущий делает полный рендер.
+// Append to the end instead of rebuilding. The delta is already known — no point assembling and
+// parsing the markup of eight hundred lines, each with a flag and highlighting, for one
+// new one. false = can't append, the caller does a full render.
 function appendRenderedLines({ added, dropped, carryGrew }) {
   if (logsRenderedInfo || logsRenderScope() !== logsRenderedScope) return false;
   if (!logsView.firstElementChild) return false;
-  // Кусок начался с продолжения многострочной записи: она уже нарисована, и
-  // дописать её хвост в конец списка нельзя — там он оказался бы отдельной
-  // строкой. Пересобираем целиком, иначе хвост ошибки не виден до смены
-  // фильтра или источника.
+  // The chunk started with the continuation of a multiline record: it's already drawn, and
+  // its tail can't be appended to the end of the list — there it would end up as a separate
+  // line. We rebuild entirely, otherwise the error's tail isn't visible until the filter
+  // or source changes.
   if (carryGrew) return false;
 
   const visible = filterLogEntries(added);
   if (visible.length) {
     const first = logsView.childElementCount;
     logsView.insertAdjacentHTML("beforeend", renderLogEntries(visible));
-    // Фолбэки флагов вешаем только на дописанное: у остальных строк они уже есть.
+    // Flag fallbacks are attached only to the appended part: the other lines already have them.
     for (let i = first; i < logsView.childElementCount; i++) {
       attachLogFlagFallbacks(logsView.children[i]);
     }
   }
-  // Сверху снимаем ровно столько строк, сколько ушло из списка записей и при
-  // этом было видно на экране: под фильтром часть записей не отрисована.
+  // From the top we remove exactly as many lines as left the record list and
+  // were visible on screen: under a filter some records aren't drawn.
   const gone = dropped.length ? filterLogEntries(dropped).length : 0;
   for (let i = 0; i < gone && logsView.firstElementChild; i++) {
     logsView.firstElementChild.remove();
@@ -255,7 +255,7 @@ function applyLogsRender({ keepScroll = false, force = false, delta = null } = {
     return;
   }
 
-  // Пришла дельта и на экране та же выборка — дописываем, а не пересобираем.
+  // A delta arrived and the screen shows the same selection — append instead of rebuilding.
   if (text && !force && delta) {
     const finish = perfObserver.time("logs.render.append.ms", { added: delta.added.length });
     const appended = appendRenderedLines(delta);
@@ -287,8 +287,8 @@ function applyLogsRender({ keepScroll = false, force = false, delta = null } = {
   if (atBottom) logsView.scrollTop = logsView.scrollHeight;
 }
 
-// Сырой хвост держим ровно тем, что вью в состоянии показать: он нужен кнопке
-// «Копировать» и счётчику размера, а не бесконечному накоплению в памяти.
+// The raw tail is kept to exactly what the view can show: it's needed by the "Copy"
+// button and the size counter, not for endless accumulation in memory.
 function trimRawTail(text) {
   if (text.length <= LOG_TAIL_BYTES) return text;
   const cut = text.length - LOG_TAIL_BYTES;
@@ -296,18 +296,18 @@ function trimRawTail(text) {
   return text.slice(nl >= 0 ? nl + 1 : cut);
 }
 
-// Применение дописанного куска к списку записей — без DOM и модульного
-// состояния, чтобы граница кусков проверялась тестом.
+// Applying an appended chunk to the record list — without DOM and module
+// state, so that the chunk boundary can be checked by a test.
 //
-// carryGrew=true означает, что кусок начался с продолжения последней записи:
-// она уже нарисована, в `added` её нет, и дописать её хвост в конец списка
-// нельзя — рендеру придётся пересобрать список целиком.
+// carryGrew=true means the chunk started with a continuation of the last record:
+// it's already drawn, it isn't in `added`, and its tail can't be appended to the end of the list —
+// the render will have to rebuild the list entirely.
 export function applyLogChunk(entries, text, activeNodeTag, maxLines = LOG_RENDER_MAX_LINES) {
   const carry = entries.length ? entries[entries.length - 1] : null;
   const carryLines = carry ? carry.cont.length : 0;
-  // Кусок всегда кончается переводом строки (backend режет ровно по нему), и
-  // пустой остаток после split уехал бы в cont предыдущей записи лишним
-  // переносом — на границе каждого куска, а не один раз в конце файла.
+  // A chunk always ends with a line break (the backend cuts exactly at it), and
+  // the empty remainder after split would go into the previous record's cont as an extra
+  // line break — at the boundary of every chunk, not once at the end of the file.
   const chunk = text.endsWith("\n") ? text.slice(0, -1) : text;
   const added = parseLogEntries(chunk, activeNodeTag, { carry });
   for (const entry of added) entries.push(entry);
@@ -318,13 +318,13 @@ export function applyLogChunk(entries, text, activeNodeTag, maxLines = LOG_RENDE
   return { added, dropped, carryGrew: !!carry && carry.cont.length !== carryLines };
 }
 
-// Дописанный кусок: разбираем ТОЛЬКО его и доклеиваем к уже разобранному.
-// Раньше каждые две секунды заново парсился весь хвост целиком.
+// An appended chunk: we parse ONLY it and attach it to the already parsed part.
+// Previously the whole tail was reparsed every two seconds.
 function appendLogText(text) {
   const delta = applyLogChunk(logsEntries, text, getActiveNodeTag());
   logsLastValue = trimRawTail(logsLastValue + text);
   logsBufferVersion++;
-  // Дельту отдаём наружу: рендер по ней дописывает строки вместо пересборки.
+  // The delta is returned to the outside: the render uses it to append lines instead of rebuilding.
   return delta;
 }
 
@@ -342,8 +342,8 @@ async function refreshLogs({ keepScroll = false } = {}) {
     finish();
     if (requestId !== logsRequestId || source !== currentLogSource()) return;
     const text = chunk?.text || "";
-    // reset=true — backend отдал хвост целиком (первое чтение, очистка лога,
-    // ротация, разрыв больше показываемого хвоста): накопленное заменяем.
+    // reset=true — the backend returned the whole tail (first read, log cleared,
+    // rotation, a gap larger than the shown tail): the accumulated data is replaced.
     const reset = chunk?.reset !== false;
     logsOffset = chunk?.incremental ? (chunk.offset ?? null) : null;
     let delta = null;
@@ -354,7 +354,7 @@ async function refreshLogs({ keepScroll = false } = {}) {
       logsEntries = parseLogEntries(text);
       perfObserver.increment("logs.read.full");
     } else {
-      // Самый частый случай: с прошлого тика в файл ничего не дописали.
+      // The most frequent case: nothing was appended to the file since the last tick.
       if (!text) {
         perfObserver.increment("logs.read.idle");
         return;
@@ -406,8 +406,8 @@ function resetLogCache() {
   logsBufferVersion++;
   logsRenderedScope = null;
   logsRenderedInfo = true;
-  // Позицию тоже сбрасываем: следующий ответ обязан прийти полным хвостом,
-  // иначе к чужому (или уже очищенному) логу приклеится дельта.
+  // The position is reset too: the next response must come as a full tail,
+  // otherwise a delta would stick to someone else's (or an already cleared) log.
   logsOffset = null;
   logsEntries = [];
   logsLastRenderKey = null;
@@ -468,8 +468,8 @@ export function mountLogsView() {
     refreshLogs();
   });
 
-  // Правый клик по строке журнала: скопировать строку или весь журнал. На
-  // выделенном тексте остаётся меню WebView2 — там нужно «Копировать».
+  // Right click on a log line: copy the line or the whole log. On
+  // selected text the WebView2 menu stays — "Copy" is needed there.
   logsView?.addEventListener("contextmenu", (e) => {
     if (wantsNativeContextMenu(e.target, window.getSelection())) return;
     const line = e.target.closest(".log-line");
@@ -538,7 +538,7 @@ export function onLogsViewLeave() {
   if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
 }
 
-// Смена языка интерфейса: перерисовать кикер/контент/путь, если экран активен.
+// Interface language change: redraw the kicker/content/path if the screen is active.
 export function rerenderLogsView() {
   if (!logsActive) return;
   applyKicker();

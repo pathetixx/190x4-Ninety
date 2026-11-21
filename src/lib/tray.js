@@ -1,13 +1,13 @@
-// Ninety · трей: сборка payload'а для контекстного меню (Rust set_tray_menu)
-// и обработка событий из него. Выделен из main.js. Всё, чем владеет main
-// (state-машина, эффективная нода, отложенный апдейт, connect/changeMode),
-// приходит через initTray(ctx) — модуль сам эти состояния не держит.
+// Ninety · tray: building the payload for the context menu (Rust set_tray_menu)
+// and handling events from it. Split out of main.js. Everything main owns
+// (the state machine, the effective node, the pending update, connect/changeMode)
+// comes in via initTray(ctx) — the module doesn't hold these states itself.
 //
-//   initTray(ctx)  — один раз на старте, ДО первого syncTrayMenu.
-//   syncTrayMenu() — пересобрать меню/иконку/tooltip под текущее состояние;
-//                    зовётся из main на каждый чих (connect, смена режима/ноды,
-//                    смена языка, найденный апдейт). Неизменившийся payload
-//                    пропускается; { force: true } применяет его всё равно.
+//   initTray(ctx)  — once at startup, BEFORE the first syncTrayMenu.
+//   syncTrayMenu() — rebuild the menu/icon/tooltip for the current state;
+//                    called from main on every sneeze (connect, mode/node change,
+//                    language change, a found update). An unchanged payload
+//                    is skipped; { force: true } applies it anyway.
 
 import { t } from "/lib/i18n/index.js";
 import { toast } from "/lib/toast.js";
@@ -28,27 +28,27 @@ import { localizedInvoke } from "/lib/backend-errors.js";
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// Контекст из main.js: геттеры живого состояния + действия.
+// Context from main.js: getters of the live state + actions.
 //   getState()           — "idle" | "connecting" | "connected"
-//   getEffectiveTag()    — clash-тэг фактической ноды (или null)
-//   getUpdateVersion()   — версия отложенного апдейта для пункта «Обновить» (или null)
-//   onSetMode(mode)      — смена режима подключения (= changeMode)
-//   onToggleVpn()        — подключить/отключить (= клик по hero-диску)
-//   onUpdateClick()      — клик «Обновить до vX» (= flushPendingUpdate)
-//   onTrayActivity()     — наведение/ПКМ по значку (= дочекать OTA)
-//   onOpenServers()      — «Все серверы…» из меню (= открыть экран Серверы)
-//   isUpdateBusy()       — скачивание/установка OTA; сетевые действия блокируются
-//   isStrictPrivacy()     — строгий runtime не имеет selector и требует reconnect
-//   onServerSelected(tag, node, { reconnect }) — успешный выбор сервера:
-//                          main обновляет hero либо переподключает строгий runtime
+//   getEffectiveTag()    — the clash tag of the actual node (or null)
+//   getUpdateVersion()   — the pending update version for the "Update" item (or null)
+//   onSetMode(mode)      — changing the connection mode (= changeMode)
+//   onToggleVpn()        — connect/disconnect (= a click on the hero disc)
+//   onUpdateClick()      — a click on "Update to vX" (= flushPendingUpdate)
+//   onTrayActivity()     — hover/right click on the icon (= finish the OTA check)
+//   onOpenServers()      — "All servers…" from the menu (= open the Servers screen)
+//   isUpdateBusy()       — OTA downloading/installing; network actions are blocked
+//   isStrictPrivacy()     — the strict runtime has no selector and requires a reconnect
+//   onServerSelected(tag, node, { reconnect }) — a successful server selection:
+//                          main updates the hero or reconnects the strict runtime
 let ctx = null;
 
-// Список серверов — только для подписки с >=2 нодами (у одиночного конфига
-// и сабов из одной ноды clash-тэг всегда "proxy", переключать нечего).
-// Полный список живёт на экране Серверы, в меню уходит срез (tray-servers.js).
-// Задержка берётся из уже сделанных замеров: меню ничего не измеряет само.
-// Медиана, а не последнее значение, — одиночный выброс не должен двигать ноду
-// в начало списка.
+// The server list is only for a subscription with >=2 nodes (for a single config
+// and single-node subs the clash tag is always "proxy", there's nothing to switch).
+// The full list lives on the Servers screen, the menu gets a slice (tray-servers.js).
+// Latency is taken from already made measurements: the menu measures nothing itself.
+// The median, not the last value — a single outlier must not move a node
+// to the top of the list.
 function delayOf(source, tag) {
   try {
     const live = liveDelays(getProbeHistory(source, tag));
@@ -57,8 +57,8 @@ function delayOf(source, tag) {
   } catch { return null; }
 }
 
-// Имя ноды у провайдеров бывает с украшениями на пол-экрана; в меню оно
-// обрезается, чтобы строка оставалась читаемой вместе с задержкой.
+// Providers' node names can have half-screen decorations; in the menu the name
+// is truncated so the row stays readable together with the latency.
 function serverLabel(name, delay) {
   const base = String(name || "").slice(0, 40);
   return delay ? `${base}  ·  ${delay} ${t("units.ms")}` : base;
@@ -71,7 +71,7 @@ function buildTrayServers() {
   }
   const effective = ctx?.getEffectiveTag() ?? null;
   let favs;
-  try { favs = getFavourites(src); } catch { /* избранное недоступно — отбор обойдётся */ }
+  try { favs = getFavourites(src); } catch { /* favorites unavailable — the selection will do without them */ }
   const entries = src.nodes.map((n, i) => {
     const tag = nodeTag(i, n);
     const iso = isoFromNodeName(n.name) || isoFromNodeName(n.host) || null;
@@ -91,16 +91,16 @@ function buildTrayServers() {
   });
 }
 
-// Последний УСПЕШНО применённый payload. Трей пересобирается на каждый чих —
-// смену ноды балансером в том числе, — а payload при этом чаще всего тот же.
-// Пропуск неизменившегося убирает лишние пересборки меню на сотни иконок.
-// Сбрасывается при ошибке: следующий вызов обязан попробовать снова, иначе
-// одна осечка заморозила бы значок до перезапуска.
+// The last SUCCESSFULLY applied payload. The tray is rebuilt on every sneeze —
+// including a node switch by the balancer — while the payload is most often the same.
+// Skipping an unchanged one removes extra rebuilds of a menu with hundreds of icons.
+// Reset on error: the next call must try again, otherwise
+// one misfire would freeze the icon until a restart.
 let lastTrayPayload = null;
 
-// Пересборка меню, отложенная из-за открытого меню трея. Интервал крупный
-// намеренно: пока меню открыто, payload собирать незачем, а собранное меню
-// пользователь всё равно увидит только при следующем открытии.
+// A menu rebuild postponed because the tray menu is open. The interval is large
+// on purpose: while the menu is open, there's no point building the payload, and the built menu
+// will only be seen by the user on the next opening anyway.
 const MENU_BUSY_RETRY_MS = 1500;
 let deferredRetry = null;
 
@@ -115,9 +115,9 @@ const trayMenuSync = createLatestRunner(async () => {
       servers: trayServers, dpiActive,
       updateVersion: ctx.getUpdateVersion() || null,
       updateBusy: ctx.isUpdateBusy?.() === true,
-      // Строки меню/tooltip — на языке интерфейса (Rust держит русский
-      // фолбэк только до первого вызова). Пересборка на смену языка —
-      // syncTrayMenu в onLangChange.
+      // Menu/tooltip strings are in the interface language (Rust keeps a Russian
+      // fallback only until the first call). The rebuild on a language change is
+      // syncTrayMenu in onLangChange.
       labels: {
         show: t("tray.show"),
         connect: t("tray.connect"),
@@ -146,9 +146,9 @@ const trayMenuSync = createLatestRunner(async () => {
     const signature = JSON.stringify(payload);
     if (signature === lastTrayPayload) return;
     const outcome = await invoke("set_tray_menu", { payload });
-    // Меню открыто прямо сейчас — Rust обновил значок и подсказку, но само
-    // меню оставил: подмена схлопнула бы его под курсором. Payload не
-    // запоминаем и возвращаемся к нему, когда пользователь меню закроет.
+    // The menu is open right now — Rust updated the icon and tooltip but left
+    // the menu itself: replacing it would collapse it under the cursor. We don't remember
+    // the payload and come back to it when the user closes the menu.
     if (outcome?.applied === false) {
       lastTrayPayload = null;
       clearTimeout(deferredRetry);
@@ -162,17 +162,17 @@ const trayMenuSync = createLatestRunner(async () => {
   }
 });
 
-// force — применить payload, даже если он не отличается от прошлого. Нужен
-// там, где мы не доверяем состоянию самого значка (пользователь смотрит на
-// трей, окно вернуло фокус): дедуп иначе решил бы, что делать нечего, и
-// оставил бы значок таким, каким его застал сбой.
+// force — apply the payload even if it doesn't differ from the previous one. Needed
+// where we don't trust the state of the icon itself (the user is looking at
+// the tray, the window got focus back): dedup would otherwise decide there's nothing to do and
+// leave the icon the way the failure left it.
 export function syncTrayMenu({ force = false } = {}) {
   if (!ctx) return Promise.resolve();
   if (force) lastTrayPayload = null;
   return trayMenuSync.request();
 }
 
-// События из Rust-меню трея: смена режима и выбор сервера (только при VPN on).
+// Events from the Rust tray menu: mode change and server selection (only with VPN on).
 export function initTray(context) {
   ctx = context;
   (async () => {
@@ -183,33 +183,33 @@ export function initTray(context) {
         if (ctx.isUpdateBusy?.()) return;
         if (typeof e?.payload === "string") ctx.onSetMode(e.payload);
       });
-      // Подключиться/Отключиться из трея — тот же путь, что клик по hero-диску.
+      // Connect/Disconnect from the tray — the same path as a click on the hero disc.
       await ev.listen("tray:toggle-vpn", () => {
         if (!ctx.isUpdateBusy?.()) ctx.onToggleVpn();
       });
-      // «Обновить до vX» из трея → окно уже показано Rust-обработчиком, открываем модалку.
+      // "Update to vX" from the tray → the window is already shown by the Rust handler, we open the modal.
       await ev.listen("tray:update", () => {
         if (!ctx.isUpdateBusy?.()) ctx.onUpdateClick();
       });
-      // Наведение/ПКМ по значку: пользователь смотрит на трей прямо сейчас.
-      // Свёрнутое окно узнаёт об апдейте только по расписанию, поэтому просим
-      // main дочекать OTA — к следующему открытию меню пункт «Обновить» и
-      // метка на значке будут на месте.
+      // Hover/right click on the icon: the user is looking at the tray right now.
+      // A minimized window learns about an update only on schedule, so we ask
+      // main to finish the OTA check — by the next menu opening the "Update" item and
+      // the badge on the icon will be in place.
       await ev.listen("tray:activity", () => {
         ctx.onTrayActivity?.();
-        // Пользователь смотрит на значок прямо сейчас — подходящий момент
-        // вернуть его в согласие с состоянием. Без force: если payload тот же,
-        // пересобирать нечего, а лишний set_tray_menu рискует прийтись ровно
-        // на открытое меню.
+        // The user is looking at the icon right now — a good moment
+        // to bring it in line with the state. Without force: if the payload is the same,
+        // there's nothing to rebuild, and an extra set_tray_menu risks landing exactly
+        // on an open menu.
         syncTrayMenu();
       });
-      // DPI-обход вкл/выкл из трея — тот же toggleDpi, что в UI; затем рефреш меню.
+      // DPI bypass on/off from the tray — the same toggleDpi as in the UI; then a menu refresh.
       await ev.listen("tray:toggle-dpi", async () => {
         if (ctx.isUpdateBusy?.()) return;
         try { await toggleDpi(); } catch (err) { console.warn("tray dpi toggle failed", err); }
         syncTrayMenu();
       });
-      // «Все серверы…»: полный список и поиск живут на экране Серверы.
+      // "All servers…": the full list and search live on the Servers screen.
       await ev.listen("tray:open-servers", () => {
         ctx.onOpenServers?.();
       });

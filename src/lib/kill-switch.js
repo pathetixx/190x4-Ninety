@@ -1,13 +1,13 @@
-// Ninety · WFP kill switch glue (вынесено из main.js).
+// Ninety · WFP kill switch glue (moved out of main.js).
 //
-// В режимах proxy/systemProxy при включённой опции на время соединения поднимаем
-// WFP-блок (весь исходящий, кроме loopback и движков Ninety по app-id) — при
-// падении ядра трафик не утекает мимо туннеля. В обычном TUN достаточно
-// strict_route. Высокоуровневый «Строгий туннель» дополнительно армит TUN-WFP:
-// разрешён трафик через интерфейс ninety-tun и движки, а после смерти ядра
-// block-all остаётся активен, пока пользователь явно не отключит соединение.
-// WFP требует админ-прав: если процесс не elevated — не армим и подсказываем
-// тостом (один раз). Rust-сторона — src-tauri/src/killswitch.rs.
+// In proxy/systemProxy modes with the option on, for the duration of the connection we raise
+// a WFP block (all outbound except loopback and Ninety engines by app-id) — when
+// the core crashes, traffic doesn't leak past the tunnel. In regular TUN
+// strict_route is enough. The high-level "Strict tunnel" additionally arms TUN WFP:
+// traffic through the ninety-tun interface and the engines is allowed, and after core death
+// block-all stays active until the user explicitly disconnects.
+// WFP requires admin rights: if the process isn't elevated, we don't arm and show a hint
+// in a toast (once). The Rust side is src-tauri/src/killswitch.rs.
 
 import { loadOptions } from "/lib/options.js";
 import { getMode } from "/lib/singbox.js";
@@ -18,10 +18,10 @@ import { localizedInvoke } from "/lib/backend-errors.js";
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
 
-// После перезагрузки WebView локальные latch-переменные исчезают, но backend и
-// его dynamic WFP session продолжают жить. Runtime мог уже упасть, поэтому
-// running здесь намеренно не требуется: подтверждённого active policy +
-// сохранённой опции достаточно, чтобы продолжить guard-only наблюдение.
+// After a WebView reload the local latch variables disappear, but the backend and
+// its dynamic WFP session keep living. The runtime may have already crashed, so
+// running is deliberately not required here: a confirmed active policy +
+// the saved option are enough to continue guard-only observation.
 export function snapshotConfirmsOrdinaryKillSwitch(snapshot, options) {
   return !!options?.general?.killSwitch
     && snapshot?.killSwitchActive === true
@@ -47,9 +47,9 @@ export function createKillSwitchController(deps = {}) {
   let desiredPolicyMode = null;
   let revision = 0;
   let queue = Promise.resolve();
-  // Подсказку про права показываем на каждой попытке, но не чаще раза в
-  // полминуты: раньше она выходила один раз за процесс, и дальше каждое
-  // подключение заканчивалось общим «Не удалось подключиться» без причины.
+  // The rights hint is shown on every attempt, but no more than once every
+  // half minute: previously it appeared once per process, and after that every
+  // connection ended with a generic "Failed to connect" without a reason.
   const KILL_SWITCH_HINT_INTERVAL_MS = 30_000;
   let killSwitchHintAt = -Infinity;
   const showElevationHint = () => {
@@ -80,10 +80,10 @@ export function createKillSwitchController(deps = {}) {
           showElevationHint();
           return false;
         }
-        // Core уже остановлен или сейчас будет остановлен: восстанавливаем
-        // fail-closed barrier без TUN-permit. Для strict это preconnect policy,
-        // для обычного Kill Switch — тот же аварийный block-all, который не
-        // выпускает приложения напрямую после смерти sing-box.
+        // The core is already stopped or about to be stopped: we restore the
+        // fail-closed barrier without the TUN permit. For strict this is the preconnect policy,
+        // for the regular Kill Switch the same emergency block-all that doesn't
+        // let apps out directly after sing-box dies.
         await call("killswitch_arm", {
           allowLan: strictTunnel ? false : opts.route?.bypassLan !== false,
           tunInterface: null,
@@ -100,19 +100,19 @@ export function createKillSwitchController(deps = {}) {
         return true;
       }
       const elevated = await call("is_elevated");
-      // Пока ждали UAC/IPC, пользователь мог отключиться или сменить режим.
-      // Следующая queued reconciliation применит последнее желаемое состояние.
+      // While we waited for UAC/IPC, the user may have disconnected or changed the mode.
+      // The next queued reconciliation will apply the latest desired state.
       if (mine !== revision || !desiredConnected) return false;
       if (!elevated) {
         showElevationHint();
         return false;
       }
-      // До старта ядра строгий WFP работает как fail-closed заслон: разрешены
-      // только движки, которым нужно дозвониться до VPN. После появления TUN
-      // переармируем фильтр на LUID виртуального интерфейса.
-      // Rust собирает новую dynamic-session целиком и только затем атомарно
-      // меняет её со старой. Поэтому здесь нельзя делать disarm-first: даже
-      // короткое окно между сессиями выпустило бы приложения в физическую сеть.
+      // Before the core starts, strict WFP works as a fail-closed shield: only
+      // the engines that need to reach the VPN are allowed. Once TUN appears we
+      // rearm the filter on the virtual interface's LUID.
+      // Rust assembles the new dynamic session entirely and only then atomically
+      // swaps it with the old one. So disarm-first is not allowed here: even
+      // a short window between sessions would let apps out into the physical network.
       await call("killswitch_arm", {
         allowLan: strictTunnel ? false : opts.route?.bypassLan !== false,
         tunInterface: strictTunnel && desiredPhase === "connected" ? "ninety-tun" : null,
@@ -126,8 +126,8 @@ export function createKillSwitchController(deps = {}) {
     }
   }
 
-  // Все arm/disarm выполняются строго последовательно. Если disconnect пришёл
-  // во время arm, его disarm стоит в той же очереди и гарантированно идёт после.
+  // All arm/disarm calls run strictly sequentially. If a disconnect arrived
+  // during arm, its disarm sits in the same queue and is guaranteed to run after.
   function apply(connected, {
     preserve = false,
     phase = "connected",
@@ -149,16 +149,16 @@ export function createKillSwitchController(deps = {}) {
 
 const killSwitchController = createKillSwitchController();
 
-// connected=true → поднять блок (если опция вкл и не TUN и elevated);
-// connected=false → снять. Идемпотентно на стороне Rust.
+// connected=true → raise the block (if the option is on, not TUN and elevated);
+// connected=false → remove it. Idempotent on the Rust side.
 export function applyKillSwitch(connected, options) {
   return killSwitchController.apply(connected, options);
 }
 
-// Предупреждение при включении kill switch в режиме «Прокси»: там armed-блок
-// режет ВЕСЬ трафик, кроме приложений, вручную направленных в локальный прокси
-// (в systemProxy/TUN трафик и так идёт через 127.0.0.1/туннель). Иначе юзер
-// удивляется «пропавшему интернету». Показываем один раз за сессию.
+// Warning when enabling the kill switch in "Proxy" mode: there the armed block
+// cuts ALL traffic except apps manually pointed at the local proxy
+// (in systemProxy/TUN traffic goes through 127.0.0.1/the tunnel anyway). Otherwise the user
+// is surprised by "missing internet". Shown once per session.
 let proxyWarnShown = false;
 export function maybeWarnKillSwitchProxy() {
   if (loadOptions().general?.killSwitch && getMode() === "proxy" && !proxyWarnShown) {

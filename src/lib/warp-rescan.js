@@ -1,9 +1,9 @@
-// Ninety · WARP auto-rescan + hero-бейдж endpoint'а + история ротаций.
-// Вынесено из main.js. Раз в N минут (warp.autoRescanIntervalMin) опрашиваем delay
-// outbound "warp" через clash-API; если выше порога — сканируем эндпоинты, ставим
-// лучший и дёргаем auto-reconnect. Активно только при connected + warp.enabled +
-// warp.autoRescan. Зависимости от main (текущее состояние, реконнект) инжектятся —
-// тот же паттерн, что у /lib/dns-guard.js и /lib/wifi-guard.js.
+// Ninety · WARP auto-rescan + the hero endpoint badge + rotation history.
+// Moved out of main.js. Every N minutes (warp.autoRescanIntervalMin) we poll the delay
+// of the "warp" outbound via the clash API; if it's above the threshold we scan endpoints, set
+// the best one and trigger an auto-reconnect. Active only with connected + warp.enabled +
+// warp.autoRescan. Dependencies on main (current state, reconnect) are injected —
+// the same pattern as /lib/dns-guard.js and /lib/wifi-guard.js.
 
 import { loadOptions, updateOption } from "/lib/options.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
@@ -18,15 +18,15 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
 const WARP_HISTORY_KEY = STORAGE_KEYS.warpHistory;
 const WARP_HISTORY_LIMIT = 20;
 
-// getState() — геттер текущего состояния соединения из main ("idle"|"connecting"|
-// "connected"); scheduleAutoReconnect — дебаунс-реконнект ядра после смены endpoint.
+// getState() — a getter of the current connection state from main ("idle"|"connecting"|
+// "connected"); scheduleAutoReconnect — a debounced core reconnect after an endpoint change.
 export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
   const locWarpRow = document.getElementById("loc-warp-row");
   const locWarpEndpoint = document.getElementById("loc-warp-endpoint");
   let timer = null;
   let inFlight = false;
 
-  // Бейдж активного WARP-endpoint на главной — виден только при connected + enabled.
+  // The active WARP endpoint badge on the home screen — visible only with connected + enabled.
   function updateBadge() {
     if (!locWarpRow || !locWarpEndpoint) return;
     const o = loadOptions();
@@ -37,8 +37,8 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
     locWarpRow.hidden = false;
   }
 
-  // История ротаций в localStorage (читает settings-view через тот же ключ +
-  // событие ninety:warp-rotation) — связь без импорта, как было в main.js.
+  // Rotation history in localStorage (settings-view reads it via the same key +
+  // the ninety:warp-rotation event) — a link without an import, as it was in main.js.
   function recordRotation(from, to, oldDelay, newDelay) {
     try {
       const raw = localStorage.getItem(WARP_HISTORY_KEY);
@@ -54,8 +54,8 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
     stopLoop();
     const opts = loadOptions();
     if (opts.privacy?.strictTunnel || !opts.warp?.enabled || !opts.warp?.autoRescan) return;
-    // В цепочке WARP идёт через VPN-сервер, а скан меряет прямой путь с ПК:
-    // его цифры ничего не говорят о цепочке, ротация по ним бесполезна.
+    // In a chain WARP goes through the VPN server, while the scan measures the direct path from the PC:
+    // its numbers say nothing about the chain, rotating by them is pointless.
     if (opts.warp?.mode === "chain") return;
     if (getState() !== "connected") return;
     const minutes = Math.max(5, Math.min(360, Number(opts.warp?.autoRescanIntervalMin) || 30));
@@ -85,7 +85,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
         if (runtime && !runtime.isCurrent(token)) return;
         curDelay = r?.delay || 0;
       } catch { curDelay = 0; }
-      // 0 = таймаут или not-reachable, выше порога — ротируем.
+      // 0 = timeout or not reachable, above the threshold — rotate.
       if (curDelay > 0 && curDelay <= threshold) return;
       toast(t("warpToast.searching", { delay: curDelay || "—" }), "info", 2200);
       let results = [];
@@ -97,7 +97,7 @@ export function initWarpRescan({ getState, scheduleAutoReconnect, runtime }) {
         || !loadOptions().warp?.enabled) return;
       const best = Array.isArray(results) && results.length ? results[0] : null;
       if (!best) return;
-      // Применяем только если новый лучше на ≥50мс, чтобы не дёргаться от шума.
+      // We apply only if the new one is better by ≥50 ms, so as not to twitch from noise.
       if (curDelay > 0 && best.latency_ms + 50 >= curDelay) {
         toast(t("warpToast.alreadyOk", { best: best.latency_ms, cur: curDelay }), "info", 2400);
         return;

@@ -1,16 +1,16 @@
-// Ninety · импорт готового конфига sing-box (JSON) → профили.
+// Ninety · importing a ready sing-box config (JSON) → profiles.
 //
-// Панели раздают подписку двумя способами: списком share-ссылок и собранным
-// конфигом ядра. Ninety собирает конфиг сам (маршрутизация, DNS, kill-switch —
-// свои), поэтому из чужого конфига берём ровно серверную часть: outbounds и
-// endpoints. Каждый сервер сначала превращается в свою share-ссылку и только
-// потом разбирается тем же parseLink, что и обычная подписка — см.
-// /lib/share-link.js о том, почему именно через ссылку.
+// Panels hand out a subscription in two ways: as a list of share links and as an assembled
+// core config. Ninety builds the config itself (routing, DNS, kill switch are
+// its own), so from a foreign config we take exactly the server part: outbounds and
+// endpoints. Each server is first turned into its share link and only
+// then parsed by the same parseLink as a regular subscription — see
+// /lib/share-link.js on why exactly through a link.
 //
-// Что из чужого конфига сознательно НЕ переносится: маршрутизация, DNS,
-// inbounds, правила, а из самих outbound'ов — mux, tcp_fast_open, ech,
-// record_fragment. Первое — политика приложения, второе — клиентские опции,
-// без которых нода работает, просто без этой оптимизации.
+// What deliberately does NOT carry over from a foreign config: routing, DNS,
+// inbounds, rules, and from the outbounds themselves — mux, tcp_fast_open, ech,
+// record_fragment. The former is app policy, the latter are client options
+// without which the node works, just without that optimization.
 
 import { parseAwgHeader, parseLink } from "/lib/protocol-parsers.js";
 import { safeJsonParse } from "/lib/config-format.js";
@@ -26,21 +26,21 @@ import {
   shadowsocksUserinfo,
 } from "/lib/share-link.js";
 
-// Групповые и системные outbound'ы: это не серверы, и в счётчик «пропущено»
-// они попадать не должны — иначе пользователь видит «пропущено 4» на конфиге,
-// где пропускать было нечего.
+// Group and system outbounds: these aren't servers, and they must not get into the "skipped"
+// counter — otherwise the user sees "4 skipped" on a config
+// where there was nothing to skip.
 const NON_SERVER_TYPES = new Set([
   "selector", "urltest", "balancer", "direct", "block", "dns", "dns-out",
   "blackhole", "freedom", "loopback",
 ]);
 
-// Протоколы, которые ядро умеет, а Ninety как отдельный профиль не заводит.
-// Считаем пропущенными и называем причину — молчать нельзя: в конфиге они были.
+// Protocols the core supports but Ninety doesn't create as a separate profile.
+// We count them as skipped and name the reason — staying silent isn't allowed: they were in the config.
 const UNSUPPORTED_TYPES = new Set([
   "http", "shadowtls", "ssh", "tor", "tailscale", "shadowsocksr", "vmess-legacy",
 ]);
 
-// Скорости hysteria ядро принимает и числом (up_mbps), и строкой («50 Mbps»).
+// The core accepts hysteria speeds both as a number (up_mbps) and as a string ("50 Mbps").
 function mbps(node, numericKey, stringKey) {
   const direct = numberOrNull(node[numericKey]);
   if (direct) return direct;
@@ -49,8 +49,8 @@ function mbps(node, numericKey, stringKey) {
 }
 
 // ── TLS ────────────────────────────────────────────────────
-// Возвращает параметры ссылки в терминах v2rayN — том же словаре, который
-// читают парсеры Ninety.
+// Returns link parameters in v2rayN terms — the same vocabulary that
+// Ninety's parsers read.
 function tlsParams(tls) {
   if (!isPlainObject(tls) || tls.enabled === false) return { security: "none", params: [] };
   const reality = isPlainObject(tls.reality) && tls.reality.enabled !== false ? tls.reality : null;
@@ -67,10 +67,10 @@ function tlsParams(tls) {
   return { security: reality ? "reality" : "tls", params };
 }
 
-// ── транспорт ──────────────────────────────────────────────
-// Ранняя передача данных (max_early_data) уезжает в ссылку парой ed/eh — так её
-// пишут sing-box-клиенты, и так же её читает обратно наш парсер. В путь
-// («/path?ed=2560», форма Xray) не складываем: путь для ядра остаётся путём.
+// ── transport ──────────────────────────────────────────────
+// Early data (max_early_data) goes into the link as an ed/eh pair — that's how
+// sing-box clients write it, and that's how our parser reads it back. We don't put it into the path
+// ("/path?ed=2560", the Xray form): the path stays a path for the core.
 function transportParams(transport) {
   if (!isPlainObject(transport)) return { type: "tcp", params: [] };
   const type = String(transport.type || "").toLowerCase();
@@ -97,8 +97,8 @@ function transportParams(transport) {
         ],
       };
     case "httpupgrade":
-      // Ранней передачи у httpupgrade в ядре нет: писать ed/eh в ссылку значит
-      // менять отпечаток ноды полем, которое никуда не доедет.
+      // The core has no early data for httpupgrade: writing ed/eh into the link means
+      // changing the node fingerprint with a field that goes nowhere.
       return {
         type: "httpupgrade",
         params: [
@@ -111,13 +111,13 @@ function transportParams(transport) {
     case "quic":
       return { type: "quic", params: [] };
     default:
-      // Незнакомый транспорт не выдаём за tcp: такая нода собралась бы обычным
-      // TCP и молча не работала. Пусть её отбракует валидатор транспорта.
+      // An unfamiliar transport isn't passed off as tcp: such a node would be built as regular
+      // TCP and silently not work. Let the transport validator reject it.
       return { type, params: [] };
   }
 }
 
-// ── outbound → share-ссылка ────────────────────────────────
+// ── outbound → share link ────────────────────────────────
 const link = (node, scheme, userinfo, tag, params) => buildShareLink({
   scheme, userinfo, server: node.server, port: node.server_port, params, tag,
 });
@@ -146,14 +146,14 @@ function trojanUri(node, tag) {
   ]);
 }
 
-// vmess share-ссылка — это base64 от JSON v2rayN, а не query-строка.
+// A vmess share link is base64 of v2rayN JSON, not a query string.
 function vmessUri(node, tag) {
   const tls = isPlainObject(node.tls) && node.tls.enabled !== false ? node.tls : null;
   const reality = tls && isPlainObject(tls.reality) && tls.reality.enabled !== false;
   const transport = isPlainObject(node.transport) ? node.transport : {};
   const net = String(transport.type || "tcp").toLowerCase();
-  // У v2rayN одно поле `path` обслуживает три разных транспорта: путь у ws/http,
-  // имя сервиса у grpc. Парсер читает его ровно так же.
+  // In v2rayN one `path` field serves three different transports: the path for ws/http,
+  // the service name for grpc. The parser reads it exactly the same way.
   const path = net === "grpc" ? (transport.service_name || "") : (transport.path || "");
   const host = net === "ws"
     ? (transport.headers?.Host ? joinList(transport.headers.Host) : "")
@@ -174,9 +174,9 @@ function vmessUri(node, tag) {
     sni: tls?.server_name || "",
     alpn: tls ? joinList(tls.alpn) : "",
     fp: (tls && isPlainObject(tls.utls) && tls.utls.enabled !== false) ? (tls.utls.fingerprint || "") : "",
-    // Полей ранней передачи и insecure в формате v2rayN нет — дописываем свои.
-    // Чужие клиенты неизвестные ключи игнорируют, а у нас конфиг возвращается
-    // из ссылки таким же, каким в неё вошёл.
+    // The v2rayN format has no early data and insecure fields — we add our own.
+    // Other clients ignore unknown keys, while for us the config comes back
+    // from the link the same as it went in.
     ...(net === "ws" && numberOrNull(transport.max_early_data)
       ? { ed: String(transport.max_early_data), eh: transport.early_data_header_name || "Sec-WebSocket-Protocol" }
       : {}),
@@ -193,8 +193,8 @@ function shadowsocksUri(node, tag) {
   return link(node, "ss", userinfo, tag, [["plugin", plugin]]);
 }
 
-// server_ports («20000:30000») → форма ссылки Hysteria («20000-30000»,
-// через запятую). null — диапазонов нет или они битые.
+// server_ports ("20000:30000") → the Hysteria link form ("20000-30000",
+// comma-separated). null — no ranges or they're broken.
 function hysteria2PortSpec(serverPorts) {
   const list = Array.isArray(serverPorts) ? serverPorts : serverPorts ? [serverPorts] : [];
   if (!list.length) return null;
@@ -226,8 +226,8 @@ function hysteria2Uri(node, tag) {
 
 function hysteriaUri(node, tag) {
   const tls = isPlainObject(node.tls) ? node.tls : {};
-  // Ядро принимает пароль строкой (auth_str) и base64 (auth); ссылка v1 несёт
-  // только строку, поэтому base64 разворачиваем здесь.
+  // The core accepts the password as a string (auth_str) and as base64 (auth); a v1 link carries
+  // only the string, so we decode the base64 here.
   const auth = node.auth_str || (node.auth ? String(node.auth) : "");
   return link(node, "hysteria", "", tag, [
     ["auth", auth],
@@ -266,8 +266,8 @@ function anytlsUri(node, tag) {
   ]);
 }
 
-// Mieru хранит порты в query: повторяющиеся port/protocol связаны по позиции.
-// Общий сборщик ссылки использует set(), поэтому здесь нужны append().
+// Mieru keeps ports in the query: repeating port/protocol are linked by position.
+// The shared link builder uses set(), so append() is needed here.
 function mieruUri(node, tag) {
   const query = new URLSearchParams([["profile", "default"]]);
   for (const [key, value] of [
@@ -312,25 +312,25 @@ const URI_BUILDERS = {
 };
 
 /**
- * Один outbound sing-box → share-ссылка. null — это не сервер (группа, direct)
- * либо протокол, которого у Ninety нет.
+ * One sing-box outbound → a share link. null — it isn't a server (group, direct)
+ * or a protocol Ninety doesn't have.
  * @returns {{link: string} | {unsupported: string} | null}
  */
 export function singboxOutboundToLink(outbound) {
   if (!isPlainObject(outbound)) return null;
   const type = String(outbound.type || "").toLowerCase();
   if (!type || NON_SERVER_TYPES.has(type)) return null;
-  // WireGuard разбирает отдельная ветка parseSingboxConfig — своей share-ссылки
-  // у протокола нет. Здесь он не «неподдерживаемый»: конфиги старше 1.13 держат
-  // его среди outbounds, и без этой строки одна и та же нода и импортировалась,
-  // и попадала в счётчик пропущенных.
+  // WireGuard is parsed by a separate parseSingboxConfig branch — the protocol has no
+  // share link of its own. It isn't "unsupported" here: configs older than 1.13 keep
+  // it among the outbounds, and without this line the same node was both imported
+  // and added to the skipped counter.
   if (type === "wireguard") return null;
   if (UNSUPPORTED_TYPES.has(type)) return { unsupported: type };
 
   const builder = URI_BUILDERS[type];
   if (!builder) return { unsupported: type };
-  // Нода за чужим detour — не самостоятельный сервер: без цепочки она пойдёт
-  // напрямую, то есть будет вести себя не так, как в конфиге, откуда пришла.
+  // A node behind someone else's detour isn't a standalone server: without the chain it would go
+  // direct, i.e. behave differently than in the config it came from.
   if (outbound.detour) return { unsupported: `${type}+detour` };
   if (type === "mieru") {
     const hasPort = outbound.server_port !== undefined && outbound.server_port !== null;
@@ -341,8 +341,8 @@ export function singboxOutboundToLink(outbound) {
     }
     return { link: builder(outbound, outbound.tag || "") };
   }
-  // Диапазон портов hysteria2 (server_ports) ссылка выражает списком через
-  // запятую; у остальных схем без целого порта нода подключилась бы не туда.
+  // The link expresses a hysteria2 port range (server_ports) as a comma-separated
+  // list; for other schemes without a whole port the node would connect to the wrong place.
   const hopPorts = type === "hysteria2" ? hysteria2PortSpec(outbound.server_ports) : null;
   if (!outbound.server || (!hopPorts && !Number.isInteger(Number(outbound.server_port)))) {
     return { unsupported: type };
@@ -350,10 +350,10 @@ export function singboxOutboundToLink(outbound) {
   return { link: builder(outbound, outbound.tag || "") };
 }
 
-// ── WireGuard: endpoints, а не outbounds ───────────────────
-// Своей share-ссылки у WireGuard нет, поэтому endpoint кладём прямо в модель
-// профиля — ту же, что даёт импорт .conf. Через .conf этот путь пустить нельзя:
-// reserved-байты (WARP) в ini-формате wg-quick не выражаются.
+// ── WireGuard: endpoints, not outbounds ───────────────────
+// WireGuard has no share link of its own, so we put the endpoint straight into the profile
+// model — the same one a .conf import produces. This path can't go through .conf:
+// reserved bytes (WARP) can't be expressed in the wg-quick ini format.
 function wireguardProfile(endpoint) {
   const address = Array.isArray(endpoint.address) ? endpoint.address.map(String) : [];
   const peers = (Array.isArray(endpoint.peers) ? endpoint.peers : []).map((peer) => {
@@ -392,7 +392,7 @@ function wireguardProfile(endpoint) {
       s1: num("s1"), s2: num("s2"),
       ...(num("s3") ? { s3: num("s3") } : {}),
       ...(num("s4") ? { s4: num("s4") } : {}),
-      // H1..H4 у AmneziaWG 2.0 — диапазон «от-до», числом его не прочитать.
+      // AmneziaWG 2.0 H1..H4 is a "from-to" range, it can't be read as a number.
       h1: parseAwgHeader(amnezia.h1) ?? 0, h2: parseAwgHeader(amnezia.h2) ?? 0,
       h3: parseAwgHeader(amnezia.h3) ?? 0, h4: parseAwgHeader(amnezia.h4) ?? 0,
       ...(amnezia.header_protection_key ? { headerProtectionKey: String(amnezia.header_protection_key) } : {}),
@@ -405,13 +405,13 @@ function wireguardProfile(endpoint) {
   };
 }
 
-// OpenVPN уже представлен опциями endpoint; переносим их без потери полей.
-// Пути к локальным файлам сохраняются для проверки, но не читаются браузером.
+// OpenVPN is already represented by endpoint options; we carry them over without losing fields.
+// Paths to local files are kept for validation but aren't read by the browser.
 function openvpnProfile(source) {
   const endpoint = structuredClone(source);
   delete endpoint.type;
   delete endpoint.tag;
-  // DNS чужого конфига не импортируется: его тег не существует в нашем.
+  // The foreign config's DNS isn't imported: its tag doesn't exist in ours.
   delete endpoint.domain_resolver;
   const primary = Array.isArray(endpoint.servers) && endpoint.servers.length
     ? endpoint.servers[0] : endpoint;
@@ -433,16 +433,16 @@ function openvpnProfile(source) {
 }
 
 /**
- * Готовый конфиг sing-box → профили Ninety.
- * @param {string|object} input текст конфига или уже разобранный объект
+ * A ready sing-box config → Ninety profiles.
+ * @param {string|object} input the config text or an already parsed object
  * @returns {{profiles: object[], skipped: number, unsupported: string[]}}
  */
 export function parseSingboxConfig(input) {
   const root = typeof input === "string" ? safeJsonParse(input) : input;
   if (!root) return { profiles: [], skipped: 0, unsupported: [] };
 
-  // Принимаем и целый конфиг, и голый массив outbound'ов, и массив конфигов:
-  // разные панели отдают всё три вида, а разница видна только по содержимому.
+  // We accept a whole config, a bare array of outbounds and an array of configs:
+  // different panels serve all three kinds, and the difference is visible only from the contents.
   const configs = Array.isArray(root) ? root.filter(isPlainObject) : (isPlainObject(root) ? [root] : []);
   const outbounds = [];
   const endpoints = [];
@@ -472,8 +472,8 @@ export function parseSingboxConfig(input) {
     }
   }
 
-  // WireGuard в sing-box 1.13 живёт в endpoints; конфиги постарше держат его
-  // среди outbounds — принимаем оба размещения.
+  // In sing-box 1.13 WireGuard lives in endpoints; older configs keep it
+  // among the outbounds — we accept both placements.
   const isWireguard = (e) => String(e.type || "").toLowerCase() === "wireguard";
   const wireguards = [...endpoints.filter(isWireguard), ...outbounds.filter(isWireguard)];
   for (const endpoint of wireguards) {

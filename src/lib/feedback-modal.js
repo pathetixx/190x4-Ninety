@@ -1,9 +1,9 @@
-// Ninety · окно «Обратная связь».
+// Ninety · the "Feedback" window.
 //
-// Текст уходит через Rust-команду send_feedback на релей проекта, тот
-// пересылает его в Telegram. Проверки здесь — только удобство: настоящие
-// лимиты держит сервер, потому что localStorage снимается очисткой данных, а
-// адрес эндпоинта виден в исходниках.
+// The text goes through the send_feedback Rust command to the project relay, which
+// forwards it to Telegram. The checks here are only for convenience: the real
+// limits are enforced by the server, because localStorage is removed by clearing data, and
+// the endpoint address is visible in the sources.
 
 import { t, getLang } from "/lib/i18n/index.js";
 import { escapeHtml, escapeAttr } from "/lib/esc.js";
@@ -19,9 +19,9 @@ const STATE_KEY = STORAGE_KEYS.feedbackState;
 const TEXT_MIN = 10;
 const TEXT_MAX = 2000;
 const CONTACT_MAX = 120;
-// Пауза после удачной отправки: сервер разрешает два сообщения за шесть часов,
-// поэтому здесь пауза заведомо короче — иначе окно блокировало бы второе
-// законное сообщение, которое сервер бы принял.
+// Pause after a successful submission: the server allows two messages per six hours,
+// so the pause here is deliberately shorter — otherwise the window would block a second
+// legitimate message that the server would accept.
 const SEND_PAUSE_MS = 15 * 60 * 1000;
 
 function readState() {
@@ -34,7 +34,7 @@ function writeState(next) {
   try { localStorage.setItem(STATE_KEY, JSON.stringify(next)); } catch {}
 }
 
-/** Сколько ещё ждать до следующей отправки, мс (0 — можно отправлять). */
+/** How long to wait until the next submission, ms (0 — can submit). */
 function cooldownLeft() {
   const until = Number(readState().blockedUntil) || 0;
   return Math.max(0, until - Date.now());

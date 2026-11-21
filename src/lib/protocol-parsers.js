@@ -1,5 +1,5 @@
 // Ninety · protocol link parsers.
-// Чистый слой: входная ссылка/endpoint text -> нормализованный profile object.
+// A pure layer: input link/endpoint text -> a normalized profile object.
 
 import { t } from "/lib/i18n/index.js";
 export { looksLikeOpenvpnConf, openvpnNeedsCredentials, parseOpenvpnConf, openvpnConfText } from "/lib/openvpn.js";
@@ -14,16 +14,16 @@ import {
   withoutUrlPath,
 } from "/lib/url-helpers.js";
 
-// Разрез `method:password` / `uuid:password` по ПЕРВОМУ двоеточию.
-// `split(":", 2)` здесь неверен: второй аргумент JS-split ограничивает длину
-// результата, а не число разрезов, поэтому пароль с двоеточием молча терялся
-// хвостом (`pa:ss` → `pa`). Конфиг при этом собирался, ядро стартовало, и нода
-// падала только на аутентификации — без единого сообщения.
-// Отсутствие разделителя даёт undefined, как и прежний split: пустое поле не
-// должно превращаться в JSON `null` внутри конфига движка.
-// Разделитель логина и пароля в userinfo: буквальное «:» или «%3A» — часть
-// клиентов кодирует userinfo целиком. Берём тот, что встречается раньше: в
-// UUID и имени метода SS нет ни того ни другого, а в пароле может быть любой.
+// Splitting `method:password` / `uuid:password` at the FIRST colon.
+// `split(":", 2)` is wrong here: JS split's second argument limits the length of
+// the result, not the number of splits, so a password with a colon silently lost
+// its tail (`pa:ss` → `pa`). The config still built, the core started, and the node
+// failed only on authentication — without a single message.
+// A missing separator gives undefined, as the old split did: an empty field must not
+// turn into JSON `null` inside the engine config.
+// The login/password separator in userinfo: a literal ":" or "%3A" — some
+// clients encode the whole userinfo. We take whichever comes first: a
+// UUID and an SS method name contain neither, while a password may contain either.
 function splitUserinfo(value) {
   const s = String(value ?? "");
   const colon = s.indexOf(":");
@@ -40,14 +40,14 @@ function splitFirstColon(value) {
   return sep < 0 ? [s, undefined] : [s.slice(0, sep), s.slice(sep + 1)];
 }
 
-// Булев query-параметр ссылки. Спека hysteria2 описывает `insecure=1`, но
-// панели одинаково часто отдают `insecure=true`; TUIC-ссылки — наоборот.
-// Принимаем обе формы: иначе нода с самоподписанным сертификатом не встаёт,
-// а причина («сертификат не проверился») пользователю нигде не видна.
-// Xray переименовал транспорт дважды: tcp → raw и splithttp → xhttp. Ссылки со
-// старыми именами панели раздают до сих пор. `raw` уже понимали, а `splithttp`
-// проваливал валидацию транспорта, и нода молча выбрасывалась из подписки.
-// Нормализуем на входе, чтобы дальше по коду жило одно имя.
+// A boolean query parameter of a link. The hysteria2 spec describes `insecure=1`, but
+// panels return `insecure=true` just as often; TUIC links — the other way around.
+// We accept both forms: otherwise a node with a self-signed certificate doesn't come up,
+// and the cause ("the certificate didn't verify") isn't visible to the user anywhere.
+// Xray renamed transports twice: tcp → raw and splithttp → xhttp. Panels still hand out links
+// with the old names. `raw` was already understood, but `splithttp`
+// failed transport validation, and the node was silently thrown out of the subscription.
+// We normalize on input so that one name lives on further down the code.
 const TRANSPORT_ALIASES = { splithttp: "xhttp" };
 
 function normalizeTransportType(value) {
@@ -63,15 +63,15 @@ function boolParam(value, fallback = false) {
   return fallback;
 }
 
-// Ранняя передача данных у ws: `ed` — сколько байт можно отправить вместе с
-// рукопожатием, `eh` — в каком заголовке. Клиенты sing-box пишут их отдельными
-// параметрами; форма Xray («path=/x?ed=2560») намеренно НЕ разбирается — путь с
-// query ядро и так отправляет как есть, и трогать поведение уже работающих нод
-// ради косметики нельзя.
+// ws early data: `ed` — how many bytes can be sent together with
+// the handshake, `eh` — in which header. sing-box clients write them as separate
+// parameters; the Xray form ("path=/x?ed=2560") is deliberately NOT parsed — the core sends
+// a path with a query as is anyway, and the behavior of already working nodes must not be touched
+// for cosmetics.
 //
-// Поля появляются в профиле только когда они реально заданы: отпечаток ноды
-// считается по её содержимому, и постоянное `earlyData: 0` сменило бы identity
-// всем существующим нодам — вместе с запомненным выбором сервера и карантином.
+// The fields appear in the profile only when they're actually set: the node fingerprint
+// is computed from its contents, and a permanent `earlyData: 0` would change the identity
+// of all existing nodes — together with the remembered server choice and the quarantine.
 function earlyDataFields(params) {
   const raw = params.get("ed");
   const size = parseInt(String(raw ?? "").trim(), 10);
@@ -82,13 +82,13 @@ function earlyDataFields(params) {
   };
 }
 
-// Самоподписанный сертификат: панели пишут и allowInsecure, и insecure.
+// Self-signed certificate: panels write both allowInsecure and insecure.
 function insecureField(params) {
   const value = params.get("allowInsecure") ?? params.get("insecure");
   return boolParam(value) ? { insecure: true } : {};
 }
 
-// ── vless парсер ────────────────────────────────────────────
+// ── vless parser ────────────────────────────────────────────
 export function parseVless(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("vless://")) throw new Error(t("sb.err.notVless"));
@@ -102,9 +102,9 @@ export function parseVless(raw) {
 
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.noHostPort"));
-  // UUID приходит percent-encoded так же, как пароли остальных схем: панели
-  // экранируют его наравне с прочим userinfo. Пустой UUID собрал бы конфиг,
-  // который падает уже в ядре на аутентификации — ловим здесь.
+  // The UUID arrives percent-encoded just like the passwords of other schemes: panels
+  // escape it like the rest of the userinfo. An empty UUID would build a config
+  // that fails in the core on authentication — we catch it here.
   const uuid = safeDecode(head.slice(0, atIdx)).trim();
   if (!uuid) throw new Error(t("sb.err.vlessUuid"));
   const hostPort = head.slice(atIdx + 1);
@@ -134,28 +134,28 @@ export function parseVless(raw) {
     serviceName: get("serviceName", ""),
     mode: get("mode", ""),
     extra: get("extra", ""),
-    // mKCP: маскировка пакетов и общий секрет обфускации. Без них нода с
-    // type=kcp собиралась как обычный TCP и молча не работала.
+    // mKCP: packet masking and the shared obfuscation secret. Without them a node with
+    // type=kcp was built as regular TCP and silently didn't work.
     headerType: get("headerType") || get("headertype", ""),
     seed: get("seed", ""),
-    // v2ray-QUIC: ядро умеет только «сырой» QUIC без дополнительного шифрования
-    // транспорта, поэтому значение проверяется, а не переносится.
+    // v2ray QUIC: the core supports only "raw" QUIC without additional transport
+    // encryption, so the value is checked rather than carried over.
     quicSecurity: get("quicSecurity") || get("quicsecurity", ""),
     ...earlyDataFields(params),
     ...insecureField(params),
   };
 }
 
-// ── vmess парсер (base64 JSON) ──────────────────────────────
+// ── vmess parser (base64 JSON) ──────────────────────────────
 export function parseVmess(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("vmess://")) throw new Error(t("sb.err.notVmess"));
   const payload = url.slice("vmess://".length);
   const { name: hashName, main } = splitTrailingHashName(payload, null);
-  // Декодируем как UTF-8, а не через голый atob: тот отдаёт latin1-строку,
-  // где каждый байт стал отдельным кодпоинтом. Пейлоад vmess — UTF-8 JSON,
-  // поэтому имя ноды (ps) из любой неанглоязычной панели приезжало мохибаке,
-  // а вместе с ним host и пароль с не-ASCII.
+  // Decode as UTF-8, not via bare atob: that returns a latin1 string
+  // where every byte became a separate code point. The vmess payload is UTF-8 JSON,
+  // so the node name (ps) from any non-English panel arrived as mojibake,
+  // and with it a host and password with non-ASCII.
   const decoded = safeDecodeBase64(main);
   if (!decoded) throw new Error(t("sb.err.vmessB64"));
   let j;
@@ -180,14 +180,14 @@ export function parseVmess(raw) {
     serviceName: j.path || "",
     mode: j.type && j.type !== "none" ? j.type : "",
     ...(j.extra ? { extra: typeof j.extra === "string" ? j.extra : JSON.stringify(j.extra) } : {}),
-    // В vmess-JSON `type` — это заголовок маскировки, а `path` для mKCP несёт
-    // seed обфускации: у остальных транспортов оба поля значат другое.
+    // In vmess JSON `type` is the masking header, and for mKCP `path` carries
+    // the obfuscation seed: for other transports both fields mean something else.
     headerType: j.type || "",
     seed: j.net === "kcp" ? (j.path || "") : "",
-    // Ранняя передача данных и самоподписанный сертификат: в исходном формате
-    // v2rayN этих полей нет, их дописывают клиенты. Читаем, чтобы конфиг,
-    // импортированный из готового sing-box, доезжал обратно без потерь;
-    // отсутствующие поля в профиль не попадают — см. earlyDataFields.
+    // Early data and a self-signed certificate: the original v2rayN format
+    // doesn't have these fields, clients add them. We read them so that a config
+    // imported from a ready sing-box comes back without losses;
+    // missing fields don't get into the profile — see earlyDataFields.
     ...earlyDataFields(new URLSearchParams({
       ...(j.ed ? { ed: String(j.ed) } : {}),
       ...(j.eh ? { eh: String(j.eh) } : {}),
@@ -196,7 +196,7 @@ export function parseVmess(raw) {
   };
 }
 
-// ── trojan парсер ───────────────────────────────────────────
+// ── trojan parser ───────────────────────────────────────────
 export function parseTrojan(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("trojan://")) throw new Error(t("sb.err.notTrojan"));
@@ -239,8 +239,8 @@ export function parseShadowsocks(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) {
     // Legacy form: base64(method:password@host:port)
-    // UTF-8-декод по той же причине, что в parseVmess: пароль с не-ASCII иначе
-    // уезжает в конфиг побайтово перевранным и нода падает на аутентификации.
+    // UTF-8 decoding for the same reason as in parseVmess: a password with non-ASCII otherwise
+    // goes into the config garbled byte by byte and the node fails on authentication.
     const decoded = safeDecodeBase64(head);
     if (!decoded) throw new Error(t("sb.err.ssB64"));
     const at2 = decoded.lastIndexOf("@");
@@ -251,14 +251,14 @@ export function parseShadowsocks(raw) {
     return { raw: url, proto: "shadowsocks", name, host, port, method, password };
   }
   const credsRaw = head.slice(0, atIdx);
-  // SIP002: userinfo может быть как раз base64url(method:password)
+  // SIP002: userinfo may be exactly base64url(method:password)
   let method, password;
-  // «method:password» или целиком закодированное «method%3Apassword»; в base64
-  // (SIP002) нет ни «:», ни «%», так что развилка однозначна.
+  // "method:password" or a fully encoded "method%3Apassword"; base64
+  // (SIP002) contains neither ":" nor "%", so the branch is unambiguous.
   const parts = splitUserinfo(credsRaw);
   if (parts) {
-    // safeDecode на обеих половинах: метод панели тоже экранируют, а битый
-    // %-escape в пароле раньше ронял decodeURIComponent и весь импорт ссылки.
+    // safeDecode on both halves: panels escape the method too, and a broken
+    // %-escape in the password used to crash decodeURIComponent and the whole link import.
     method = safeDecode(parts[0]);
     password = safeDecode(parts[1]);
   } else {
@@ -284,11 +284,11 @@ export function parseShadowsocks(raw) {
 }
 
 // ── hysteria2 ───────────────────────────────────────────────
-// Смена портов (port hopping): «host:443,20000-30000» по спецификации Hysteria
-// и параметр mport=20000-30000 у v2rayN. Ядро принимает такую ноду списком
-// server_ports («начало:конец») вместо одного server_port; основной порт
-// профиля — первый из списка, его же видно в интерфейсе. Без порта вовсе
-// спецификация подразумевает 443.
+// Port hopping: "host:443,20000-30000" per the Hysteria spec
+// and the mport=20000-30000 parameter in v2rayN. The core accepts such a node with a server_ports
+// list ("start:end") instead of a single server_port; the profile's main port
+// is the first one in the list, which is also what the interface shows. Without a port at all
+// the spec implies 443.
 const HY2_PORT_ITEM = /^(\d{1,5})(?:-(\d{1,5}))?$/;
 
 function hysteria2PortRanges(spec) {
@@ -336,8 +336,8 @@ export function parseHysteria2(raw) {
   return {
     raw: url, proto: "hysteria2", name,
     host, port, password,
-    // Поле появляется только у нод со сменой портов: отпечаток ноды считается
-    // по содержимому, и лишнее поле сменило бы identity всем старым нодам.
+    // The field appears only for nodes with port hopping: the node fingerprint is computed
+    // from the contents, and an extra field would change the identity of all old nodes.
     ...(ports ? { ports } : {}),
     sni: get("sni") || host,
     obfs: get("obfs", ""),
@@ -360,8 +360,8 @@ export function parseTuic(raw) {
   const atIdx = head.lastIndexOf("@");
   if (atIdx < 0) throw new Error(t("sb.err.tuicHostPort"));
   const auth = head.slice(0, atIdx);
-  // «uuid:password» или целиком закодированное «uuid%3Apassword» — без второго
-  // варианта нода уходила в отбракованные с пустым паролем.
+  // "uuid:password" or a fully encoded "uuid%3Apassword" — without the second
+  // variant the node went to the rejected ones with an empty password.
   const parts = splitUserinfo(auth);
   const uuid = safeDecode(parts ? parts[0] : auth).trim();
   const password = safeDecode(parts ? parts[1] : "");
@@ -376,17 +376,17 @@ export function parseTuic(raw) {
     udpRelayMode: get("udp_relay_mode") || get("udpRelayMode", "native"),
     zeroRttHandshake: boolParam(get("zero_rtt_handshake")),
     disableSni: boolParam(get("disable_sni")),
-    // Поле читает buildOutbound (tls.insecure). Без него нода TUIC с
-    // самоподписанным сертификатом молча не вставала: ссылка про это говорила,
-    // парсер — нет. Панели пишут и `insecure`, и `allow_insecure`.
+    // The field is read by buildOutbound (tls.insecure). Without it a TUIC node with
+    // a self-signed certificate silently didn't come up: the link said so,
+    // the parser didn't. Panels write both `insecure` and `allow_insecure`.
     insecure: boolParam(get("insecure") || get("allow_insecure")),
   };
 }
 
 // ── anytls ──────────────────────────────────────────────────
-// anytls://password@host:port?sni=&insecure=&alpn=#name — формат, на котором
-// сошлись клиенты экосистемы sing-box. Транспорта у протокола нет: он всегда
-// поверх TLS, поэтому type/flow здесь бессмысленны.
+// anytls://password@host:port?sni=&insecure=&alpn=#name — the format the sing-box
+// ecosystem clients settled on. The protocol has no transport: it's always
+// over TLS, so type/flow are meaningless here.
 export function parseAnyTls(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("anytls://")) throw new Error(t("sb.err.notAnyTls"));
@@ -410,9 +410,9 @@ export function parseAnyTls(raw) {
 }
 
 // ── Mieru ──────────────────────────────────────────────────
-// Простая ссылка mierus://: port и protocol повторяются и образуют пары по
-// порядку. Ядро принимает один транспорт, поэтому при наличии TCP берём его,
-// иначе UDP. Полный mieru:// содержит protobuf и здесь не разбирается.
+// A simple mierus:// link: port and protocol repeat and form pairs in
+// order. The core accepts one transport, so if TCP is present we take it,
+// otherwise UDP. A full mieru:// contains protobuf and isn't parsed here.
 export function parseMieru(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("mierus://")) throw new Error(t("sb.err.notMieru"));
@@ -449,8 +449,8 @@ export function parseMieru(raw) {
   const selected = parsed.filter(binding => binding.transport === transport);
   const single = selected.find(binding => !binding.range);
   const port = single ? single.from : selected[0].from;
-  // Дополнительные одиночные порты передаём как диапазоны из одного порта:
-  // server_port в конфиге один, а server_ports может содержать несколько.
+  // Additional single ports are passed as single-port ranges:
+  // there's one server_port in the config, while server_ports can contain several.
   const ports = selected.filter(binding => binding !== single).map(binding => `${binding.from}-${binding.to}`);
   const optional = {};
   for (const [key, field] of [["multiplexing", "multiplexing"], ["handshake-mode", "handshakeMode"]]) {
@@ -458,7 +458,7 @@ export function parseMieru(raw) {
   }
   if (query.has("mtu")) optional.mtu = Number(query.get("mtu"));
   if (query.has("traffic-pattern")) {
-    // В base64 встречается «+»: не превращаем его в пробел, как form-urlencoded.
+    // base64 contains "+": we don't turn it into a space as form-urlencoded does.
     const queryText = main.slice(main.indexOf("?") + 1);
     const item = queryText.split("&").find(part => safeDecode(part.split("=", 1)[0]) === "traffic-pattern");
     const valueAt = item.indexOf("=");
@@ -468,8 +468,8 @@ export function parseMieru(raw) {
     raw: url, proto: "mieru", name: hashName || query.get("profile") || host,
     host, port, transport, username, password,
     ...(ports.length ? { ports } : {}),
-    // Одиночного порта нет: .port — лишь начало первого диапазона для списка и
-    // замеров, в конфиг ядра он уходить не должен. Поле только когда true.
+    // There's no single port: .port is just the start of the first range for the list and
+    // measurements, it must not go into the core config. The field is present only when true.
     ...(single ? {} : { rangesOnly: true }),
     ...optional,
   };
@@ -477,15 +477,15 @@ export function parseMieru(raw) {
 
 // ── hysteria v1 ─────────────────────────────────────────────
 // hysteria://host:port?auth=…&peer=…&upmbps=&downmbps=&obfs=…&protocol=udp
-// Первая версия протокола: аутентификация строкой, обфускация — общий секрет
-// (не salamander, как в hysteria2), скорости обязательны для его контроллера.
+// The first protocol version: authentication by string, obfuscation is a shared secret
+// (not salamander as in hysteria2), speeds are mandatory for its controller.
 export function parseHysteria(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("hysteria://")) throw new Error(t("sb.err.notHysteria"));
   const rest = url.slice("hysteria://".length);
   const { name, main } = splitTrailingHashName(rest, "HYSTERIA");
   const { head, query } = splitQuery(main);
-  // Учётные данные у v1 живут в query (auth/auth_str), а не в userinfo.
+  // v1 credentials live in the query (auth/auth_str), not in userinfo.
   const hostPart = head.includes("@") ? head.slice(head.lastIndexOf("@") + 1) : head;
   const { host, port } = splitHostPort(hostPart, "sb.err.hysteriaHostPort");
   const get = (k, def = "") => query.get(k) ?? def;
@@ -496,8 +496,8 @@ export function parseHysteria(raw) {
     sni: get("peer") || get("sni") || host,
     alpn: get("alpn", ""),
     obfs: safeDecode(get("obfs", "")),
-    // v1 в sing-box работает только поверх обычного UDP: faketcp и
-    // wechat-video из оригинального клиента ядро не реализует.
+    // v1 in sing-box works only over regular UDP: the core doesn't implement faketcp and
+    // wechat-video from the original client.
     hysteriaProtocol: get("protocol", "udp"),
     upMbps: parseInt(get("upmbps") || get("up") || "0", 10) || undefined,
     downMbps: parseInt(get("downmbps") || get("down") || "0", 10) || undefined,
@@ -506,10 +506,10 @@ export function parseHysteria(raw) {
 }
 
 // ── SOCKS ───────────────────────────────────────────────────
-// socks://[user:pass@]host:port#name (а также socks5/socks5h/socks4/socks4a).
-// Обычный прокси без шифрования: полезен как промежуточное звено или локальный
-// клиент чужого движка. http-прокси-ссылки намеренно не поддержаны: http(s)://
-// в этом же поле означает адрес подписки, и различить их надёжно нельзя.
+// socks://[user:pass@]host:port#name (also socks5/socks5h/socks4/socks4a).
+// A regular proxy without encryption: useful as an intermediate hop or a local
+// client of another engine. http proxy links are deliberately not supported: http(s)://
+// in this same field means a subscription address, and they can't be reliably told apart.
 const SOCKS_SCHEMES = {
   "socks://": "5", "socks5://": "5", "socks5h://": "5",
   "socks4://": "4", "socks4a://": "4a",
@@ -525,8 +525,8 @@ export function parseSocks(raw) {
   let username = "", password = "";
   if (atIdx >= 0) {
     const cred = head.slice(0, atIdx);
-    // v2rayN пишет userinfo и открытым текстом, и base64url — берём то, что
-    // после декода похоже на пару «логин:пароль».
+    // v2rayN writes userinfo both in plain text and as base64url — we take whatever
+    // looks like a "login:password" pair after decoding.
     const decoded = cred.includes(":") ? cred : (safeDecodeBase64(cred) || cred);
     const [user, pass] = splitFirstColon(decoded);
     username = safeDecode(user || "");
@@ -541,9 +541,9 @@ export function parseSocks(raw) {
 }
 
 // ── NaiveProxy ──────────────────────────────────────────────
-// Формат подписки: naive+https://user:pass@host:port#name (также naive+quic://).
-// Внутри после naive+ лежит ровно значение `proxy` клиента naive (klzgrad).
-// Движок — sidecar naive.exe на стеке Chromium; в sing-box идёт socks-мост.
+// Subscription format: naive+https://user:pass@host:port#name (also naive+quic://).
+// What follows naive+ is exactly the `proxy` value of the naive client (klzgrad).
+// The engine is the naive.exe sidecar on the Chromium stack; a socks bridge goes into sing-box.
 export function parseNaive(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("naive+")) throw new Error(t("sb.err.notNaive"));
@@ -565,12 +565,12 @@ export function parseNaive(raw) {
 }
 
 // ── TrustTunnel (AdGuard, Apache-2.0) ───────────────────────
-// Два источника одной и той же конфигурации: deep-link tt://?<base64url TLV>
-// и endpoint-.toml (export from endpoint). Оба -> единый профиль. Движок —
-// sidecar trusttunnel_client.exe в режиме [listener.socks]; sing-box socks-мост.
+// Two sources of the same configuration: the deep link tt://?<base64url TLV>
+// and the endpoint .toml (export from endpoint). Both -> one profile. The engine is
+// the trusttunnel_client.exe sidecar in [listener.socks] mode; a sing-box socks bridge.
 
-// QUIC/TLS variable-length integer (RFC 9000 §16): 2 старших бита первого байта
-// задают размер (00->1,01->2,10->4,11->8 байт), big-endian, без верхних 2 бит.
+// QUIC/TLS variable-length integer (RFC 9000 §16): the 2 high bits of the first byte
+// set the size (00->1,01->2,10->4,11->8 bytes), big-endian, without the top 2 bits.
 function readQuicVarint(buf, pos) {
   if (pos >= buf.length) throw new Error(t("sb.err.ttVarintOOB"));
   const first = buf[pos];
@@ -584,7 +584,7 @@ function readQuicVarint(buf, pos) {
 
 const TT_UPSTREAM = { 1: "http2", 2: "http3" };
 
-// Разбор TLV-пейлоада (после base64url-декода) в поля endpoint-конфига.
+// Parsing the TLV payload (after base64url decoding) into endpoint config fields.
 function parseTrustTunnelTlv(buf) {
   const td = new TextDecoder();
   const f = { addresses: [], dnsUpstreams: [] };
@@ -600,7 +600,7 @@ function parseTrustTunnelTlv(buf) {
     switch (typeVarint.value) {
       case 0x00: f.version = readQuicVarint(val, 0).value; break;
       case 0x01: f.hostname = str(); break;
-      case 0x02: f.addresses.push(str()); break;          // повторяемый
+      case 0x02: f.addresses.push(str()); break;          // repeatable
       case 0x03: f.customSni = str(); break;
       case 0x04: f.hasIpv6 = bool(); break;
       case 0x05: f.username = str(); break;
@@ -620,7 +620,7 @@ function parseTrustTunnelTlv(buf) {
         }
         break;
       }
-      default: break; // неизвестные теги игнорируем (forward-compat, см. спеку)
+      default: break; // unknown tags are ignored (forward-compat, see the spec)
     }
     pos = end;
   }
@@ -630,11 +630,11 @@ function parseTrustTunnelTlv(buf) {
   return f;
 }
 
-// Deep-link отдаёт сертификат сырым DER (TLV 0x08), .toml — готовым PEM.
-// trusttunnel_client понимает только PEM, поэтому конвертируем здесь: иначе
-// узел из tt:// уходил в мост вообще без своего CA и падал на TLS, тогда как
-// тот же endpoint из .toml работал. Uint8Array в профиле не оставляем — в
-// JSON-хранилище он превращается в {"0":..,"1":..}.
+// The deep link gives the certificate as raw DER (TLV 0x08), .toml as ready PEM.
+// trusttunnel_client understands only PEM, so we convert here: otherwise
+// a node from tt:// went into the bridge without its CA at all and failed on TLS, while
+// the same endpoint from .toml worked. We don't leave a Uint8Array in the profile — in
+// JSON storage it turns into {"0":..,"1":..}.
 function pemFromDer(der) {
   if (!der || !der.length) return "";
   let bin = "";
@@ -643,7 +643,7 @@ function pemFromDer(der) {
   return `-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`;
 }
 
-// Сборка профиля trusttunnel из полей (общая для deep-link и .toml).
+// Building a trusttunnel profile from fields (shared by the deep link and .toml).
 function ttProfile(f, rawForStorage) {
   const first = f.addresses[0] || "";
   let host = f.hostname, port = 443;
@@ -652,7 +652,7 @@ function ttProfile(f, rawForStorage) {
     raw: rawForStorage,
     proto: "trusttunnel",
     name: f.name || f.hostname || "TrustTunnel",
-    host: f.hostname || host, // для отображения — hostname endpoint'а
+    host: f.hostname || host, // for display — the endpoint's hostname
     port,
     hostname: f.hostname,
     addresses: f.addresses.slice(),
@@ -664,7 +664,7 @@ function ttProfile(f, rawForStorage) {
     customSni: f.customSni || "",
     hasIpv6: f.hasIpv6 !== false,
     clientRandom: f.clientRandom || "",
-    certificate: f.certificate || pemFromDer(f.certificateDer), // PEM: .toml как есть, deep-link из DER
+    certificate: f.certificate || pemFromDer(f.certificateDer), // PEM: .toml as is, deep link from DER
     dnsUpstreams: (f.dnsUpstreams || []).slice(),
   };
 }
@@ -672,7 +672,7 @@ function ttProfile(f, rawForStorage) {
 export function parseTrustTunnelDeepLink(raw) {
   const url = String(raw || "").trim();
   if (!url.startsWith("tt://")) throw new Error(t("sb.err.notTt"));
-  // tt://?<payload> — payload в query-части (case-sensitive), без префикса '?'
+  // tt://?<payload> — the payload in the query part (case-sensitive), without the '?' prefix
   const q = url.indexOf("?");
   if (q < 0) throw new Error(t("sb.err.ttNoPayload"));
   const payload = url.slice(q + 1).split(/[#&]/)[0];
@@ -681,12 +681,12 @@ export function parseTrustTunnelDeepLink(raw) {
   return ttProfile(f, url);
 }
 
-// Мини-парсер endpoint-.toml (плоский: key = value, массивы строк, без секций).
-// Достаточно для конфига, который экспортирует endpoint (см. trusttunnel_nl.toml).
+// A mini parser of the endpoint .toml (flat: key = value, string arrays, no sections).
+// Enough for the config the endpoint exports (see trusttunnel_nl.toml).
 export function parseTrustTunnelToml(text, displayName) {
   const lines = String(text || "").split(/\r?\n/);
-  // Комментарий обрезаем только вне кавычек: «skip_verification = false # true»
-  // иначе читалось как true и отключало проверку сертификата.
+  // A comment is cut only outside quotes: "skip_verification = false # true"
+  // otherwise read as true and disabled certificate verification.
   const stripComment = (line) => {
     let quote = "", esc = false;
     for (let i = 0; i < line.length; i++) {
@@ -705,7 +705,7 @@ export function parseTrustTunnelToml(text, displayName) {
       const m = lines[i].match(re);
       if (!m) continue;
       let value = stripComment(m[1]);
-      // Многострочный массив собираем до закрывающей скобки.
+      // A multiline array is collected up to the closing bracket.
       if (value.startsWith("[") && !value.includes("]")) {
         for (let j = i + 1; j < lines.length; j++) {
           const part = stripComment(lines[j]);
@@ -773,21 +773,21 @@ export function parseTrustTunnelToml(text, displayName) {
     dnsUpstreams: arr(get("dns_upstreams")),
     name: unq(get("name")) || displayName || hostname,
   };
-  return ttProfile(f, `tt-toml://${hostname}`); // raw — синтетический маркер для storage
+  return ttProfile(f, `tt-toml://${hostname}`); // raw — a synthetic marker for storage
 }
 
 // ── WireGuard / AmneziaWG .conf ────────────────────────────
-// Файл, а не ссылка: пользователь вставляет содержимое .conf текстом или
-// перетаскивает файл. Формат — тот же ini, который читают wg-quick и Amnezia,
-// поэтому разбираем его буквально, включая шейпинг AmneziaWG (Jc/Jmin/Jmax,
-// S1..S4, H1..H4, I1..I5) — иначе платный профиль импортируется в клиент,
-// который говорит с пиром не на том протоколе, и молча не поднимается.
-// AmneziaWG 2.0 — это S3/S4 и диапазоны «100-200» в H1..H4; AmneziaWG 3 —
-// HeaderProtectionKey, ContentPaddingAddition и RandomTrailers.
+// A file, not a link: the user pastes the .conf contents as text or
+// drags the file in. The format is the same ini that wg-quick and Amnezia read,
+// so we parse it literally, including AmneziaWG shaping (Jc/Jmin/Jmax,
+// S1..S4, H1..H4, I1..I5) — otherwise a paid profile is imported into a client
+// that speaks the wrong protocol to the peer and silently doesn't come up.
+// AmneziaWG 2.0 is S3/S4 and "100-200" ranges in H1..H4; AmneziaWG 3 is
+// HeaderProtectionKey, ContentPaddingAddition and RandomTrailers.
 
-// Ключи, которые мы читаем. Всё остальное попадает в profile.ignored и
-// показывается пользователю: тихо потерянная строка из .conf — это тоннель,
-// который ведёт себя не так, как в Amnezia, без единого слова почему.
+// The keys we read. Everything else goes into profile.ignored and
+// is shown to the user: a silently lost line from a .conf is a tunnel
+// that behaves differently than in Amnezia, without a single word why.
 const WG_INTERFACE_KEYS = new Set([
   "privatekey", "address", "mtu", "listenport",
   "jc", "jmin", "jmax", "s1", "s2", "s3", "s4",
@@ -804,8 +804,8 @@ export function looksLikeWireguardConf(text) {
   return /^\s*\[interface\]/im.test(s) && /^\s*privatekey\s*=/im.test(s);
 }
 
-// Ядро декодирует ключи как обычный base64 и требует ровно 32 байта. Кривой
-// ключ роняет весь конфиг на инициализации, поэтому ловим здесь.
+// The core decodes keys as regular base64 and requires exactly 32 bytes. A malformed
+// key brings down the whole config at initialization, so we catch it here.
 function wgKeyValid(value) {
   const s = String(value || "").trim();
   if (!/^[A-Za-z0-9+/]{42,43}=*$/.test(s)) return false;
@@ -828,9 +828,9 @@ function wgNumber(value) {
 const UINT32_MAX = 0xFFFFFFFF;
 
 /**
- * Магический заголовок AmneziaWG (H1..H4) в форме профиля: число для 1.x,
- * строка «от-до» для диапазона 2.0. Одиночное значение остаётся числом, чтобы
- * у старых профилей не поменялся отпечаток. Пусто — 0, мусор — null.
+ * The AmneziaWG magic header (H1..H4) in profile form: a number for 1.x,
+ * a "from-to" string for a 2.0 range. A single value stays a number so that
+ * old profiles' fingerprint doesn't change. Empty — 0, garbage — null.
  * @returns {number|string|null}
  */
 export function parseAwgHeader(raw) {
@@ -848,7 +848,7 @@ export function parseAwgHeader(raw) {
   return from === to ? from : `${from}-${to}`;
 }
 
-/** Заголовок профиля → {from, to}; 0/пусто → null. */
+/** Profile header → {from, to}; 0/empty → null. */
 export function awgHeaderRange(value) {
   const parsed = parseAwgHeader(value);
   if (!parsed) return null;
@@ -857,12 +857,12 @@ export function awgHeaderRange(value) {
   return { from, to };
 }
 
-/** Профиль использует AmneziaWG 3: защиту заголовков, padding содержимого или хвосты. */
+/** The profile uses AmneziaWG 3: header protection, content padding or trailers. */
 export function isAmneziaWg3(awg) {
   return !!awg && (!!awg.headerProtectionKey || !!awg.contentPaddingAddition || awg.randomTrailers === true);
 }
 
-// RandomTrailers в .conf — «on/off»; Amnezia пишет и true/false.
+// RandomTrailers in .conf is "on/off"; Amnezia also writes true/false.
 function wgSwitch(value) {
   const text = String(value ?? "").trim().toLowerCase();
   if (["on", "true", "1", "yes"].includes(text)) return true;
@@ -870,7 +870,7 @@ function wgSwitch(value) {
   return null;
 }
 
-/** Профиль использует то, чего нет в AmneziaWG 1.x: S3/S4 или диапазоны H. */
+/** The profile uses what AmneziaWG 1.x doesn't have: S3/S4 or H ranges. */
 export function isAmneziaWg2(awg) {
   if (!awg) return false;
   if (Number(awg.s3) > 0 || Number(awg.s4) > 0) return true;
@@ -880,8 +880,8 @@ export function isAmneziaWg2(awg) {
   });
 }
 
-// [Interface]/[Peer] в ini-стиле: секции, `key = value`, комментарии # и ;.
-// Пиров может быть несколько — храним все, для показа берём первого.
+// [Interface]/[Peer] in ini style: sections, `key = value`, # and ; comments.
+// There may be several peers — we store all of them and take the first for display.
 function parseWireguardIni(text) {
   const iface = {};
   const peers = [];
@@ -911,8 +911,8 @@ function parseWireguardIni(text) {
     const lower = key.toLowerCase();
     const known = current === iface ? WG_INTERFACE_KEYS : WG_PEER_KEYS;
     if (!known.has(lower)) {
-      // DNS из файла тоже сюда: маршрутизацией DNS в Ninety заведует свой
-      // раздел настроек, и подменять его строкой из чужого профиля нельзя.
+      // DNS from the file goes here too: DNS routing in Ninety is managed by its own
+      // settings section, and it must not be overridden by a line from someone else's profile.
       if (!ignored.includes(key)) ignored.push(key);
       continue;
     }
@@ -943,8 +943,8 @@ export function parseWireguardConf(text, displayName) {
       port,
       publicKey: peer.publickey.trim(),
       presharedKey: (peer.presharedkey || "").trim(),
-      // Клиентский .conf почти всегда весь трафик заворачивает в тоннель;
-      // пустой AllowedIPs ядро отвергает, поэтому подставляем оба дефолта.
+      // A client .conf almost always routes all traffic into the tunnel;
+      // the core rejects an empty AllowedIPs, so we substitute both defaults.
       allowedIps: wgList(peer.allowedips).length ? wgList(peer.allowedips) : ["0.0.0.0/0", "::/0"],
       keepalive: wgNumber(peer.persistentkeepalive),
     };
@@ -957,8 +957,8 @@ export function parseWireguardConf(text, displayName) {
     jmax: wgNumber(iface.jmax),
     s1: wgNumber(iface.s1),
     s2: wgNumber(iface.s2),
-    // S3/S4 есть только в 2.0: поле появляется, когда задано, — иначе у всех
-    // уже сохранённых профилей сменился бы отпечаток.
+    // S3/S4 exist only in 2.0: the field appears when set — otherwise every
+    // already saved profile's fingerprint would change.
     ...(wgNumber(iface.s3) ? { s3: wgNumber(iface.s3) } : {}),
     ...(wgNumber(iface.s4) ? { s4: wgNumber(iface.s4) } : {}),
     h1: parseAwgHeader(iface.h1) ?? 0,
@@ -971,18 +971,18 @@ export function parseWireguardConf(text, displayName) {
     i4: iface.i4 || "",
     i5: iface.i5 || "",
   };
-  // AmneziaWG 3. Поля появляются, только когда заданы: отпечаток старых
-  // профилей остаётся прежним.
+  // AmneziaWG 3. The fields appear only when set: old profiles'
+  // fingerprint stays the same.
   const headerKey = String(iface.headerprotectionkey || "").trim();
   if (headerKey) awg.headerProtectionKey = headerKey;
   const contentPadding = parseAwgHeader(iface.contentpaddingaddition);
   if (contentPadding) awg.contentPaddingAddition = contentPadding;
   if (wgSwitch(iface.randomtrailers) === true) awg.randomTrailers = true;
 
-  // Поле шейпинга, которое не разобралось, раньше молча становилось нулём:
-  // тоннель говорил с пиром не на том протоколе и не поднимался без единого
-  // слова почему. Значение ядру не передаём, но называем поле среди
-  // непереносимых. H1..H4 — число или диапазон «от-до» (AmneziaWG 2.0).
+  // A shaping field that failed to parse used to silently become zero:
+  // the tunnel spoke the wrong protocol to the peer and didn't come up without a single
+  // word why. We don't pass the value to the core, but name the field among
+  // the non-portable ones. H1..H4 — a number or a "from-to" range (AmneziaWG 2.0).
   for (const key of ["jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4"]) {
     const rawValue = String(iface[key] ?? "").trim();
     if (!rawValue) continue;
@@ -1000,7 +1000,7 @@ export function parseWireguardConf(text, displayName) {
 
   const primary = parsedPeers[0];
   return {
-    raw: `wg-conf://${primary.host}:${primary.port}`, // синтетический маркер для storage
+    raw: `wg-conf://${primary.host}:${primary.port}`, // a synthetic marker for storage
     proto: "wireguard",
     name: displayName || primary.host,
     host: primary.host,
@@ -1015,8 +1015,8 @@ export function parseWireguardConf(text, displayName) {
   };
 }
 
-// Обратно в .conf — тем же форматом, каким пришло. Нужен для экспорта профиля
-// в другой клиент: своей share-ссылки у WireGuard нет.
+// Back to .conf — in the same format it came in. Needed for exporting the profile
+// to another client: WireGuard has no share link of its own.
 export function wireguardConfText(profile) {
   const awg = profile?.awg || {};
   const lines = ["[Interface]"];
@@ -1038,7 +1038,7 @@ export function wireguardConfText(profile) {
     lines.push(`PublicKey = ${peer.publicKey}`);
     if (peer.presharedKey) lines.push(`PresharedKey = ${peer.presharedKey}`);
     lines.push(`AllowedIPs = ${(peer.allowedIps || []).join(", ")}`);
-    // IPv6-адрес без скобок wg-quick не разберёт: парсер снимает их при импорте.
+    // wg-quick won't parse an IPv6 address without brackets: the parser strips them on import.
     const endpointHost = String(peer.host).includes(":") ? `[${peer.host}]` : peer.host;
     lines.push(`Endpoint = ${endpointHost}:${peer.port}`);
     if (peer.keepalive) lines.push(`PersistentKeepalive = ${peer.keepalive}`);
@@ -1046,9 +1046,9 @@ export function wireguardConfText(profile) {
   return lines.join("\n") + "\n";
 }
 
-// ── главный dispatcher ─────────────────────────────────────
-// Возвращает профиль с .proto полем. Назад-совместимо со старыми vless-only
-// профилями (у тех .proto не было; считаем "vless").
+// ── main dispatcher ─────────────────────────────────────
+// Returns a profile with a .proto field. Backward-compatible with old vless-only
+// profiles (those had no .proto; we treat them as "vless").
 export function parseLink(raw) {
   const s = String(raw || "").trim();
   if (s.startsWith("vless://"))     return { ...parseVless(s), proto: "vless" };
@@ -1070,15 +1070,15 @@ export function profileProto(p) {
   return p?.proto || "vless";
 }
 
-// Поля outbound Xray, через которые движок сам читает или пишет файлы: TLS key
-// log и сертификаты с диска. Готовый outbound из подписки уходит в xray почти
-// как есть, а в TUN мост наследует права администратора — такие поля владелец
-// подписки мог бы направить на любой путь. Мосту локальные пути не нужны:
-// сертификаты задаются содержимым. Rust повторяет чистку перед запуском xray.
+// Xray outbound fields through which the engine reads or writes files itself: the TLS key
+// log and certificates from disk. A ready outbound from a subscription goes into xray almost
+// as is, and in TUN the bridge inherits administrator rights — the subscription owner
+// could point such fields at any path. The bridge doesn't need local paths:
+// certificates are given by content. Rust repeats the cleaning before launching xray.
 //
-// Регистр не важен: JSON-декодер Go принимает имена полей без учёта регистра.
-// Сертификат, у которого был только путь к файлу, после чистки пуст, а такой
-// элемент xray отвергает при сборке TLS — и роняет весь мост; его убираем.
+// Case doesn't matter: Go's JSON decoder accepts field names case-insensitively.
+// A certificate that had only a file path is empty after cleaning, and xray rejects
+// such an element when building TLS — and brings down the whole bridge; we remove it.
 export function stripXrayFileFields(value) {
   if (Array.isArray(value)) {
     value.forEach(stripXrayFileFields);
@@ -1100,18 +1100,18 @@ export function stripXrayFileFields(value) {
   return value;
 }
 
-// Формат шифрования VLESS, который принимает xray: «none» или
-// mlkem768x25519plus.<режим>.<0rtt|1rtt>.<параметры и ключ>. Любое другое
-// значение xray отвергает при сборке конфига — и вместе с одной нодой роняет
-// весь мост со всеми xray-нодами подписки.
+// The VLESS encryption format xray accepts: "none" or
+// mlkem768x25519plus.<mode>.<0rtt|1rtt>.<parameters and key>. Any other
+// value is rejected by xray when building the config — and together with one node it brings down
+// the whole bridge with all xray nodes of the subscription.
 export function vlessEncryptionValid(value) {
   const text = String(value ?? "").trim();
   if (!text || text.toLowerCase() === "none") return true;
   return /^mlkem768x25519plus\.(native|xorpub|random)\.(0rtt|1rtt)(\.[A-Za-z0-9_=+/-]+)+$/.test(text);
 }
 
-// Шифрование VLESS (ML-KEM и т.п.), если задано и не "none"; иначе null.
-// Его поддерживает только xray — сборщик и валидация решают по этому значению.
+// VLESS encryption (ML-KEM, etc.), if set and not "none"; otherwise null.
+// Only xray supports it — the builder and validation decide based on this value.
 export function vlessEncryptionOf(node) {
   const value = String(node?.encryption ?? "").trim();
   return profileProto(node) === "vless" && value && value.toLowerCase() !== "none" ? value : null;

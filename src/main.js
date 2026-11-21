@@ -146,12 +146,12 @@ const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   });
 const protectedBrowser = createProtectedBrowserService({ invoke });
 
-// Меню страницы WebView2, перезагрузка и переходы по истории — вне приложения.
+// The WebView2 page menu, reloading and history navigation are outside the app.
 installPageGuards(document);
 
-// Читающие настройку проверки берут общий замороженный снимок: loadOptions()
-// на каждый вызов делает structuredClone всего дерева, а этот предикат зовут
-// из рендеров и из проверок на каждом шаге подключения.
+// Readers of the setting take the shared frozen snapshot: loadOptions()
+// does a structuredClone of the whole tree on every call, and this predicate is called
+// from renders and from checks at every connect step.
 function strictPrivacyRequested() {
   return !!getOptionsSnapshot().privacy?.strictTunnel;
 }
@@ -176,8 +176,8 @@ async function requestProtectedBrowserLaunch(url = null, { automatic = false } =
     toast(t("privacyToast.browserMissing"), "warn", 5000);
     return { ok: false, error: { code: "browser_missing" } };
   }
-  // Проверка установки — IPC и может завершиться уже после disconnect/reconnect.
-  // Перед фактическим spawn подтверждаем тот же runtime и сетевое намерение.
+  // The install check is IPC and may finish after a disconnect/reconnect.
+  // Before the actual spawn we confirm the same runtime and network intent.
   if (state !== "connected"
     || getMode() !== "tun"
     || !isCurrentNetworkIntent(launchEpoch, "connected")
@@ -214,14 +214,14 @@ function maybeAutoLaunchProtectedBrowser() {
   void requestProtectedBrowserLaunch(null, { automatic: true });
 }
 
-// ── Восстановление состояния из бэкапа ──────────────────────
-// Профиль WebView2 (EBWebView) могли снести чистилки диска/антивирус: если
-// localStorage пуст, а снапшот в writable config dir есть — возвращаем ключи и
-// перезагружаем webview, чтобы все модули перечитали хранилище с нуля
-// (тема/язык/опции уже прочитаны дефолтами к этому моменту).
-// Portable без пароля хранит данные открытым текстом и ничего не спрашивает.
-// Пароль нужен, только если данные на диске уже зашифрованы: без него профиль-
-// хранилище не откроется, и пользователь увидел бы пустой список.
+// ── Restoring state from the backup ──────────────────────
+// The WebView2 profile (EBWebView) may have been wiped by disk cleaners/antivirus: if
+// localStorage is empty and there's a snapshot in the writable config dir, we restore the keys and
+// reload the webview so that all modules reread the storage from scratch
+// (theme/language/options have already been read with defaults by this point).
+// Portable without a password stores data in plain text and asks nothing.
+// The password is needed only if the data on disk is already encrypted: without it the profile
+// storage won't open, and the user would see an empty list.
 async function unlockPortableSecretsForRecovery() {
   try {
     const status = await invoke("portable_secrets_status");
@@ -263,10 +263,10 @@ export function getTheme() {
   const raw = localStorage.getItem(THEME_KEY);
   return isThemeId(raw) ? raw : DEFAULT_THEME_ID;
 }
-// data-theme вешаем на <html> (documentElement), а НЕ только на #app-root: иначе
-// портал-UI вне #app-root (модалки/тосты/контекст-меню, аппендятся в body) берёт
-// :root-дефолт (kurogane) вместо активной темы. #app-root держим в синхроне тем же
-// значением — его собственный [data-theme] иначе перебьёт наследование для app-поддерева.
+// data-theme is set on <html> (documentElement), NOT only on #app-root: otherwise
+// portal UI outside #app-root (modals/toasts/context menus, appended to body) takes
+// the :root default (kurogane) instead of the active theme. #app-root is kept in sync with the same
+// value — its own [data-theme] would otherwise override inheritance for the app subtree.
 function applyThemeAttr(theme) {
   document.documentElement.dataset.theme = theme;
   if (appRoot) appRoot.dataset.theme = theme;
@@ -277,20 +277,20 @@ export function setTheme(theme) {
   applyThemeAttr(theme);
   window.dispatchEvent(new CustomEvent("ninety:theme-changed", { detail: { theme } }));
 }
-// Применяем сохранённую тему сразу — до первого рендера остального
+// Apply the saved theme right away — before the first render of everything else
 applyThemeAttr(getTheme());
 initContrast();
 applyCalmHud();
 window.__ninetySetTheme = setTheme;
 
-// ── i18n: язык применяется ДО первого показа (каталог уже в памяти, синхронно).
-// Module-script отложен → DOM готов, applyDom внутри initI18n находит элементы.
+// ── i18n: the language is applied BEFORE the first display (the catalog is already in memory, synchronously).
+// The module script is deferred → the DOM is ready, applyDom inside initI18n finds the elements.
 initI18n();
 
-// ── Version (dynamic из Tauri) ─────────────────────────────
-// ВАЖНО: НЕ вешать MutationObserver на settings-root — рендер экрана меняет
-// его содержимое, это создаёт новую мутацию → бесконечный цикл → фриз WebView2
-// при входе в Settings/Общие (alpha14 bug).
+// ── Version (dynamic from Tauri) ─────────────────────────────
+// IMPORTANT: DON'T put a MutationObserver on settings-root — the screen render changes
+// its contents, which creates a new mutation → an endless loop → a WebView2 freeze
+// when entering Settings/General (alpha14 bug).
 async function fillAppVersion() {
   let v = "—";
   try {
@@ -302,18 +302,18 @@ async function fillAppVersion() {
 }
 fillAppVersion();
 
-// ── Titlebar + поповеры — /lib/titlebar.js, /lib/popovers.js ──
-// Оконные кнопки и поповер «Режим» вынесены в модули. closeAllPopovers остаётся
-// доступен как алиас — его зовёт add-sub при открытии модалки.
+// ── Titlebar + popovers — /lib/titlebar.js, /lib/popovers.js ──
+// The window buttons and the "Mode" popover are moved into modules. closeAllPopovers stays
+// available as an alias — add-sub calls it when opening the modal.
 initTitlebar(tauriWin);
 const { closeAll: closeAllPopovers } = initPopovers();
 
-// ── Mode segmented (3 режима) ───────────────────────────────
+// ── Mode segmented control (3 modes) ───────────────────────────────
 const modeSeg = document.getElementById("mode-seg");
 const modeHint = document.getElementById("mode-hint");
 const warpSwitch = document.getElementById("warp-switch");
 
-// Подсказки режимов живут в каталоге i18n (mode.hint.*) — берутся t() при apply.
+// Mode hints live in the i18n catalog (mode.hint.*) — taken via t() on apply.
 const MODE_KEYS = ["proxy", "systemProxy", "tun"];
 
 function applyModeToUI(m) {
@@ -325,15 +325,15 @@ function applyModeToUI(m) {
     });
   }
   if (modeHint) modeHint.innerHTML = t("mode.hint." + (MODE_KEYS.includes(m) ? m : "systemProxy"));
-  // DPI-обход слушает режим: вход в TUN → пауза, выход → восстановление.
+  // DPI bypass listens to the mode: entering TUN → pause, leaving → restore.
   void setDpiVpnMode(m);
 }
-// Строгая политика никогда не существует в proxy/systemProxy: восстанавливаем
-// согласованный режим ещё до первого рендера и bootstrap runtime.
+// The strict policy never exists in proxy/systemProxy: we restore
+// a consistent mode before the first render and the runtime bootstrap.
 if (strictPrivacyRequested() && getMode() !== "tun") setMode("tun");
 applyModeToUI(getMode());
 
-// WARP switch в popover'е
+// WARP switch in the popover
 (function initWarpSwitch() {
   if (!warpSwitch) return;
   const opts = loadOptions();
@@ -346,7 +346,7 @@ applyModeToUI(getMode());
     if (state === "connected" || state === "connecting") scheduleAutoReconnect();
     updateWarpBadge();
   });
-  // Кликабельна вся строка лейбла, не только тумблер — как строки настроек.
+  // The whole label row is clickable, not just the toggle — like settings rows.
   const warpRow = warpSwitch.closest(".popover__warp");
   warpRow?.addEventListener("click", (e) => {
     if (warpSwitch.contains(e.target)) return;
@@ -355,9 +355,9 @@ applyModeToUI(getMode());
   });
 })();
 
-// warp.enabled управляется из двух мест — свитч в поповере «Режим» и тумблер
-// в Настройки → WARP. Ни один не перерисовывается при изменении опции извне,
-// поэтому на любую запись (событие из updateOption) выравниваем оба контрола.
+// warp.enabled is controlled from two places — the switch in the "Mode" popover and the toggle
+// in Settings → WARP. Neither redraws when the option changes from outside,
+// so on any write (an event from updateOption) we align both controls.
 window.addEventListener("ninety:option-changed", (e) => {
   if (e.detail?.path !== "warp.enabled") return;
   const on = String(!!e.detail.value);
@@ -372,9 +372,9 @@ modeSeg?.addEventListener("click", async (e) => {
   await changeMode(b.dataset.mode);
 });
 
-// Единая смена режима подключения — из сегмента на главной И из меню трея.
-// auto=true — переключение сделала Wi-Fi-авто-защита (см. /lib/wifi-guard.js);
-// ручной выбор юзера отменяет её авто-возврат прежнего режима.
+// A single connection mode change — from the segment on the home screen AND from the tray menu.
+// auto=true — the switch was made by Wi-Fi auto-protection (see /lib/wifi-guard.js);
+// the user's manual choice cancels its auto-restore of the previous mode.
 async function changeMode(requested, { auto = false, reconnect = true } = {}) {
   if (!["proxy", "systemProxy", "tun"].includes(requested)) return false;
   if (strictPrivacyRequested() && requested !== "tun") {
@@ -384,20 +384,20 @@ async function changeMode(requested, { auto = false, reconnect = true } = {}) {
   }
   if (!auto) forgetWifiAutoRestore();
   const prevMode = getMode();
-  // TUN (Throne-style) требует чтобы всё приложение было запущено от админа.
-  // Если мы не elevated — ensureElevatedForTun перезапустит Ninety с UAC
-  // (и вернёт false: текущий процесс умирает, дальше идти незачем).
+  // TUN (Throne-style) requires the whole app to run as admin.
+  // If we aren't elevated, ensureElevatedForTun restarts Ninety with UAC
+  // (and returns false: the current process dies, there's no point going further).
   if (requested === "tun") {
     const ok = await ensureElevatedForTun();
     if (!ok) return false;
-    // До записи mode и реконнекта обязаны подтвердить остановку winws. Иначе
-    // TUN поднимется поверх всё ещё активного перехвата пакетов.
+    // Before writing the mode and reconnecting, the winws stop must be confirmed. Otherwise
+    // TUN would come up on top of still active packet interception.
     if (!(await prepareDpiVpnMode(requested))) return false;
   }
-  // Обычный Kill Switch относится к proxy/systemProxy, но его заслон должен
-  // пережить и переход через границу TUN. До записи нового mode подтверждаем
-  // старую policy либо заранее ставим block-all для целевого non-TUN режима.
-  // Иначе reconnect увидел бы уже новый mode и снял фильтр до готовности ядра.
+  // The regular Kill Switch belongs to proxy/systemProxy, but its shield must
+  // survive crossing the TUN boundary too. Before writing the new mode we confirm
+  // the old policy or put block-all in place in advance for the target non-TUN mode.
+  // Otherwise reconnect would already see the new mode and remove the filter before the core is ready.
   if (reconnect
     && requested !== prevMode
     && (state === "connected" || state === "connecting")
@@ -419,34 +419,34 @@ async function changeMode(requested, { auto = false, reconnect = true } = {}) {
   applyModeToUI(requested);
   updateHeroHint();
   syncTrayMenu();
-  // Режим меняет inbound (TUN vs mixed) и системный прокси — при поднятом VPN
-  // надо пересобрать конфиг. reconnectForSourceChange сам уходит в idle (сбросит
-  // системный прокси старого режима) и поднимается заново. Если не connected —
-  // no-op, режим применится при следующем connect.
+  // The mode changes the inbound (TUN vs mixed) and the system proxy — with the VPN up
+  // the config must be rebuilt. reconnectForSourceChange goes to idle itself (resetting
+  // the old mode's system proxy) and comes back up. If not connected —
+  // a no-op, the mode applies on the next connect.
   if (reconnect && requested !== prevMode) reconnectForSourceChange(t("conn.switchMode"));
   return true;
 }
 
-// ── Авто-защита на чужих Wi-Fi (III.3) — /lib/wifi-guard.js ──
-// changeMode инжектится (замыкает setMode/UI/реконнект); forgetWifiAutoRestore
-// зовётся из changeMode при ручной смене режима, отменяя авто-возврат.
+// ── Auto-protection on foreign Wi-Fi (III.3) — /lib/wifi-guard.js ──
+// changeMode is injected (it closes over setMode/UI/reconnect); forgetWifiAutoRestore
+// is called from changeMode on a manual mode change, cancelling the auto-restore.
 initWifiGuard({ changeMode });
 
 // ── Kill Switch (I.2) — /lib/kill-switch.js ─────────────────
-// applyKillSwitch(connected) зовётся из setState; maybeWarnKillSwitchProxy — из
-// settings onChange при включении опции в режиме «Прокси».
+// applyKillSwitch(connected) is called from setState; maybeWarnKillSwitchProxy from
+// settings onChange when the option is enabled in "Proxy" mode.
 
-// TUN поднимает сетевой интерфейс — для этого sing-box (наш child) должен
-// работать от админа, значит и всё приложение тоже. Если уже elevated — ок,
-// продолжаем. Иначе перезапускаем Ninety от админа через UAC: перезапущенный
-// инстанс читает mode=tun из localStorage. Подключается он, только если
-// connect=true (--connect): переключение режима на выключенном VPN не должно
-// поднимать туннель. Возврат: true — можно продолжать в текущем (уже admin)
-// процессе; false — идёт перезапуск ИЛИ юзер отказался от UAC.
+// TUN brings up a network interface — for that sing-box (our child) must
+// run as admin, which means the whole app too. If already elevated — fine,
+// continue. Otherwise we restart Ninety as admin via UAC: the restarted
+// instance reads mode=tun from localStorage. It connects only if
+// connect=true (--connect): switching the mode with the VPN off must not
+// bring up the tunnel. Returns: true — we can continue in the current (already admin)
+// process; false — a restart is in progress OR the user declined UAC.
 let elevationRelaunchPending = false;
 
-// Перезапуск с правами сохраняет то, было ли подключение: работающий VPN
-// поднимается в новом процессе снова, выключенный остаётся выключенным.
+// A restart with rights preserves whether there was a connection: a working VPN
+// comes up again in the new process, a disabled one stays disabled.
 function vpnSessionActive() {
   return state === "connected" || state === "connecting";
 }
@@ -459,10 +459,10 @@ async function ensureElevatedForTun({ connect = vpnSessionActive() } = {}) {
     if (await invoke("is_elevated")) return true;
     const yes = confirm(t("elev.tunConfirm"));
     if (!yes) return false;
-    // Запоминаем режим заранее — перезапущенный admin-инстанс поднимется в TUN.
-    // И в localStorage, и в durable-бэкап: DPI-путь делает ровно так же
-    // (persistDpiIntentForRelaunch), а без backupNow намерение терялось, если
-    // профиль WebView2 не переживал перезапуск с элевацией.
+    // Remember the mode in advance — the restarted admin instance will come up in TUN.
+    // Both in localStorage and in the durable backup: the DPI path does exactly the same
+    // (persistDpiIntentForRelaunch), and without backupNow the intent got lost if
+    // the WebView2 profile didn't survive the elevated restart.
     setMode("tun");
     modeStoredForRelaunch = true;
     await backupNow();
@@ -478,7 +478,7 @@ async function ensureElevatedForTun({ connect = vpnSessionActive() } = {}) {
     }
     elevationRelaunchPending = true;
     toast(t("elev.relaunching"), "info", 2500);
-    return false; // текущий процесс вот-вот завершится — не продолжаем
+    return false; // the current process is about to exit — don't continue
   } catch (e) {
     elevationRelaunchPending = false;
     if (modeStoredForRelaunch) {
@@ -493,16 +493,16 @@ async function ensureElevatedForTun({ connect = vpnSessionActive() } = {}) {
   }
 }
 
-// DPI-обход: winws грузит kernel-драйвер WinDivert → нужны админ-права. Та же
-// схема, что у TUN, но без смены режима: уже elevated → продолжаем; иначе
-// перезапуск с UAC (текущий процесс умрёт, вернём false).
+// DPI bypass: winws loads the WinDivert kernel driver → admin rights are needed. The same
+// scheme as for TUN, but without a mode change: already elevated → continue; otherwise
+// a restart with UAC (the current process will die, we return false).
 async function ensureElevatedForDpi() {
   try {
     if (await invoke("is_elevated")) return true;
     const yes = confirm(t("elev.dpiConfirm"));
     if (!yes) return false;
-    // relaunch_elevated при успехе завершает текущий процесс прямо внутри Rust,
-    // поэтому намерение включить DPI обязано попасть в storage и backup ДО UAC.
+    // On success relaunch_elevated terminates the current process right inside Rust,
+    // so the intent to enable DPI must get into storage and the backup BEFORE UAC.
     const started = await persistDpiIntentForRelaunch({
       getEnabled: () => localStorage.getItem("ninety.dpi.enabled") === "true",
       setEnabled: (enabled) => localStorage.setItem("ninety.dpi.enabled", enabled ? "true" : "false"),
@@ -514,7 +514,7 @@ async function ensureElevatedForDpi() {
       return false;
     }
     toast(t("elev.relaunching"), "info", 2500);
-    return false; // процесс вот-вот завершится
+    return false; // the process is about to exit
   } catch (e) {
     toast(t("elev.failed", { err: e?.message || e }), "error", 3500);
     return false;
@@ -526,12 +526,12 @@ const profilesSummary = document.getElementById("profiles-summary");
 
 mountAddModal({
   onCommit: async (res) => {
-    // Повторная ссылка ничего не создала — говорим это предупреждением, иначе
-    // зелёный тост читается как «добавлено» и в списке ищут вторую подписку.
+    // A repeated link created nothing — we say so with a warning, otherwise
+    // a green toast reads as "added" and people look for a second subscription in the list.
     toast(res.message, res.duplicate ? "warn" : "success", res.duplicate ? 3600 : 2000);
-    // Импорт подписки её не включает: переключение рвёт живое соединение, а
-    // выбирает источник пользователь. Исключение — когда активного источника
-    // ещё нет: тогда подключать было бы нечего (в том числе в мастере).
+    // Importing a subscription doesn't activate it: switching breaks the live connection, and
+    // the source is chosen by the user. The exception is when there's no active source
+    // yet: then there would be nothing to connect to (including in the wizard).
     const activate = res.source && (res.activate !== false || !getActiveSource());
     if (activate) {
       const reason = res.source.kind === "sub" ? t("conn.switchSub") : t("conn.switchProfile");
@@ -539,7 +539,7 @@ mountAddModal({
     } else {
       refreshProfilesSummary();
     }
-    // Wizard: после импорта переходим на «подключение».
+    // Wizard: after the import we move on to "connect".
     if (wizardActive && wizardStepNum === 1) {
       showOnbStep(2);
       setTimeout(() => {
@@ -565,7 +565,7 @@ function refreshProfilesSummary() {
   updateHeroForActive();
   refreshSubCardFromActive();
   syncEmptyState();
-  backupSoon(); // профили/подписки изменились — обновить снапшот-бэкап
+  backupSoon(); // profiles/subscriptions changed — update the backup snapshot
 }
 
 function warpOnlyEnabled() {
@@ -585,9 +585,9 @@ function activeDisplaySource() {
     : null);
 }
 
-// Empty-state: нет ни подписки ни конфига → показываем onboarding wizard
-// (если он ещё не пройден). Wizard также удерживает onboarding visible пока
-// юзер не дошёл до step 4 — даже если empty уже false (подписка добавлена).
+// Empty state: neither a subscription nor a config → show the onboarding wizard
+// (if it isn't completed yet). The wizard also keeps onboarding visible until
+// the user reaches step 4 — even if empty is already false (a subscription was added).
 function syncEmptyState() {
   if (!appRoot) return;
   const sourceEmpty = loadProfiles().length === 0 && loadSubscriptions().length === 0 && !warpOnlyEnabled();
@@ -602,7 +602,7 @@ function syncEmptyState() {
   if (onb) onb.hidden = !(wizardActive || onboardingEmpty);
 }
 
-// ── sub-card sync с активной подпиской ─────────────────────
+// ── sub-card sync with the active subscription ─────────────────────
 const subName = document.querySelector(".sub-card__name");
 const subExpire = document.getElementById("sub-expire");
 const subExpireUnit = document.querySelector(".sub-card__expire");
@@ -620,20 +620,20 @@ function refreshSubCardFromActive() {
     if (subExpire) subExpire.textContent = days != null ? String(days) : "—";
     if (subExpireUnit) subExpireUnit.style.display = days != null ? "" : "none";
     const used = subscriptionUsedBytes(sub);
-    const limit = subscriptionLimitBytes(sub); // null = безлимит/не метится (total=0)
+    const limit = subscriptionLimitBytes(sub); // null = unlimited/not metered (total=0)
     if (subTraffic) {
-      // Гибрид: есть реальный лимит провайдера → квота used/total. Иначе показываем
-      // наш измеренный трафик (заголовок провайдера ненадёжен/0).
-      // dir="ltr" — величина с единицей читается как одно целое; без изоляции
-      // биди в fa/ar разносит число и единицу по разным концам строки.
+      // Hybrid: there's a real provider limit → the used/total quota. Otherwise we show
+      // our measured traffic (the provider header is unreliable/0).
+      // dir="ltr" — a value with a unit reads as one whole; without isolation
+      // bidi in fa/ar spreads the number and the unit to different ends of the line.
       subTraffic.innerHTML = limit != null
         ? `<span dir="ltr"><b>${fmtTraffic(used)}</b> / <b>${fmtTraffic(limit)}</b></span>`
         : `<span dir="ltr"><b>${fmtTraffic(getMeasured(`sub:${sub.id}`).total)}</b></span> · ${t("home.unlimited")}`;
     }
-    // Прогресс-бар: при лимите ГБ — расход квоты (used/total); при безлимите — доля
-    // ОСТАВШЕГОСЯ СРОКА подписки. Период провайдер не отдаёт → самокалибровка по пику
-    // виденных дней (= длина периода/последнего продления): полный при продлении,
-    // убывает к концу. Без срока и без лимита показывать нечего — прячем.
+    // Progress bar: with a GB limit — quota usage (used/total); unlimited — the share
+    // of the REMAINING TERM of the subscription. The provider doesn't give the period → self-calibration by the peak
+    // of days seen (= the length of the period/last renewal): full on renewal,
+    // decreasing toward the end. Without a term and without a limit there's nothing to show — hide it.
     let barPct = null;
     if (limit != null) {
       barPct = Math.min(100, (used / limit) * 100);
@@ -651,7 +651,7 @@ function refreshSubCardFromActive() {
     if (subName) subName.textContent = t("home.localConfig");
     if (subExpire) subExpire.textContent = "—";
     if (subExpireUnit) subExpireUnit.style.display = "none";
-    // У одиночного профиля (hysteria/naive/tt) нет квоты — показываем измеренный трафик.
+    // A single profile (hysteria/naive/tt) has no quota — we show the measured traffic.
     if (subTraffic) subTraffic.innerHTML = `<span dir="ltr"><b>${fmtTraffic(getMeasured(`profile:${src.profile.id}`).total)}</b></span>`;
     if (subBar) subBar.style.display = "none";
     if (subProgressFill) subProgressFill.style.width = "0%";
@@ -675,16 +675,16 @@ function refreshSubCardFromActive() {
   }
 }
 
-// ── Навигация ───────────────────────────────────────────────
+// ── Navigation ───────────────────────────────────────────────
 const navItems = document.querySelectorAll(".nav__item[data-view]");
 const views = document.querySelectorAll("section.screen[data-view]");
 
-// Вход на экран — работа не на этот кадр. onProxiesViewEnter рендерит таблицу
-// на сотни строк, onLogsViewEnter читает хвост лога и парсит его: выполняясь
-// синхронно, они попадали в тот же кадр, что и первый layout только что
-// показанного экрана, и переход отдавался рывком. Теперь кадр перехода рисуется
-// сразу, а вход отрабатывает следующим. Уход (Leave) остаётся синхронным — он
-// гасит таймеры покидаемого экрана, и откладывать это нельзя.
+// Entering a screen isn't work for this frame. onProxiesViewEnter renders a table
+// of hundreds of rows, onLogsViewEnter reads the log tail and parses it: running
+// synchronously, they landed in the same frame as the first layout of the just
+// shown screen, and the transition stuttered. Now the transition frame is drawn
+// immediately, and the entry runs on the next one. Leaving (Leave) stays synchronous — it
+// stops the timers of the screen being left, and that can't be postponed.
 let pendingViewEnter = null;
 let currentView = "home";
 
@@ -696,8 +696,8 @@ function runViewEnter(target) {
   if (target === "diagnose") onDiagnoseViewEnter();
 }
 
-// rAF не приходит, пока окно скрыто (открытие экрана из трея), поэтому таймер
-// идёт гонкой с кадром: сработает тот, кто раньше, второй станет no-op.
+// rAF doesn't arrive while the window is hidden (opening a screen from the tray), so the timer
+// races the frame: whichever fires first wins, the second becomes a no-op.
 function scheduleViewEnter(target) {
   if (pendingViewEnter) {
     cancelAnimationFrame(pendingViewEnter.frame);
@@ -716,8 +716,8 @@ function scheduleViewEnter(target) {
   };
 }
 
-// Видео-маска декодится только пока главный экран виден — оффскрин обнуляем
-// декод. В спокойном режиме она стоит на текущем кадре.
+// The video mask is decoded only while the home screen is visible — offscreen we zero
+// the decode. In calm mode it stays on the current frame.
 function syncHeroMaskPlayback() {
   if (!heroMask) return;
   if (currentView === "home" && !isCalmHud()) heroMask.play?.().catch(() => {});
@@ -748,8 +748,8 @@ navItems.forEach((item) => {
   });
 });
 
-// В низком окне меню прокручивается внутри себя; полосы нет, поэтому край,
-// за которым остались пункты, помечаем для затухания (см. .nav[data-scroll]).
+// In a short window the menu scrolls within itself; there's no scrollbar, so the edge
+// beyond which items remain is marked for fading (see .nav[data-scroll]).
 const navList = document.querySelector(".nav");
 function syncNavScrollHint() {
   if (!navList) return;
@@ -761,8 +761,8 @@ function syncNavScrollHint() {
 navList?.addEventListener("scroll", syncNavScrollHint, { passive: true });
 if (navList && typeof ResizeObserver === "function") new ResizeObserver(syncNavScrollHint).observe(navList);
 
-// Карточка активной подписки на главной → открыть «Профили»:
-// явная кнопка-шеврон + клик/Enter по самой карточке.
+// The active subscription card on the home screen → open "Profiles":
+// an explicit chevron button + click/Enter on the card itself.
 const subCardEl = document.querySelector(".sub-card");
 const subOpenBtn = document.getElementById("sub-open-profiles");
 subOpenBtn?.addEventListener("click", (e) => { e.stopPropagation(); switchView("profiles"); });
@@ -771,8 +771,8 @@ subCardEl?.addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); switchView("profiles"); }
 });
 
-// В строгом runtime остаётся только один физический outbound: смена узла
-// сохраняет новый pin и пересобирает соединение вместо Clash hot-switch.
+// In the strict runtime only one physical outbound remains: a node switch
+// saves the new pin and rebuilds the connection instead of a Clash hot switch.
 mountProxiesView({
   onToast: toast,
   isStrictPrivacy: strictPrivacyRequested,
@@ -786,18 +786,18 @@ mountProxiesView({
   },
 });
 
-// Mount DPI-обход (экран + чип на главной). Синхронизируем режим VPN сразу:
-// в TUN обход авто-паузится (см. dpi-view.js::effState).
+// Mount DPI bypass (the screen + the chip on the home screen). We sync the VPN mode right away:
+// in TUN the bypass auto-pauses (see dpi-view.js::effState).
 mountDpiView({ onToast: toast, switchView, ensureElevated: ensureElevatedForDpi });
 
-// Адреса всех серверов активного источника — для исключения из обхода DPI.
-// Balancer пингует каждую ноду подписки, и при исключении одной (раньше —
-// nodes[0] до подключения) проверки остальных шли через десинк winws: «Авто»
-// не мог уйти с упавшей ноды. IP или имя — разбирает dpi-view; резолв имён
-// там же и только когда winws работает.
+// The addresses of all servers of the active source — for excluding them from the DPI bypass.
+// The Balancer pings every node of the subscription, and when only one was excluded (previously —
+// nodes[0] before connecting) the checks of the others went through winws desync: "Auto"
+// couldn't leave a dead node. IP or name is parsed by dpi-view; name resolution
+// is there too, and only while winws is running.
 function vpnNodeAddresses() {
-  // VPN выключен — исключать нечего: не резолвим имена сохранённого источника
-  // и не выводим его адреса из-под обхода для обычного трафика.
+  // The VPN is off — there's nothing to exclude: we don't resolve the saved source's names
+  // and don't take its addresses out of the bypass for regular traffic.
   if (state === "idle" || state === "cleanup_error") return [];
   const src = getActiveSource();
   const nodes = src?.kind === "sub" ? (src.nodes || []) : (src?.profile ? [src.profile] : []);
@@ -805,15 +805,15 @@ function vpnNodeAddresses() {
   const push = (value) => {
     const text = String(value ?? "").trim();
     if (!text) return;
-    // Локальные адреса (мосты, заглушки 127.0.0.1/0.0.0.0) не нужны winws.
+    // Local addresses (bridges, 127.0.0.1/0.0.0.0 placeholders) aren't needed by winws.
     const host = text.replace(/^\[([^\]]+)\](?::\d+)?$/, "$1").replace(/^([^:]+):\d+$/, "$1").toLowerCase();
     if (host === "localhost" || host === "::1" || host === "::" || host === "0.0.0.0" || host.startsWith("127.")) return;
     out.push(text);
   };
   for (const node of nodes) {
     push(node?.host);
-    // TrustTunnel подключается к адресам из addresses, а не к отображаемому
-    // host. У WireGuard addresses — адреса интерфейса, их не трогаем.
+    // TrustTunnel connects to the addresses from addresses, not to the displayed
+    // host. For WireGuard addresses are the interface addresses, we leave them alone.
     if (node?.proto === "trusttunnel") {
       for (const address of Array.isArray(node.addresses) ? node.addresses : []) push(address);
     }
@@ -826,7 +826,7 @@ function vpnNodeAddresses() {
     }
   }
   const warp = loadOptions().warp;
-  // auto/auto4/auto6 — выбор эндпоинта сканером, а не адрес.
+  // auto/auto4/auto6 — an endpoint choice by the scanner, not an address.
   const warpHost = String(warp?.endpoint || "").replace(/:\d+$/, "");
   if (warp?.enabled && warpHost && !/^auto[46]?$/i.test(warpHost)) push(warp.endpoint);
   return out;
@@ -842,23 +842,23 @@ if (settingsRoot) {
   let strictTunnelToggleEpoch = 0;
   settingsCtl = mountSettings(settingsRoot, {
     onChange: async (path, value) => {
-      backupSoon(); // настройки изменились — обновить снапшот-бэкап состояния
+      backupSoon(); // settings changed — update the state backup snapshot
       if (path === "privacy.strictTunnel") {
         const toggleEpoch = ++strictTunnelToggleEpoch;
         const stillCurrent = () => toggleEpoch === strictTunnelToggleEpoch
           && !!loadOptions().privacy?.strictTunnel === !!value;
         if (value) {
           const previousMode = getMode();
-          // Строгая политика — runtime-overlay: после её выключения надо
-          // вернуть пользовательский режим, который был до принудительного TUN.
-          // Записываем до ensureElevatedForTun(), потому что успешный UAC-relaunch
-          // завершает текущий процесс прямо внутри backend-команды.
+          // The strict policy is a runtime overlay: after it's turned off we must
+          // restore the user mode that was there before the forced TUN.
+          // We write it before ensureElevatedForTun(), because a successful UAC relaunch
+          // terminates the current process right inside the backend command.
           rememberStrictTunnelPreviousMode(previousMode);
           const modeReady = await changeMode("tun", { reconnect: false });
           if (!stillCurrent()) return;
-          // При успешном UAC-relaunch текущий процесс уже завершается, а новый
-          // прочитает сохранённый strict=true. При отмене/ошибке явно откатываем
-          // свитчер даже если прежний сохранённый режим уже был TUN.
+          // On a successful UAC relaunch the current process is already exiting, and the new one
+          // will read the saved strict=true. On cancel/error we explicitly roll back
+          // the switcher even if the previous saved mode was already TUN.
           if (!modeReady) {
             if (elevationRelaunchPending) return;
             updateOption(path, false);
@@ -870,9 +870,9 @@ if (settingsRoot) {
             return;
           }
           if (state === "connected" || state === "connecting") {
-            // Закрываем окно между остановкой обычного runtime и стартом strict:
-            // barrier ставится ДО reconnect, а latch заставляет shutdown
-            // сохранить его до готовности нового TUN.
+            // We close the window between stopping the regular runtime and starting strict:
+            // the barrier is set BEFORE the reconnect, and the latch makes shutdown
+            // keep it until the new TUN is ready.
             const guardReady = await applyKillSwitch(true, { phase: "preconnect" });
             if (!stillCurrent()) return;
             if (!guardReady) {
@@ -894,16 +894,16 @@ if (settingsRoot) {
             strictFailClosedLatched = true;
           }
         } else if (state === "idle") {
-          // Мог остаться fail-closed WFP после аварии предыдущей строгой сессии.
+          // A fail-closed WFP may have remained after a crash of the previous strict session.
           const disarmed = await applyKillSwitch(false);
           if (!stillCurrent()) return;
           if (disarmed) {
             strictFailClosedLatched = false;
             ordinaryFailClosedLatched = false;
           } else {
-            // UI не должен обещать снятую защиту, если WFP lease не удалось
-            // отпустить. Возвращаем настройку и guard-only retry; выйти из
-            // приложения (dynamic session) остаётся гарантированным recovery.
+            // The UI must not promise removed protection if the WFP lease couldn't be
+            // released. We restore the setting and the guard-only retry; exiting
+            // the app (dynamic session) remains a guaranteed recovery.
             updateOption(path, true);
             strictTunnelToggleEpoch++;
             ordinaryFailClosedLatched = false;
@@ -925,13 +925,13 @@ if (settingsRoot) {
             if (!stillCurrent()) return;
             if (!restoredPreviousMode) return;
           }
-          // Для прежнего TUN ничего переключать не нужно, но stale-маркер всё
-          // равно удаляем: следующее включение должно запомнить свежий режим.
+          // For a previous TUN nothing needs switching, but we still delete the stale marker:
+          // the next enable must remember a fresh mode.
           clearStrictTunnelPreviousMode();
         }
         syncHealthWatchdogForState();
-        // setDpiVpnMode умеет переоценивать тот же TUN-режим: при выключении
-        // strict возвращает split-Discord/winws согласно сохранённой опции.
+        // setDpiVpnMode can reevaluate the same TUN mode: when strict is turned off
+        // it restores split Discord/winws according to the saved option.
         if (!(await setDpiVpnMode(getMode(), { reevaluate: true }))) return;
         if ((state === "connected" || state === "connecting") && !restoredPreviousMode) {
           scheduleAutoReconnect();
@@ -941,15 +941,15 @@ if (settingsRoot) {
         settingsCtl?.refresh();
         return;
       }
-      // Kill switch — чистый WFP-фильтр, конфиг sing-box не трогает: применяем
-      // вживую (arm/disarm по текущему состоянию), БЕЗ реконнекта туннеля (прежде
-      // тоггл ронял и поднимал VPN зря). В режиме «Прокси» — разовое предупреждение.
+      // Kill switch is a pure WFP filter, it doesn't touch the sing-box config: we apply it
+      // live (arm/disarm by the current state), WITHOUT reconnecting the tunnel (previously
+      // the toggle brought the VPN down and up needlessly). In "Proxy" mode — a one-time warning.
       if (path === "general.killSwitch") {
         const toggleEpoch = ++killSwitchToggleEpoch;
         maybeWarnKillSwitchProxy();
-        // Без прав администратора WFP не поднять, и подключение с включённой
-        // защитой каждый раз отказывает. При отключённом VPN проверка ниже
-        // ничего не армирует — говорим об этом сразу, а не на первом отказе.
+        // Without administrator rights WFP can't be raised, and a connection with protection
+        // enabled fails every time. With the VPN off the check below
+        // arms nothing — we say so right away rather than on the first failure.
         if (value && state !== "connected" && !(await invoke("is_elevated").catch(() => true))) {
           toast(t("elev.killSwitchHint"), "warn", 6000);
         }
@@ -961,10 +961,10 @@ if (settingsRoot) {
             && state === "connected"
             && getMode() !== "tun";
         }
-        // Армирование WFP — часть контракта настройки, а не fire-and-forget.
-        // Если ядро уже поднято, не оставляем переключатель включённым при
-        // фактически неактивной защите: откатываем запись и DOM к безопасному
-        // состоянию, затем явно снимаем возможный частично поднятый фильтр.
+        // Arming WFP is part of the setting's contract, not fire-and-forget.
+        // If the core is already up, we don't leave the switch enabled with
+        // the protection actually inactive: we roll the write and the DOM back to a safe
+        // state, then explicitly remove a possibly partially raised filter.
         if (toggleEpoch === killSwitchToggleEpoch && ready === false) {
           const revertedValue = !value;
           updateOption(path, revertedValue);
@@ -981,20 +981,20 @@ if (settingsRoot) {
         if (toggleEpoch === killSwitchToggleEpoch) syncHealthWatchdogForState();
         return;
       }
-      // Тогглы periodic re-scan и его интервал — не трогают sing-box, только
-      // фоновый JS-loop. Пересоздаём loop сразу, реконнект не нужен.
+      // The periodic re-scan toggles and its interval don't touch sing-box, only
+      // the background JS loop. We recreate the loop right away, no reconnect needed.
       if (path === "warp.autoRescan" || path === "warp.autoRescanIntervalMin" || path === "warp.autoRescanThresholdMs") {
         startWarpRescanLoop();
         return;
       }
-      // Badge с активным endpoint должен реагировать на любое изменение warp.*
+      // The badge with the active endpoint must react to any change of warp.*
       if (path === "warp.enabled" || path === "warp.endpoint") updateWarpBadge();
       if (path === "warp.enabled" || path === "warp.mode") {
         syncEmptyState();
         updateHeroForActive();
       }
-      // Качество связи — опции читает движок, ядро не трогаем. Применяем вживую
-      // через setOptions; вкл/выкл прячет/показывает индикатор «КАНАЛ».
+      // Connection quality — the engine reads the options, the core isn't touched. Applied live
+      // via setOptions; on/off hides/shows the "CHANNEL" indicator.
       if (path.startsWith("quality.")) {
         qualityEngine.setOptions(loadOptions().quality);
         if (activeStrictPrivacyRuntime) {
@@ -1002,19 +1002,19 @@ if (settingsRoot) {
           showQualityChip(false);
         } else if (path === "quality.enabled" && state === "connected") {
           const enabled = loadOptions().quality?.enabled !== false;
-          // Выключенное наблюдение — такой же конец сессии измерений, как
-          // отключение: открытый инцидент обязан получить исход, а не повиснуть.
+          // Turned-off observation is the same end of a measurement session as
+          // a disconnect: an open incident must get an outcome rather than hang.
           if (!enabled) channelIncidents.endSession("monitoringOff");
           showQualityChip(enabled);
         }
         return;
       }
       if (path === "route.tunSplitDiscord" && getMode() === "tun") {
-        // Выключение split должно подтвердить остановку winws до реконнекта;
-        // включение — вернуть его только после успешного старта.
+        // Turning split off must confirm the winws stop before the reconnect;
+        // turning it on must bring it back only after a successful start.
         if (!(await setDpiVpnMode(getMode(), { reevaluate: true }))) return;
       }
-      // Гео-запросы влияют только на плитку IP — обновляем её без реконнекта.
+      // Geo requests affect only the IP tile — we update it without a reconnect.
       if (path === "general.disableGeoLookup" && state === "connected") void refreshPublicIp();
       if (!pathNeedsRestart(path, loadOptions(), getMode())) return;
       if (state === "connected" || state === "connecting") {
@@ -1024,7 +1024,7 @@ if (settingsRoot) {
     },
     onSensitiveDataClear: async () => {
       beginNetworkIntent("idle");
-      connectAttempts.cancel(); // отменить возможный start_singbox в полёте
+      connectAttempts.cancel(); // cancel a possible start_singbox in flight
       if (!(await shutdownCore())) {
         throw new Error("очистка VPN не подтверждена; данные не удалены");
       }
@@ -1034,16 +1034,16 @@ if (settingsRoot) {
         throw new Error(`остановка DPI не подтверждена: ${e?.message || e}`, { cause: e });
       }
       try { localStorage.setItem("ninety.dpi.enabled", "false"); } catch {}
-      // Durable-копия снимается ПЕРВОЙ. Обратный порядок означал, что сбой между
-      // шагами (или падение процесса) оставлял живые копии удалёнными, а бэкап —
-      // нетронутым: следующий запуск восстанавливал из него профили и подписки,
-      // которые пользователь только что попросил стереть. Теперь худший исход —
-      // «не удалилось целиком», и его видно сразу.
+      // The durable copy is removed FIRST. The reverse order meant that a failure between
+      // steps (or a process crash) left the live copies deleted and the backup
+      // untouched: the next launch restored from it the profiles and subscriptions
+      // the user had just asked to erase. Now the worst outcome is
+      // "not deleted entirely", and it's visible right away.
       await invoke("state_backup_clear");
       await clearProfileStore();
       clearProfileStorage();
-      // Повторно — уже после удаления живых копий: между шагами мог сработать
-      // отложенный backupSoon и записать в бэкап то, что мы удаляем.
+      // Again — after deleting the live copies: between the steps a deferred
+      // backupSoon may have fired and written to the backup what we're deleting.
       await invoke("state_backup_clear");
       try { sessionStorage.removeItem("ninety.restore.attempted"); } catch {}
       refreshProfilesSummary();
@@ -1051,8 +1051,8 @@ if (settingsRoot) {
       syncTrayMenu();
       toast(t("settings.general.clearSensitiveDone"), "success", 2400);
     },
-    // Карточка «Обновления» в «О программе» показывает фактическое состояние
-    // подсистемы: идёт ли проверка, найдена ли версия, когда проверяли удачно.
+    // The "Updates" card in "About" shows the actual state of
+    // the subsystem: whether a check is running, whether a version was found, when the last successful check was.
     getUpdateStatus: () => ({
       checking: updateChecks.isRunning(),
       pendingVersion: pendingUpdate?.version || null,
@@ -1085,9 +1085,9 @@ function killSwitchMustSurviveRuntimeStop() {
 function preservedKillSwitchPolicyMode() {
   const opts = loadOptions();
   if (strictFailClosedLatched && opts.privacy?.strictTunnel) return "tun";
-  // Latch описывает уже подтверждённый ordinary barrier. Во время
-  // proxy↔TUN-transition текущий сохранённый mode может быть TUN, но старый
-  // block-all всё равно обязан дожить до final readiness нового runtime.
+  // The latch describes an already confirmed ordinary barrier. During a
+  // proxy↔TUN transition the current saved mode may be TUN, but the old
+  // block-all must still survive until the new runtime's final readiness.
   if (ordinaryFailClosedLatched && opts.general?.killSwitch) return "systemProxy";
   return null;
 }
@@ -1100,10 +1100,10 @@ function syncHealthWatchdogForState() {
   }
 }
 
-// WebView может перезагрузиться уже после смерти ядра. Backend snapshot тогда
-// сообщает running=false, но WFP и RuntimeRecord всё ещё подтверждают активную
-// fail-closed policy. Восстанавливаем потерянный JS-latch до любых ранних
-// return и оставляем watchdog в guard-only режиме.
+// The WebView may reload after the core has died. The backend snapshot then
+// reports running=false, but WFP and RuntimeRecord still confirm an active
+// fail-closed policy. We restore the lost JS latch before any early
+// return and leave the watchdog in guard-only mode.
 function restoreFailClosedLatch(snapshot, opts = loadOptions()) {
   if (snapshotConfirmsStrictKillSwitch(snapshot, opts)) {
     ordinaryFailClosedLatched = false;
@@ -1143,9 +1143,9 @@ function cancelPendingReconnect() {
   }
 }
 
-// Единое гашение ядра: системный прокси → ядро → UI в idle. Все пути
-// отключения (ручное, авто-реконнект, watchdog, отказ моста, фейл старта)
-// идут через него, чтобы сброс системного прокси не потерялся ни в одном.
+// A single core shutdown: system proxy → core → UI to idle. All disconnect
+// paths (manual, auto-reconnect, watchdog, bridge failure, start failure)
+// go through it so that the system proxy reset isn't lost in any of them.
 async function shutdownCore({ finalize = true, preserveKillSwitch = false, operationToken = null } = {}) {
   if (preserveKillSwitch) {
     const guardReady = await applyKillSwitch(false, {
@@ -1179,9 +1179,9 @@ async function shutdownCore({ finalize = true, preserveKillSwitch = false, opera
   return true;
 }
 
-// Любой уже запущенный runtime, который не совпадает с сохранённой политикой,
-// гасится только после fail-closed barrier. Это покрывает startup/WebView reload
-// посередине активации, когда JS-latch ещё не восстановлен.
+// Any already running runtime that doesn't match the saved policy
+// is stopped only after the fail-closed barrier. This covers startup/a WebView reload
+// in the middle of activation, when the JS latch isn't restored yet.
 async function shutdownRuntimeForPolicyReplacement(snapshot = null) {
   const preserveStrict = strictPrivacyRequested();
   const opts = loadOptions();
@@ -1234,11 +1234,11 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     if (!operationToken) {
       ownedOperationToken = await beginRuntimeOperation("qualityRemediation");
       if (!ownedOperationToken) {
-        // Координатор занят более приоритетной операцией (обычно восстановление
-        // сторожем). Намерение пользователя при этом никуда не делось: без
-        // повтора needsReconnect остаётся взведённым, а сам реконнект не
-        // случается никогда — правка настроек молча не применяется до
-        // следующего клика.
+        // The coordinator is busy with a higher-priority operation (usually recovery
+        // by the watchdog). The user's intent hasn't gone anywhere: without
+        // a retry needsReconnect stays armed, while the reconnect itself never
+        // happens — a settings edit silently doesn't apply until
+        // the next click.
         if (isCurrentNetworkIntent(epoch, "connected") && needsReconnect) {
           if (pendingReconnectTimer) clearTimeout(pendingReconnectTimer);
           pendingReconnectTimer = setTimeout(() => performAutoReconnect(reason, epoch), 5000);
@@ -1258,33 +1258,33 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
       // the still-current source intent must restore it before connecting.
       needsReconnect = true;
     }
-    // Более новый source intent мог прийти, пока предыдущий reconnect уже был в
-    // disconnecting. После его подтверждённого stop очередь просыпается в idle —
-    // это штатная точка старта latest-профиля, а не причина потерять запрос.
+    // A newer source intent may have arrived while the previous reconnect was already
+    // disconnecting. After its confirmed stop the queue wakes up in idle —
+    // this is the regular starting point for the latest profile, not a reason to lose the request.
     if (state === "idle") {
       needsReconnect = false;
       applyReconnectUI();
-      // await обязателен: без него return завершает try, finally немедленно
-      // освобождает токен операции, и connectNetwork уходит в start_singbox
-      // с уже отпущенным владением. Rust отвечает «stale or cancelled runtime
-      // operation token» — на экране это «Не удалось отключить».
+      // The await is mandatory: without it return ends the try, finally immediately
+      // releases the operation token, and connectNetwork goes into start_singbox
+      // with ownership already released. Rust answers "stale or cancelled runtime
+      // operation token" — on screen this is "Failed to disconnect".
       return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
     }
     if (state !== "connected" && state !== "connecting") return false;
-    connectAttempts.cancel(); // инвалидировать возможный start_singbox в полёте
+    connectAttempts.cancel(); // invalidate a possible start_singbox in flight
     reconnectToastId = toast(reason, "info", 0, { group: "conn", connecting: true });
     const nativeStartWasPending = coreStartBarrier.isPending();
     if (!(await shutdownCore({ preserveKillSwitch: preserveGuard, operationToken }))) {
       if (preserveGuard && isCurrentNetworkIntent(epoch, "connected")) {
-        // Токен этой операции освобождает finally ниже: повтор получит свой.
+        // This operation's token is released by finally below: the retry will get its own.
         pendingReconnectTimer = setTimeout(() => performAutoReconnect(reason, epoch), 5000);
       }
       return false;
     }
     if (!isCurrentNetworkIntent(epoch, "connected")) return false;
-    // stop_singbox не может отменить IPC-start, который ещё находится в settle-
-    // фазе и не записал child. Ждём его физического завершения, затем повторно
-    // гасим поздно поднявшийся комплект. Только после этого стартует новый source.
+    // stop_singbox can't cancel an IPC start that is still in the settle
+    // phase and hasn't recorded the child. We wait for it to physically finish, then
+    // stop the late-started set again. Only after that does the new source start.
     if (nativeStartWasPending) {
       await coreStartBarrier.wait();
       if (!isCurrentNetworkIntent(epoch, "connected")) return false;
@@ -1297,8 +1297,8 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
     }
     needsReconnect = false;
     applyReconnectUI();
-    // await по той же причине, что и в idle-ветке выше: владение операцией
-    // должно дожить до конца подключения, а не до момента return.
+    // The await for the same reason as in the idle branch above: operation ownership
+    // must last until the end of the connection, not until the moment of return.
     return await runReconnectAttempt(connectNetwork, { epoch, operationToken });
   } finally {
     if (ownedOperationToken) await completeRuntimeOperation(ownedOperationToken);
@@ -1307,31 +1307,31 @@ async function performAutoReconnectOnce(reason, epoch, operationToken = null) {
 }
 
 // ── health-watchdog — /lib/health-watchdog.js ──────────────
-// Liveness ядер + bridge-reconnect вынесены в модуль; здесь инстанс с инжектом
-// состояния/реконнекта/движка качества. Алиасы сохраняют имена вызовов из setState
-// (start/stopHealthWatchdog) — их не трогаем. getQualityEngine — геттер, т.к.
-// qualityEngine определяется ниже по файлу; вызывается только в runtime-тике.
-// ── Лента инцидентов ───────────────────────────────────────
-// Переходы состояния канала и исходы инцидентов считает /lib/channel-incidents.js;
-// здесь — только его «руки»: сама лента и то, что знает главный модуль.
+// Core liveness + bridge reconnect are moved into a module; here is the instance with injected
+// state/reconnect/quality engine. The aliases keep the call names from setState
+// (start/stopHealthWatchdog) — we don't touch them. getQualityEngine is a getter because
+// qualityEngine is defined further down the file; it's called only in the runtime tick.
+// ── Incident feed ───────────────────────────────────────
+// Channel state transitions and incident outcomes are computed by /lib/channel-incidents.js;
+// here only its "hands": the feed itself and what the main module knows.
 const channelIncidents = createChannelIncidentRecorder({
   record: (kind, entry) => incidentLog.record(kind, entry),
-  // Инцидент мог открыть и не движок качества (смерть ядра, провал
-  // восстановления): такой тоже кончается вместе с сессией. Разбор ленты здесь
-  // дёшев — конец сессии событие редкое.
+  // An incident may also have been opened by something other than the quality engine (core death, recovery
+  // failure): such an incident also ends together with the session. Parsing the feed here
+  // is cheap — the end of a session is a rare event.
   isAnyIncidentOpen: () => groupIncidents(incidentLog.list())[0]?.ongoing === true,
-  // Реконнект и автовосстановление ядра тоже гасят движок, но сессию не
-  // заканчивают: намерение пользователя осталось «подключено», измерения
-  // возобновятся через секунды, и инцидент обязан дожить до настоящего исхода —
-  // иначе успешный реконнект, который его и вылечил, не будет виден как
-  // восстановление. Смена источника и выключенное наблюдение обрывают
-  // наблюдение в любом случае: мерить прежний канал больше нечем.
+  // A reconnect and core auto-recovery also stop the engine, but don't end
+  // the session: the user's intent stays "connected", measurements
+  // resume within seconds, and the incident must survive until its real outcome —
+  // otherwise the successful reconnect that cured it wouldn't show as
+  // a recovery. A source switch and turned-off observation end
+  // observation in any case: there's no longer anything to measure the previous channel with.
   sessionSurvives: (reason) => reason === "disconnected"
     && networkIntent.desired() === "connected",
 });
 
-// Единая точка остановки движка: лента должна узнать о конце сессии до того,
-// как движок забудет состояние канала.
+// A single engine stop point: the feed must learn about the end of the session before
+// the engine forgets the channel state.
 function stopQualityEngine(reason) {
   channelIncidents.endSession(reason);
   qualityEngine.onIdle();
@@ -1353,9 +1353,9 @@ const healthWatchdog = initHealthWatchdog({
   reconcileKillSwitch: () => applyKillSwitch(state === "connected"),
   beginRuntimeOperation: (kind) => beginRuntimeOperation(kind),
   completeRuntimeOperation,
-  // Восстановление после краха ядра: намерение пользователя всё ещё
-  // «подключено» (intent сбрасывают только явный disconnect и bootstrap),
-  // поэтому идём тем же путём, что и реконнект при смене источника.
+  // Recovery after a core crash: the user's intent is still
+  // "connected" (the intent is reset only by an explicit disconnect and bootstrap),
+  // so we go the same way as the reconnect on a source change.
   restoreAfterCoreDeath: async (reason, context) => {
     const restored = await reconnectCommittedSource(reason, context);
     incidentLog.record(restored ? "core.restored" : "core.restoreFailed", {
@@ -1387,24 +1387,24 @@ const healthWatchdog = initHealthWatchdog({
 const startHealthWatchdog = healthWatchdog.start;
 const stopHealthWatchdog = healthWatchdog.stop;
 
-// ── Движок качества связи ──────────────────────────────────
-// Декаплинг: движок не знает про DOM/main.js, все «руки» инжектим здесь.
-// Ступени лесенки, которых пока нет (R2 exclude-node, R5 switch-transport),
-// просто не передаём в actions — движок их пропускает.
+// ── Connection quality engine ──────────────────────────────────
+// Decoupling: the engine knows nothing about the DOM/main.js, all the "hands" are injected here.
+// Ladder steps that don't exist yet (R2 exclude-node, R5 switch-transport)
+// are simply not passed in actions — the engine skips them.
 const qualityEngine = createQualityEngine({
   invoke,
   actions: {
-    // R1 — перевыбор ноды балансером без реконнекта: освежаем замеры
-    // КАНДИДАТОВ, и balancer сам переедет на лучшего в течение секунды.
+    // R1 — node reselection by the balancer without a reconnect: we refresh the measurements of
+    // the CANDIDATES, and the balancer itself moves to the best one within a second.
     //
-    // Раньше здесь стоял refreshEffectiveDelay — замер одного лишь текущего
-    // лидера. На живой, но медленной ноде он давал обратный эффект: свежая
-    // цифра лидера только закрепляла его, и ступень работала вхолостую.
+    // Previously there was refreshEffectiveDelay here — measuring only the current
+    // leader. On a live but slow node it had the opposite effect: the leader's fresh
+    // number only cemented it, and the step ran idle.
     selectNextNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
-      // При ручном выборе и пока лесенка держит ноду закреплённой в «Авто»,
-      // balancer трафик не ведёт — перемерять незачем.
+      // With a manual choice and while the ladder keeps the node pinned in "Auto",
+      // the balancer doesn't route traffic — there's no point re-measuring.
       if (manualProxySelection(getActiveSource()) || qualityAutoHoldTimer) return false;
       const nodes = qualityNodesFromSource();
       if (nodes.length < 2) return false;
@@ -1422,11 +1422,11 @@ const qualityEngine = createQualityEngine({
       }));
       return measured && runtimeIdentity.isCurrent(token);
     },
-    // R2 — увести с конкретной плохой ноды: текущую кладём на cooldown и вручную
-    // выбираем лучшую из оставшихся (selectProxy — он же рвёт живые соединения
-    // на прежней ноде). Без реконнекта. false (ступень пропускается) если
-    // альтернатив нет. Сервер, выбранный вручную, меняем только с согласия
-    // пользователя; в «Авто» закрепление временное (см. holdAutoSelection).
+    // R2 — move off a specific bad node: we put the current one on cooldown and manually
+    // pick the best of the remaining ones (selectProxy — it also tears down live connections
+    // on the previous node). No reconnect. false (the step is skipped) if
+    // there are no alternatives. A manually chosen server is changed only with the user's
+    // consent; in "Auto" the pin is temporary (see holdAutoSelection).
     excludeWorstNode: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
@@ -1445,14 +1445,14 @@ const qualityEngine = createQualityEngine({
       if (!pick) return false;
       return switchQualityNode(pick, token);
     },
-    // R3 — маскировка трафика фрагментацией TLS (реконнект). Если выключена —
-    // включаем; если уже включена — эскалируем сменой режима record↔tcp.
+    // R3 — disguising traffic with TLS fragmentation (reconnect). If it's off —
+    // we turn it on; if it's already on — we escalate by switching the record↔tcp mode.
     applyFragmentation: async () => {
       const token = runtimeIdentity.capture();
       if (!token || !runtimeIdentity.isCurrent(token)) return false;
-      // НЕ называть локальную переменную t: затенение i18n-функции здесь уже
-      // ломало R3 (TypeError после updateOption → настройки мутировали без
-      // реконнекта, лесенка щёлкала record↔tcp вхолостую).
+      // DON'T name the local variable t: shadowing the i18n function here already
+      // broke R3 (a TypeError after updateOption → the settings mutated without
+      // a reconnect, the ladder clicked record↔tcp idly).
       const tricks = loadOptions().tlsTricks;
       if (!tricks.enableFragment) {
         updateOption("tlsTricks.enableFragment", true);
@@ -1461,19 +1461,19 @@ const qualityEngine = createQualityEngine({
       }
       return reconnectForQualityRemediation(t("qToast.masking"));
     },
-    // R4 — пересканировать WARP-endpoint и применить лучший (реконнект). Только
-    // если WARP включён, иначе ступень неприменима → false (движок пропустит).
+    // R4 — rescan the WARP endpoint and apply the best one (reconnect). Only
+    // if WARP is enabled, otherwise the step isn't applicable → false (the engine will skip it).
     rescanWarp: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
       if (!loadOptions().warp.enabled) return false;
-      // В цепочке WARP идёт через VPN-сервер, а скан меряет прямой путь с ПК:
-      // переподключение ради такого эндпоинта ничего не даёт.
+      // In a chain WARP goes through the VPN server, while the scan measures the direct path from the PC:
+      // reconnecting for such an endpoint gives nothing.
       if (loadOptions().warp.mode === "chain") return false;
       try {
-        // warp_scan_endpoints отдаёт ScanResult[] с полями ip/port (scanner.rs) —
-        // прежний код ждал endpoint/host, всегда получал null и ступень
-        // молча пропускалась (R4 был мёртв).
+        // warp_scan_endpoints returns ScanResult[] with ip/port fields (scanner.rs) —
+        // the old code expected endpoint/host, always got null, and the step
+        // was silently skipped (R4 was dead).
         const res = await invoke("warp_scan_endpoints", { topN: 5, deep: false, mode: "auto" });
         if (!runtimeIdentity.isCurrent(token) || !loadOptions().warp.enabled) return false;
         const best = Array.isArray(res) ? res[0] : null;
@@ -1482,10 +1482,10 @@ const qualityEngine = createQualityEngine({
         return reconnectForQualityRemediation(t("qToast.backup"));
       } catch { return false; }
     },
-    // R5 — перейти на ноду ДРУГОГО транспорта/протокола (proto:type), лучшую по
-    // пингу: меняет саму сигнатуру трафика на проводе. selectProxy уводит и уже
-    // открытые потоки, реконнект ядра не нужен. false если ноды другого
-    // транспорта в источнике нет.
+    // R5 — move to a node of a DIFFERENT transport/protocol (proto:type), the best by
+    // ping: it changes the very signature of the traffic on the wire. selectProxy also moves
+    // already open streams, a core reconnect isn't needed. false if there are no nodes of another
+    // transport in the source.
     switchTransport: async () => {
       const token = runtimeIdentity.capture();
       if (!token) return false;
@@ -1502,11 +1502,11 @@ const qualityEngine = createQualityEngine({
       if (!pick) return false;
       return switchQualityNode(pick, token);
     },
-    // Гибрид-гейт перед реконнект-ступенью (когда aggressive=false). Простым языком.
-    // Окно в трее → нативный confirm повис бы невидимым и заблокировал лесенку
-    // (remediating не снимается, пока промис висит). Вместо этого OS-уведомление
-    // и отказ от дорогой ступени: юзер вернётся к окну — следующий прогон
-    // лесенки спросит нормально.
+    // A hybrid gate before a reconnect step (when aggressive=false). In plain language.
+    // Window in the tray → a native confirm would hang invisibly and block the ladder
+    // (remediating isn't cleared while the promise hangs). Instead — an OS notification
+    // and refusing the expensive step: the user will come back to the window — the next ladder
+    // run will ask normally.
     confirmReconnect: async (label) => {
       if (!(await windowIsForeground())) {
         notify(t("qToast.hiddenNotifyTitle"), t("qToast.hiddenNotifyBody"));
@@ -1514,15 +1514,15 @@ const qualityEngine = createQualityEngine({
       }
       return askQualityConfirm(t("qToast.confirmSpeedup", { label }));
     },
-    // Лента инцидентов: ступень лечения — контекст внутри уже открытого
-    // инцидента (его открыл переход состояния в onState), поэтому severity info.
+    // Incident feed: a treatment step is context inside an already open
+    // incident (it was opened by the state transition in onState), hence severity info.
     onRemedy: ({ step, applied, fixed }) => {
       incidentLog.record(fixed ? "quality.fixed" : "quality.remedy", {
         severity: fixed ? "ok" : "info",
         params: { step, applied: !!applied },
       });
     },
-    // R6 — сдаёмся честно, без жаргона.
+    // R6 — we give up honestly, without jargon.
     giveUp: (st) => {
       incidentLog.record("quality.gaveUp", { severity: "err", params: { state: st } });
       toast(t("qToast.giveUp"), "error", 8000, {
@@ -1531,7 +1531,7 @@ const qualityEngine = createQualityEngine({
       });
       notify(t("qToast.giveUpNotifyTitle"), t("qToast.giveUpNotifyBody"));
     },
-    // Контекст для обучения (что было активно в момент успеха).
+    // Context for learning (what was active at the moment of success).
     getContext: () => {
       const o = loadOptions();
       return {
@@ -1540,14 +1540,14 @@ const qualityEngine = createQualityEngine({
         warpEndpoint: o.warp.enabled ? o.warp.endpoint : null,
       };
     },
-    // ASN локального ISP (не exit'а): ip-info БЕЗ proxy-арга → напрямую. Даже в
-    // TUN этот запрос идёт мимо туннеля (собственный трафик Ninety.exe уходит в
-    // direct bypass-правилом), поэтому вернётся именно локальный ISP — то, что
-    // нужно для ключа обучения ISP×час. Фолбэк "unknown".
+    // The local ISP's ASN (not the exit's): ip-info WITHOUT the proxy argument → direct. Even in
+    // TUN this request goes past the tunnel (Ninety.exe's own traffic goes
+    // direct via the bypass rule), so it returns exactly the local ISP — what's
+    // needed for the ISP×hour learning key. Fallback "unknown".
     localAsn: async () => {
-      // Приватность: этот запрос идёт НАПРЯМУЮ (мимо туннеля) и раскрыл бы
-      // реальный IP geo-сервису. Если юзер отключил geo-lookup — не ходим,
-      // движок качества обучается по глобальному профилю (ASN "unknown").
+      // Privacy: this request goes DIRECTLY (past the tunnel) and would reveal
+      // the real IP to the geo service. If the user disabled geo lookup, we don't go,
+      // and the quality engine learns by the global profile (ASN "unknown").
       if (strictPrivacyRequested() || loadOptions().general?.disableGeoLookup) return "unknown";
       try {
         const info = await invoke("fetch_public_ip", {});
@@ -1561,36 +1561,36 @@ const qualityEngine = createQualityEngine({
       setChannelState(st);
       if (qualityDot.dataset.active !== "true") qualityDot.dataset.active = "true";
     },
-    // Движок перестал измерять по известной причине. Дедупликацию и решение
-    // «писать ли в ленту» держим здесь: движок не знает, открыт ли инцидент.
+    // The engine stopped measuring for a known reason. Deduplication and the decision
+    // "whether to write to the feed" are kept here: the engine doesn't know whether an incident is open.
     onPaused: (reason) => channelIncidents.pause(reason),
-    // Пропуск пробы — тот же отказ измерения, только его причина техническая
-    // (нет поколения, занят датаплейн); пользователю она ничего не говорит.
+    // A skipped probe is the same measurement refusal, only its reason is technical
+    // (no generation, the dataplane is busy); it means nothing to the user.
     onSkipped: () => channelIncidents.pause("probeSkipped"),
-    // Каждая проба → в шину; осциллограмма канала (раскрытый чип) подписана на неё.
+    // Each probe → into the bus; the channel oscilloscope (the expanded chip) is subscribed to it.
     onSample: (s) => bus.emit("quality:sample", s),
     toast, notify,
     log: (m) => console.info("[quality]", m),
   },
 });
 
-// ── Хелперы лесенки качества (R2/R5) ───────────────────────
-// Cooldown нод, забракованных R2 — чтобы не выбирать их снова сразу.
+// ── Quality ladder helpers (R2/R5) ───────────────────────
+// Cooldown of nodes rejected by R2 — so they aren't picked again right away.
 const QUALITY_EXCLUDE_MS = 5 * 60_000;
-// Сколько кандидатов перемеряет R1. Больше — дольше ступень, меньше — выше
-// шанс, что все выбранные окажутся мёртвыми и лесенка шагнёт дальше зря.
+// How many candidates R1 re-measures. More — the step takes longer, fewer — the higher
+// the chance that all the picked ones turn out dead and the ladder steps further needlessly.
 const QUALITY_RETEST_LIMIT = 8;
 const qualityExcluded = new Map(); // clashTag → expiry ts
-// Сколько держится нода, закреплённая лесенкой в режиме «Авто», и как часто
-// можно спрашивать о смене сервера, выбранного вручную.
+// How long a node pinned by the ladder in "Auto" mode is held, and how often
+// we may ask about changing a manually chosen server.
 const QUALITY_AUTO_HOLD_MS = 30 * 60_000;
 const QUALITY_MANUAL_OFFER_COOLDOWN_MS = 30 * 60_000;
 let qualityAutoHoldTimer = null;
 let qualityManualOfferAt = 0;
 
-// Смена ноды ступенями R2/R5. Сервер, выбранный вручную, — решение
-// пользователя: молча его не переписываем, а спрашиваем. В «Авто» выбирает
-// приложение, поэтому ноду ставим сразу.
+// Node switching by steps R2/R5. A manually chosen server is the user's
+// decision: we don't silently overwrite it, we ask. In "Auto" the app
+// chooses, so we set the node right away.
 async function switchQualityNode(pick, token) {
   if (manualProxySelection(getActiveSource())) return offerManualNodeSwitch(pick, token);
   try {
@@ -1601,10 +1601,10 @@ async function switchQualityNode(pick, token) {
   } catch { return false; }
 }
 
-// Вопрос лесенки качества. Асинхронный диалог вместо window.confirm: синхронный
-// confirm останавливал все таймеры окна, и пока он висел, сторож не замечал
-// смерть ядра и не восстанавливал защиту. Уже открытый чужой диалог не
-// закрываем (openConfirmModal закрыл бы его как отмену) — спросим в другой раз.
+// The quality ladder's question. An async dialog instead of window.confirm: the synchronous
+// confirm stopped all the window's timers, and while it hung the watchdog didn't notice
+// core death and didn't restore protection. An already open foreign dialog isn't
+// closed (openConfirmModal would close it as a cancel) — we'll ask another time.
 async function askQualityConfirm(message) {
   if (document.querySelector(".confirm-modal")) return false;
   const answer = await openConfirmModal({
@@ -1616,9 +1616,9 @@ async function askQualityConfirm(message) {
   return answer === true;
 }
 
-// Окно в трее → вопрос повис бы невидимым; о замедлении лесенка уже сообщила
-// уведомлением, а спросим на следующем прогоне. Раз в полчаса, чтобы R2 и R5
-// одного прогона не задавали один и тот же вопрос дважды.
+// Window in the tray → the question would hang invisibly; the ladder has already reported the slowdown
+// with a notification, and we'll ask on the next run. Once every half hour, so that R2 and R5
+// of the same run don't ask the same question twice.
 async function offerManualNodeSwitch(pick, token) {
   if (Date.now() - qualityManualOfferAt < QUALITY_MANUAL_OFFER_COOLDOWN_MS) return false;
   if (!(await windowIsForeground())) return false;
@@ -1626,22 +1626,22 @@ async function offerManualNodeSwitch(pick, token) {
   qualityManualOfferAt = Date.now();
   const node = qualityNodesFromSource().find(n => n.clashTag === pick);
   if (!(await askQualityConfirm(t("qToast.confirmSwitch", { name: node ? nodeDisplayLabel(node) : pick })))) return false;
-  // Пока висел вопрос, пользователь мог сам выбрать сервер или переподключиться.
+  // While the question hung, the user may have picked a server themselves or reconnected.
   if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource()) !== manual) return false;
   try {
     const r = await selectProxy("proxy", pick, { token });
     if (r?.stale || !runtimeIdentity.isCurrent(token)) return false;
-    // Пользователь согласился — теперь это его выбор и после переподключения.
+    // The user agreed — now it's their choice, even after a reconnect.
     rememberProxySelection(getActiveSource(), pick);
     return true;
   } catch { return false; }
 }
 
-// balancer выбирает по задержке и не видит, что лидера душат по скорости,
-// поэтому в «Авто» лесенка закрепляет ноду в селекторе. Без возврата «Авто»
-// молча превращался в ручной выбор. Возвращаем, только если селектор всё ещё
-// на той же ноде, а пользователь ничего не выбирал. После переподключения
-// таймер устаревает, а «Авто» восстанавливает restoreRememberedProxySelection.
+// The balancer picks by latency and doesn't see that the leader is being throttled on speed,
+// so in "Auto" the ladder pins the node in the selector. Without restoring "Auto"
+// it silently turned into a manual choice. We restore only if the selector is still
+// on the same node and the user hasn't chosen anything. After a reconnect
+// the timer becomes stale, and "Auto" is restored by restoreRememberedProxySelection.
 const QUALITY_AUTO_RETURN_ATTEMPTS = 3;
 const QUALITY_AUTO_RETURN_RETRY_MS = 60_000;
 function holdAutoSelection(tag, token) {
@@ -1651,9 +1651,9 @@ function holdAutoSelection(tag, token) {
       qualityAutoHoldTimer = null;
       if (!runtimeIdentity.isCurrent(token) || manualProxySelection(getActiveSource())) return;
       try {
-        // Проверка выполняется внутри очереди селектора, после уже поставленных
-        // выборов пользователя: снимок, прочитанный заранее, мог устареть, и
-        // возврат перезаписал бы только что сделанный ручной выбор.
+        // The check runs inside the selector queue, after the user's already queued
+        // choices: a snapshot read in advance may be stale, and
+        // the restore would overwrite a manual choice just made.
         await selectProxy("proxy", "auto", {
           token,
           closeConnections: false,
@@ -1667,7 +1667,7 @@ function holdAutoSelection(tag, token) {
           },
         });
       } catch {
-        // Clash API временно не ответил — закрепление ещё действует, повторим.
+        // The Clash API temporarily didn't respond — the pin is still in effect, we'll retry.
         if (attemptsLeft > 1 && runtimeIdentity.isCurrent(token)) {
           schedule(attemptsLeft - 1, QUALITY_AUTO_RETURN_RETRY_MS);
         }
@@ -1681,7 +1681,7 @@ function clearQualityAutoHold() {
   clearTimeout(qualityAutoHoldTimer);
   qualityAutoHoldTimer = null;
 }
-// Ноды активного источника с clash-тэгами (зеркало proxies-view.nodesFromSource).
+// Nodes of the active source with clash tags (a mirror of proxies-view.nodesFromSource).
 function qualityNodesFromSource() {
   const src = getActiveSource();
   if (!src) return [];
@@ -1689,11 +1689,11 @@ function qualityNodesFromSource() {
   const list = raw.filter(Boolean);
   return list.map((n, i) => ({ ...n, clashTag: list.length >= 2 ? nodeTag(i, n) : "proxy" }));
 }
-// Класс транспорта ноды (протокол + сеть). R5 ищет ноду с ДРУГИМ классом.
+// The node's transport class (protocol + network). R5 looks for a node with a DIFFERENT class.
 function transportClass(n) {
   return `${n?.proto || "vless"}:${n?.type || "-"}`;
 }
-// Сортировка нод по живому пингу (без пинга — в конец).
+// Sorting nodes by live ping (those without a ping go to the end).
 function rankByDelay(nodes, proxies) {
   return nodes
     .map(n => ({ ...n, _d: lastDelay(proxies[n.clashTag]) }))
@@ -1704,11 +1704,11 @@ function rankByDelay(nodes, proxies) {
     });
 }
 
-// ── Индикатор качества канала (ячейка «Канал» в телеметрии-полосе) ──
-// Состояние правит движок через onState; ячейка живёт в stats-strip (secured),
-// показывается/прячается вместе с полосой. Человеческий язык, без техножаргона.
-// Состояния движка качества, у которых есть подпись. Неизвестное значение
-// печаталось бы в чип сырым ключом каталога, поэтому сводим его к «проверке».
+// ── Channel quality indicator (the "Channel" cell in the telemetry strip) ──
+// The state is set by the engine via onState; the cell lives in the stats strip (secured),
+// shown/hidden together with the strip. Human language, no tech jargon.
+// Quality engine states that have a label. An unknown value
+// would be printed into the chip as a raw catalog key, so we reduce it to "checking".
 const CHANNEL_STATES = new Set(["unknown", "good", "slow", "stalled", "dead", "pressure"]);
 const qChannelLabel = (st) => {
   const key = String(st).toLowerCase();
@@ -1727,7 +1727,7 @@ function showQualityChip(on) {
   if (on) setChannelState("UNKNOWN");
   qualityDot.dataset.active = on ? "true" : "false";
 }
-// Клик по ячейке «Канал» при активном мониторинге → осциллограмма goodput-проб.
+// A click on the "Channel" cell with monitoring active → the goodput probe oscilloscope.
 qualityDot?.addEventListener("click", (e) => {
   if (qualityDot.dataset.active !== "true") return;
   e.stopPropagation();
@@ -1749,11 +1749,11 @@ function applyReconnectUI() {
   }
 }
 
-// Сменился активный источник (подписка/профиль) при поднятом VPN — немедленно
-// пересобираем конфиг с новыми нодами. Без дебаунса (явное действие юзера),
-// в отличие от scheduleAutoReconnect для правок настроек. Реконнект уходит в
-// idle (сбросит currentEffectiveNode) → buildConfig читает свежий getActiveSource()
-// → AUTO-селектор по новым нодам, они пингуются URLTest'ом.
+// The active source (subscription/profile) changed with the VPN up — immediately
+// rebuild the config with the new nodes. Without debounce (an explicit user action),
+// unlike scheduleAutoReconnect for settings edits. The reconnect goes to
+// idle (resets currentEffectiveNode) → buildConfig reads a fresh getActiveSource()
+// → the AUTO selector over the new nodes, they get pinged by URLTest.
 function beginSourceReconnect(reason, operationToken = null) {
   if (state !== "connected" && state !== "connecting" && state !== "disconnecting") return false;
   const epoch = beginNetworkIntent("connected");
@@ -1767,8 +1767,8 @@ function reconnectForSourceChange(reason, context = {}) {
   return !!request;
 }
 
-// Quality engine обязан получить результат уже НОВОЙ сессии: только после
-// подтверждённого connect можно учитывать дорогую ступень и проверять эффект.
+// The quality engine must get the result of the NEW session: only after
+// a confirmed connect can the expensive step be counted and its effect checked.
 async function reconnectForQualityRemediation(reason) {
   const operationToken = await beginRuntimeOperation("qualityRemediation");
   if (!operationToken) return false;
@@ -1780,9 +1780,9 @@ async function reconnectForQualityRemediation(reason) {
     if (!reconnectCompleted(connected)
       || state !== "connected"
       || !isCurrentNetworkIntent(request.epoch, "connected")) return false;
-    // await: иначе finally отпускает токен раньше проверки, и Rust отдаёт
-    // Cancelled на живом канале — движок качества считал бы ступень
-    // неподтверждённой всегда.
+    // await: otherwise finally releases the token before the check, and Rust returns
+    // Cancelled on a live channel — the quality engine would consider the step
+    // unconfirmed every time.
     return await verifyRuntimeOperationDataplane(operationToken);
   } catch {
     return false;
@@ -1791,10 +1791,10 @@ async function reconnectForQualityRemediation(reason) {
   }
 }
 
-// Единая активация источника (подписка/профиль). Зовётся И из pmenu «Сделать
-// активным», И из клика по телу карточки — раньше реконнект был только в pmenu,
-// поэтому клик по карточке менял активный источник, а VPN оставался на старом
-// конфиге. При поднятом VPN и реальной смене источника — немедленный реконнект.
+// A single source activation (subscription/profile). Called BOTH from the pmenu "Make
+// active" AND from a click on the card body — previously the reconnect was only in pmenu,
+// so a click on the card changed the active source while the VPN stayed on the old
+// config. With the VPN up and an actual source change — an immediate reconnect.
 let sourceSwitchController = null;
 
 function activeSourceRef() {
@@ -1841,11 +1841,11 @@ async function beginRuntimeOperation(kind, source = activeSourceRef()) {
       sourceFingerprint: identityFingerprint,
     });
   } catch (error) {
-    // Отказ координатора раньше уходил только в console.warn — в журнале, который
-    // пользователь открывает на экране «Логи», не оставалось ничего, и «занят
-    // другой операцией» было не отличить от реального отказа старта.
+    // A coordinator refusal used to go only to console.warn — the log the
+    // user opens on the "Logs" screen kept nothing, and "busy with
+    // another operation" couldn't be told apart from a real start failure.
     console.warn(`unable to begin ${kind} runtime operation`, error);
-    // Rust режет reason на 80 символах и отвергает всё, что длиннее.
+    // Rust cuts reason at 80 characters and rejects anything longer.
     logSourceSwitchReconnect(
       "operation_begin",
       null,
@@ -1882,13 +1882,13 @@ async function verifyRuntimeOperationDataplane(operationToken) {
   }
 }
 
-// Транзитный WFP-барьер ставит stop_singbox на любой операции смены runtime, а
-// снимала его только верификация дата-плейна — то есть смена источника и
-// лечение качества. Авто-реконнект по настройкам и восстановление сторожем до
-// неё не доходят, и лишний block-all жил до отключения VPN: без LAN-исключений
-// и без permit самого Ninety поверх уже собранной политики. Снимаем его на
-// каждом подтверждённом подключении; backend сам проверит, что новый runtime
-// действительно готов, и откажет, если это не так.
+// The transitional WFP barrier is set by stop_singbox on any runtime switch operation, but
+// it was removed only by dataplane verification — i.e. a source switch and
+// quality healing. Auto-reconnect on settings and recovery by the watchdog never
+// reach it, and the extra block-all lived until the VPN was disconnected: without LAN exceptions
+// and without a permit for Ninety itself, on top of the already assembled policy. We remove it on
+// every confirmed connection; the backend itself checks that the new runtime
+// is actually ready and refuses if it isn't.
 async function releaseTransitionBarrier(generation) {
   const expectedGeneration = Number(generation) || 0;
   if (!expectedGeneration) return false;
@@ -1993,10 +1993,10 @@ async function reconnectCommittedSource(reason, context = {}) {
       connected ? "connected" : "failed",
       connected ? null : (result?.status === "completed" ? "connect_pipeline_false" : result?.status),
     );
-    // Запрос вытеснен более новым реконнектом: результат скажет тот, а не этот.
-    // Переключению источника нужно отличать это от отказа цели (см. source-activation).
-    // Ожидавший запрос получает superseded/cancelled, а уже исполнявшийся —
-    // completed:false, когда его намерение сменило более новое «подключено».
+    // The request was displaced by a newer reconnect: the result will come from that one, not this one.
+    // Source switching needs to tell this apart from a target failure (see source-activation).
+    // A waiting request gets superseded/cancelled, while one already running gets
+    // completed:false when its intent was replaced by a newer "connected".
     const preempted = result?.status === "superseded" || result?.status === "cancelled"
       || (result?.status === "completed"
         && !isCurrentNetworkIntent(request.epoch, "connected")
@@ -2020,9 +2020,9 @@ async function reconnectCommittedSource(reason, context = {}) {
   } finally { if (toastId) toast.dismiss(toastId); }
 }
 
-// Координатор занят (идёт старт ядра или ручное подключение/отключение) —
-// выбор источника раньше молча терялся. Повторяем, пока занятость не пройдёт;
-// более новый выбор пользователя отменяет ожидание старого.
+// The coordinator is busy (a core start or a manual connect/disconnect is in progress) —
+// the source choice used to be silently lost. We retry until the busy state passes;
+// a newer user choice cancels waiting for the old one.
 const SOURCE_BUSY_RETRIES = 12;
 const SOURCE_BUSY_RETRY_MS = 500;
 let sourceRequestSeq = 0;
@@ -2072,9 +2072,9 @@ const runtimeIdentity = createRuntimeIdentityController({
   getClashPort: () => loadOptions().experimental?.clashApiPort || 9090,
 });
 configureClashRuntime(runtimeIdentity);
-// Ручные и фоновые пробы бьют в ту же цель, что и health-check балансера
-// внутри ядра, — иначе цифры на экране Серверы несопоставимы с тем, по чему
-// ядро выбирает ноду.
+// Manual and background probes hit the same target as the balancer's health check
+// inside the core — otherwise the numbers on the Servers screen aren't comparable with what
+// the core picks the node by.
 configureProbeUrl(() => loadOptions().urlTest?.connectionTestUrl);
 configureTrafficRuntime(runtimeIdentity);
 
@@ -2144,9 +2144,9 @@ function mutateSources(items, mutation, reason) {
   return sourceMutations.run(items, mutation, { reason });
 }
 
-// Панель с лимитом устройств вместо серверов отдаёт заглушку или 404, пока не
-// получит HWID. Предлагаем включить отправку для этой подписки и сразу
-// перечитываем список — иначе пользователь остаётся с пустым экраном.
+// A panel with a device limit returns a placeholder or a 404 instead of servers until it
+// gets a HWID. We offer to enable sending for this subscription and immediately
+// reread the list — otherwise the user is left with an empty screen.
 async function offerHwidAndReload(id, signal) {
   try {
     const enabled = await handleHwidSignal({
@@ -2167,9 +2167,9 @@ async function offerHwidAndReload(id, signal) {
 }
 
 async function deleteSource(kind, id) {
-  // Удаление подписки необратимо: ссылку панели и накопленные замеры вернуть
-  // неоткуда, а пункт меню стоит рядом с «Обновить». Спрашиваем подтверждение
-  // до любых действий с рантаймом.
+  // Deleting a subscription is irreversible: the panel link and accumulated measurements can't
+  // be brought back, and the menu item sits next to "Update". We ask for confirmation
+  // before any runtime actions.
   const name = kind === "sub"
     ? loadSubscriptions().find(s => s.id === id)?.name
     : loadProfiles().find(p => p.id === id)?.name;
@@ -2191,8 +2191,8 @@ async function deleteSource(kind, id) {
   const { active: isActive, fallback } = plan;
 
   if (plan.mustStopBeforeDelete) {
-    // Намерение гасим до остановки: иначе следующий выбор источника сам поднял бы
-    // туннель, хотя на экране VPN выключен.
+    // The intent is cleared before the stop: otherwise the next source choice would bring up
+    // the tunnel by itself, although the VPN is off on screen.
     beginNetworkIntent("idle");
     connectAttempts.cancel();
     const stopped = await shutdownCore();
@@ -2203,8 +2203,8 @@ async function deleteSource(kind, id) {
   else removeProfile(id);
 
   if (isActive && fallback) {
-    // remove* выбирает fallback внутри своего типа. Сбрасываем этот скрытый
-    // side-effect, чтобы applyActiveSource видел настоящую смену и дал один reconnect.
+    // remove* picks a fallback within its own type. We reset this hidden
+    // side effect so that applyActiveSource sees a real change and does one reconnect.
     if (fallback.kind === "sub") {
       setActiveProfileId(null);
       setActiveSubscriptionId(null);
@@ -2216,9 +2216,9 @@ async function deleteSource(kind, id) {
     }
     void applyActiveSource(fallback.kind, fallback.id, { reason: t("conn.applyingSettings") })
       .then((result) => {
-        // Координатор так и не освободился: активные id уже сброшены выше, и
-        // без этого шага не осталось бы ни одного активного источника. Запасной
-        // применяем без переподключения — runtime подхватит его при следующем.
+        // The coordinator never freed up: the active ids were already reset above, and
+        // without this step there wouldn't be a single active source left. The fallback
+        // is applied without reconnecting — the runtime will pick it up on the next one.
         if (result?.busy && !result?.stale) commitActiveSource(fallback.kind, fallback.id);
       })
       .catch((error) => console.warn("fallback source activation failed", error));
@@ -2241,9 +2241,9 @@ async function deleteSource(kind, id) {
   return true;
 }
 
-// Массовое удаление всех одиночных конфигов. Повторять deleteSource в цикле
-// нельзя: каждый шаг спрашивал бы подтверждение и дёргал активный источник.
-// Активной подписки это не касается — удаляем только группу конфигов.
+// Bulk deletion of all single configs. Repeating deleteSource in a loop
+// isn't possible: every step would ask for confirmation and poke the active source.
+// It doesn't affect the active subscription — we delete only the group of configs.
 async function deleteAllProfiles() {
   const profs = loadProfiles();
   if (!profs.length) return false;
@@ -2257,8 +2257,8 @@ async function deleteAllProfiles() {
   });
   if (!confirmed) return false;
 
-  // Активным мог быть один из удаляемых конфигов. Запасной источник ищем среди
-  // подписок: одиночных профилей после очистки не останется ни одного.
+  // One of the configs being deleted may have been active. We look for a fallback source among
+  // the subscriptions: not a single single profile will remain after the cleanup.
   const wasActiveProfile = getActiveKind() !== "sub" && !!getActiveProfileId();
   const fallbackSub = loadSubscriptions()[0] || null;
   if (wasActiveProfile && !fallbackSub && (state === "connected" || state === "connecting")) {
@@ -2270,8 +2270,8 @@ async function deleteAllProfiles() {
   const removed = removeAllProfiles();
 
   if (wasActiveProfile && fallbackSub) {
-    // Тот же приём, что в deleteSource: сбрасываем выбор в противоположный вид,
-    // чтобы applyActiveSource увидел настоящую смену и дал ровно один reconnect.
+    // The same technique as in deleteSource: we reset the choice to the opposite kind
+    // so that applyActiveSource sees a real change and does exactly one reconnect.
     setActiveProfileId(null);
     setActiveSubscriptionId(null);
     setActiveKind("single");
@@ -2295,10 +2295,10 @@ async function deleteAllProfiles() {
   return true;
 }
 
-// ── WARP UX (hero badge + авто-ротация + история) — /lib/warp-rescan.js ──
-// Подсистема вынесена в модуль; здесь только инстанс с инжектом состояния/реконнекта.
-// Алиасы сохраняют прежние имена вызовов (updateWarpBadge/start/stopWarpRescanLoop),
-// разбросанные по setState/onChange/warp-switch — их не трогаем.
+// ── WARP UX (hero badge + auto-rotation + history) — /lib/warp-rescan.js ──
+// The subsystem is moved into a module; here only the instance with injected state/reconnect.
+// The aliases keep the old call names (updateWarpBadge/start/stopWarpRescanLoop),
+// scattered across setState/onChange/warp-switch — we don't touch them.
 const warpRescan = initWarpRescan({
   getState: () => state,
   scheduleAutoReconnect,
@@ -2315,16 +2315,16 @@ navItems.forEach((item) => {
   });
 });
 
-// ── Logs view — вынесен в /lib/logs-view.js ────────────────
-// Активная нода нужна журналу, чтобы не показывать отчёты health-checker'а по
-// остальным нодам подписки. Геттер, а не значение: currentEffectiveTag меняется
-// при переключении сервера и объявлен ниже по файлу.
+// ── Logs view — moved to /lib/logs-view.js ────────────────
+// The log needs the active node so as not to show health checker reports about
+// the other nodes of the subscription. A getter, not a value: currentEffectiveTag changes
+// on a server switch and is declared further down the file.
 configureLogsRuntime({ getActiveNodeTag: () => currentEffectiveTag });
 mountLogsView();
 
-// Наблюдатель длинных задач + выгрузка снимка производительности по Ctrl+Alt+P.
-// Счётчики копились с первой версии, но в релизной сборке (devtools выключены)
-// их некуда было прочитать, и разговор о тормозах шёл на ощущениях.
+// Long task observer + dumping the performance snapshot with Ctrl+Alt+P.
+// The counters were accumulated since the first version, but in the release build (devtools disabled)
+// there was nowhere to read them, and talk about slowness went by feel.
 initPerfProbe({
   onToast: (kind) => (kind === "ok"
     ? toast(t("share.copied"), "success", 1600)
@@ -2345,9 +2345,9 @@ const ICON_QR      = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_WARN    = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
 const ICON_GLOBE   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>`;
 
-// Импортированная ссылка может сама выключить проверку TLS-сертификата
-// (hysteria2 `insecure=1`, TrustTunnel `skip_verification`). Это тихо снимает
-// защиту от подмены сервера, поэтому такой профиль помечаем в списке.
+// An imported link may itself turn off TLS certificate verification
+// (hysteria2 `insecure=1`, TrustTunnel `skip_verification`). This silently removes
+// protection against server spoofing, so such a profile is marked in the list.
 function tlsVerificationDisabled(profile) {
   return profile?.insecure === true || profile?.skipVerification === true;
 }
@@ -2388,10 +2388,10 @@ function renderProfilesView() {
     const isActive = activeKind === "sub" && s.id === activeSubId;
     const days = subscriptionDaysLeft(s);
     const used = subscriptionUsedBytes(s);
-    const limit = subscriptionLimitBytes(s); // null = безлимит (total=0)
+    const limit = subscriptionLimitBytes(s); // null = unlimited (total=0)
     const updated = relativeTime(s.lastUpdate) || "—";
-    // Считаем то, что реально пойдёт в ядро: у подписки, сохранённой до
-    // отбраковки, в записи могут лежать ноды, которые ядро не примет.
+    // We count what will actually go into the core: a subscription saved before
+    // the rejection logic may have nodes in its record that the core won't accept.
     const nodesCount = usableNodes(s.profiles).length;
     const ratio = limit ? Math.max(0, Math.min(1, used / limit)) : 0;
     const meterState = !limit ? "idle" : ratio > 0.9 ? "err" : ratio > 0.75 ? "warn" : "ok";
@@ -2455,8 +2455,8 @@ function renderProfilesView() {
       <span class="n-group__n">${n}</span><span class="n-group__line"></span>${action}</div>
     <div class="pf-list">${rows.join("")}</div>`;
 
-  // Одиночные конфиги приходят пачками (импорт буфера, deep links), поэтому у
-  // группы есть массовое удаление — построчное меню на десятках строк нечитаемо.
+  // Single configs come in batches (clipboard import, deep links), so
+  // the group has a bulk delete — a per-row menu over dozens of rows is unreadable.
   const clearConfigs = `
     <button class="n-group__act" data-profiles-clear type="button"
       title="${escapeAttr(t("prof.clearConfigsHint"))}">${ICON_TRASH}<span>${escapeHtml(t("prof.clearConfigs"))}</span></button>`;
@@ -2466,12 +2466,12 @@ function renderProfilesView() {
     group(t("prof.groupConfigs"), profsList.length, profsList.map(cfgRow), clearConfigs);
 }
 
-// Хост подписки для мета-строки: полный URL несёт токен и в списке не нужен.
+// Subscription host for the meta line: the full URL carries the token and isn't needed in the list.
 function hostOfUrl(url) {
   try { return new URL(url).host; } catch { return String(url || ""); }
 }
 
-// Кнопки header'а profiles экрана
+// Header buttons of the profiles screen
 profilesList?.addEventListener("keydown", (e) => {
   if (isContextMenuKey(e)) {
     const row = e.target.closest(".pf");
@@ -2489,7 +2489,7 @@ profilesList?.addEventListener("keydown", (e) => {
 
 document.getElementById("profiles-add")?.addEventListener("click", () => openAddModal());
 
-// ── Onboarding wizard (импорт → подключение → готово) ───────
+// ── Onboarding wizard (import → connect → done) ───────
 const ONB_STEP_KEY = "ninety.onboarding.step";
 const ONB_DONE_KEY = "ninety.onboarding.done";
 let wizardActive = false;
@@ -2526,7 +2526,7 @@ function closeWizard() {
   syncEmptyState();
 }
 
-// Делегированные обработчики кнопок wizard
+// Delegated handlers for the wizard buttons
 document.getElementById("onboarding-screen")?.addEventListener("click", async (e) => {
   const next = e.target.closest("[data-onb-next]");
   if (next) {
@@ -2554,7 +2554,7 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
     }
     openAddModal(value ? { prefillUrl: value } : undefined);
   } else if (action === "clipboard") {
-    if (!wizardActive) openWizardAt(1); // на всякий случай — фиксируем wizard-state
+    if (!wizardActive) openWizardAt(1); // just in case — fix the wizard state
     try {
       const text = await navigator.clipboard.readText();
       openAddModal({ prefillUrl: (text || "").trim() });
@@ -2564,19 +2564,19 @@ document.getElementById("onboarding-screen")?.addEventListener("click", async (e
     openAddModal();
   }
 });
-// Первый запуск: регион предвыбран по таймзоне (один раз; выбор вернувшегося юзера не трогаем).
+// First launch: the region is preselected by time zone (once; a returning user's choice isn't touched).
 if (!localStorage.getItem("ninety.region.detected") && !isOnboardingDone()) {
   updateOption("region", detectRegion());
   localStorage.setItem("ninety.region.detected", "1");
 }
 
-// Живой ре-рендер при смене языка: static-строки index.html + динамика главной.
+// Live re-render on a language change: static strings of index.html + the home screen's dynamic parts.
 onLangChange(() => {
   applyDom(document);
   applySidebarState();
   refreshDynamicText();
   settingsCtl?.refresh();
-  syncTrayMenu(); // меню/tooltip трея — на новый язык
+  syncTrayMenu(); // tray menu/tooltip — in the new language
   rerenderDpiView();
   rerenderProxiesView();
   renderProfilesView();
@@ -2589,11 +2589,11 @@ onLangChange(() => {
     if (tfDownUnit) tfDownUnit.textContent = t("units.rateKiB");
     if (tfUpUnit) tfUpUnit.textContent = t("units.rateKiB");
   }
-  rerenderLogsView(); // no-op, если экран Логи не активен
+  rerenderLogsView(); // a no-op if the Logs screen isn't active
 });
 
-// Перерисовать динамические подписи главной (статус hero, подсказка режима, режим в
-// телеметрии) без побочных эффектов — сессии/таймеры/ядро не трогаем.
+// Redraw the home screen's dynamic labels (hero status, mode hint, the mode in
+// telemetry) without side effects — sessions/timers/the core aren't touched.
 function refreshDynamicText() {
   if (heroLabel) {
     heroLabel.textContent =
@@ -2640,8 +2640,8 @@ document.getElementById("profiles-refresh-all")?.addEventListener("click", async
   }
 });
 
-// Меню подписки и одиночного профиля. Одна точка входа для «⋯», правого клика
-// и клавиатуры — пункты и действия не могут разъехаться.
+// The subscription and single profile menu. One entry point for "⋯", right click
+// and the keyboard — the items and actions can't diverge.
 function openSubscriptionMenu(anchor, id, opts) {
   return openPMenu(anchor, [
     { id: "refresh",  label: t("prof.menu.refresh"),  icon: ICON_REFRESH },
@@ -2658,8 +2658,8 @@ function openSubscriptionMenu(anchor, id, opts) {
       const before = sourceFingerprint(sourceById("sub", id));
       if (sub) openEditSubscription(sub, {
         onSaved: async (changes) => {
-          // Смена отправки HWID меняет сам ответ панели — перечитываем список,
-          // иначе на экране остаётся заглушка предыдущего запроса.
+          // Changing HWID sending changes the panel's response itself — we reread the list,
+          // otherwise the previous request's placeholder stays on screen.
           const apply = changes?.hwidChanged
             ? () => refreshSubscription(id)
             : async () => sub;
@@ -2679,9 +2679,9 @@ function openSubscriptionMenu(anchor, id, opts) {
     }
     if (act === "refresh") {
       try {
-        // Ручное обновление — это ещё и «попробуй снова»: снимаем карантин,
-        // иначе выключенный по отказу ядра сервер не вернуть ничем, кроме
-        // очистки данных. Если он всё ещё сломан, ядро скажет это снова.
+        // A manual update is also a "try again": we lift the quarantine,
+        // otherwise a server disabled after a core refusal can't be brought back by anything except
+        // clearing data. If it's still broken, the core will say so again.
         clearNodeQuarantine();
         const tx = await mutateSource("sub", id, () => refreshSubscription(id), t("conn.applyingSettings"));
         const r = tx.result;
@@ -2720,7 +2720,7 @@ function openProfileMenu(anchor, id, opts) {
   const menuProfile = loadProfiles().find(x => x.id === id);
   return openPMenu(anchor, [
     { id: "edit",     label: t("prof.menu.edit"),    icon: ICON_EDIT },
-    // WireGuard и OpenVPN делятся файлом: показываем подходящее расширение.
+    // WireGuard and OpenVPN share a file: we show the matching extension.
     ...(menuProfile?.proto === "wireguard"
       ? [{ id: "wg-conf", label: t("prof.menu.copyConf"), icon: ICON_COPY }]
       : []),
@@ -2761,14 +2761,14 @@ function openProfileMenu(anchor, id, opts) {
   } });
 }
 
-/** Меню строки профилей (.pf): подписка или одиночный профиль. */
+/** Profiles row menu (.pf): a subscription or a single profile. */
 function openRowMenu(row, anchor, opts) {
   if (row.dataset.subId) return openSubscriptionMenu(anchor, row.dataset.subId, opts);
   if (row.dataset.id) return openProfileMenu(anchor, row.dataset.id, opts);
   return null;
 }
 
-// Правый клик по строке → то же меню, что у «⋯», у курсора.
+// Right click on a row → the same menu as "⋯", at the cursor.
 profilesView?.addEventListener("contextmenu", (e) => {
   const row = e.target.closest(".pf");
   if (!row) return;
@@ -2777,29 +2777,29 @@ profilesView?.addEventListener("contextmenu", (e) => {
 });
 
 profilesView?.addEventListener("click", async (e) => {
-  // FAB → открыть add-modal
+  // FAB → open add-modal
   if (e.target.closest("#profiles-fab")) {
     openAddModal();
     return;
   }
 
-  // Меню (3 точки) подписки
+  // Subscription menu (3 dots)
   const subMenuBtn = e.target.closest("[data-menu-sub]");
   if (subMenuBtn) {
     e.stopPropagation();
-    // detail === 0 — нажатие с клавиатуры: фокус сразу на первый пункт.
+    // detail === 0 — a keyboard press: focus goes straight to the first item.
     openSubscriptionMenu(subMenuBtn, subMenuBtn.dataset.menuSub, { focusFirst: e.detail === 0 });
     return;
   }
 
-  // «Удалить все» в заголовке группы одиночных конфигов
+  // "Delete all" in the header of the single configs group
   if (e.target.closest("[data-profiles-clear]")) {
     e.stopPropagation();
     await deleteAllProfiles();
     return;
   }
 
-  // Меню (3 точки) одиночного профиля
+  // Single profile menu (3 dots)
   const profileMenuBtn = e.target.closest("[data-menu-profile]");
   if (profileMenuBtn) {
     e.stopPropagation();
@@ -2807,9 +2807,9 @@ profilesView?.addEventListener("click", async (e) => {
     return;
   }
 
-  // Клик по строке → активация. Ловим на всей строке, а не только на левом
-  // блоке: строка объявлена role="button", и колонки трафика/срока обязаны
-  // реагировать так же.
+  // A click on a row → activation. Caught on the whole row, not only on the left
+  // block: the row is declared role="button", and the traffic/term columns must
+  // react the same way.
   const row = e.target.closest(".pf");
   if (row) {
     if (row.dataset.subId) { activateSource("sub", row.dataset.subId); return; }
@@ -2836,7 +2836,7 @@ const statsStrip = document.getElementById("stats-strip");
 const statsServer = document.getElementById("stats-server");
 const statsFlag = document.getElementById("stats-flag");
 const statsMode = document.getElementById("stats-mode");
-// Телеметрия-полоса (secured): Пинг · Канал · Сессия
+// Telemetry strip (secured): Ping · Channel · Session
 const telePing = document.getElementById("tele-ping");
 const statsPing = document.getElementById("stats-ping");
 const statsUptime = document.getElementById("stats-uptime");
@@ -2845,7 +2845,7 @@ const locPing = document.getElementById("loc-ping");
 const locIpRow = document.getElementById("loc-ip-row");
 const locIp = document.getElementById("loc-ip");
 
-// Мап-имена для CSS data-state
+// Map names for CSS data-state
 const STATE_HERO = {
   idle: "standby", connecting: "linking", connected: "secured",
   disconnecting: "unlinking", cleanup_error: "standby",
@@ -2854,10 +2854,10 @@ const STATE_KICKER = {
   idle:       "STAND-BY · DISCONNECTED",
   connecting: "LINKING · NEGOTIATING",
   disconnecting: "DISCONNECTING · CLEANUP",
-  connected:  "SECURED · TUNNEL ACTIVE", // дефолт; в connected берём connectedKicker() по режиму
+  connected:  "SECURED · TUNNEL ACTIVE", // default; in connected we take connectedKicker() by mode
 };
-// Kicker в состоянии connected зависит от режима: TUNNEL ACTIVE только в TUN,
-// системный прокси → SYSTEM PROXY, прокси → PROXY ACTIVE (раньше всегда «TUNNEL ACTIVE»).
+// The kicker in the connected state depends on the mode: TUNNEL ACTIVE only in TUN,
+// system proxy → SYSTEM PROXY, proxy → PROXY ACTIVE (previously always "TUNNEL ACTIVE").
 const CONNECTED_KICKER = {
   tun:         "SECURED · TUNNEL ACTIVE",
   systemProxy: "SECURED · SYSTEM PROXY",
@@ -2872,17 +2872,17 @@ function applyHeroState(internalState) {
   hero.dataset.state = ds;
 }
 
-// Stats-strip vs Location-card: connected → stats-strip с live-метриками.
-// Когда VPN выключен (idle/connecting) — нижняя плитка сервера не нужна,
-// прячем обе (раньше показывали loc-card в standby — лишний шум).
-// Строка «Готов» под HUD до подключения: выбранный вручную сервер или «Авто», если
-// подписка сама подберёт узел после старта ядра, и режим подключения.
+// Stats strip vs location card: connected → the stats strip with live metrics.
+// When the VPN is off (idle/connecting) the bottom server tile isn't needed,
+// we hide both (previously the loc card was shown in standby — extra noise).
+// The "Ready" line under the HUD before connecting: a manually chosen server or "Auto" if
+// the subscription picks the node itself after the core starts, and the connection mode.
 const homeReady = document.getElementById("home-ready");
 const homeReadyFlag = document.getElementById("home-ready-flag");
 const homeReadySrv = document.getElementById("home-ready-srv");
 const homeReadyMode = document.getElementById("home-ready-mode");
-// applyHomeBottom("idle") зовётся раньше объявления state/currentEffectiveNode (let):
-// до этого флага строку не трогаем, иначе обращение к ним упало бы в мёртвой зоне.
+// applyHomeBottom("idle") is called before state/currentEffectiveNode (let) are declared:
+// until this flag we don't touch the line, otherwise accessing them would fail in the dead zone.
 let homeReadyBooted = false;
 function readyTarget() {
   if (currentEffectiveNode) return currentEffectiveNode;
@@ -2909,19 +2909,19 @@ function updateHomeReady() {
 function applyHomeBottom(internalState) {
   if (!locCard || !statsStrip) return;
   locCard.hidden = true;
-  // Stats-strip ВСЕГДА в потоке (держит высоту), видимой делаем только в connected.
-  // Иначе её появление при connect сжимает .hero снизу → центрированная сцена/маска
-  // уезжает вверх (а при disconnect — обратно вниз). Резерв места = сцена не двигается.
+  // The stats strip is ALWAYS in the flow (keeps the height), it's made visible only in connected.
+  // Otherwise its appearance on connect squeezes .hero from below → the centered scene/mask
+  // moves up (and back down on disconnect). Reserved space = the scene doesn't move.
   statsStrip.hidden = false;
   statsStrip.classList.toggle("stats--reserved", internalState !== "connected");
   updateHomeReady();
 }
 
-// Активный сервер в stats-strip — обновляется при connect и смене effective-ноды.
+// The active server in the stats strip — updated on connect and on an effective node change.
 function updateStatsServer() {
   if (!statsServer) return;
   const p = activeNodeForDisplay();
-  // Имя без флаг-эмодзи: страну уже показывает SVG-флаг в ячейке (иначе дубль флага).
+  // The name without the flag emoji: the SVG flag in the cell already shows the country (otherwise a duplicate flag).
   const label = stripFlag(p?.name) || p?.host || "—";
   statsServer.textContent = label;
   statsServer.title = label;
@@ -2930,7 +2930,7 @@ function updateStatsServer() {
     statsFlag.innerHTML = iso ? `<img src="${FLAGS_BASE}/${iso}.svg" alt="">` : "";
     statsFlag.hidden = !iso;
   }
-  updateHomeReady(); // сменилась нода или источник — обновить строку «Готов»
+  updateHomeReady(); // the node or source changed — update the "Ready" line
 }
 
 let lastPublicIp = null;
@@ -2938,8 +2938,8 @@ if (locIp) bindIpReveal(locIp, () => lastPublicIp);
 
 async function refreshPublicIp(epoch = connectAttempts.current()) {
   if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
-  // Приватность: юзер отключил geo-запросы → не дёргаем внешние IP-сервисы
-  // вовсе, IP-плитка гаснет с поясняющим тултипом.
+  // Privacy: the user disabled geo requests → we don't poke external IP services
+  // at all, the IP tile goes dark with an explanatory tooltip.
   if (activeStrictPrivacyRuntime || loadOptions().general?.disableGeoLookup) {
     lastPublicIp = null;
     if (locIpRow) locIpRow.hidden = false;
@@ -2950,21 +2950,21 @@ async function refreshPublicIp(epoch = connectAttempts.current()) {
     }
     return;
   }
-  // IP всегда тянем ЧЕРЕЗ локальный inbound sing-box, во всех режимах:
-  //   proxy/systemProxy — mixed-in (reqwest системный прокси не чтит, поэтому
-  //     даже в systemProxy без явного адреса запрос ушёл бы напрямую → мимо
-  //     туннеля и показывал бы реальный IP юзера);
-  //   tun — probe-in слушает тот же порт; «напрямую» нельзя, т.к. собственный
-  //     трафик Ninety.exe в TUN уходит в direct bypass-правилом (защита от петли)
-  //     и IP-сервис увидел бы реальный IP, а не exit.
+  // The IP is always pulled THROUGH the local sing-box inbound, in all modes:
+  //   proxy/systemProxy — mixed-in (reqwest doesn't honor the system proxy, so
+  //     even in systemProxy without an explicit address the request would go direct → past
+  //     the tunnel and would show the user's real IP);
+  //   tun — probe-in listens on the same port; "direct" isn't allowed because Ninety.exe's own
+  //     traffic in TUN goes direct via the bypass rule (loop protection)
+  //     and the IP service would see the real IP, not the exit.
   const proxyHostPort = runtimeProbeHostPort();
   if (!proxyHostPort) return;
   try {
     const info = await fetchPublicIp({ proxyHostPort });
     if (state !== "connected" || !connectAttempts.isCurrent(epoch)) return;
     if (!info?.success && info?.ip == null) {
-      // Rust нормализует ответ (fetch_public_ip перебирает провайдеров); при
-      // неуспехе всех обычно летит Err → catch, эта ветка — страховка.
+      // Rust normalizes the response (fetch_public_ip goes through providers); when
+      // all fail an Err usually arrives → catch, this branch is a safeguard.
       throw new Error(info?.message || "no ip");
     }
     lastPublicIp = info.ip;
@@ -2987,7 +2987,7 @@ const locName = document.querySelector(".loc-card__name");
 const locProto = document.querySelector(".loc-card__sub b");
 const locFlag = document.querySelector(".loc-card__flag");
 
-// флаги: FLAGS_BASE + isoFromNodeName импортированы из /lib/flags.js
+// flags: FLAGS_BASE + isoFromNodeName are imported from /lib/flags.js
 function setLocationFlag(iso) {
   if (!locFlag) return;
   if (iso) {
@@ -3012,13 +3012,13 @@ function runtimeProbeHostPort(snapshot = runtimeSnapshotCache) {
   const address = snapshot?.probeProxyEndpoint?.address;
   return typeof address === "string" && address ? address : null;
 }
-// Поколение попытки подключения: «Отключить» во время старта ядра инкрементит
-// его, и завершившийся start_singbox видит отмену (см. heroDisc-обработчик) —
-// раньше быстрый connect→cancel всё равно заканчивался «Защищено».
+// The connect attempt generation: "Disconnect" during the core start increments
+// it, and the finished start_singbox sees the cancellation (see the heroDisc handler) —
+// previously a quick connect→cancel still ended with "Protected".
 const connectAttempts = createConnectionAttemptGate();
 
-// Обсидиановый HUD (styles/obsidian-hud.css) движется только на виду: в трее, без
-// фокуса и на других экранах его анимации стоят — GPU не греется впустую.
+// The obsidian HUD (styles/obsidian-hud.css) moves only when visible: in the tray, without
+// focus and on other screens its animations stand still — the GPU doesn't heat up for nothing.
 function syncHeroMotion(snapshot = activityController.snapshot()) {
   if (!hero) return;
   const live = snapshot.visible && snapshot.focused && snapshot.view === "home";
@@ -3027,7 +3027,7 @@ function syncHeroMotion(snapshot = activityController.snapshot()) {
 }
 activityController.subscribe((snapshot) => syncHeroMotion(snapshot));
 syncHeroMotion();
-// Спокойный главный экран переключается в настройках на лету.
+// The calm main screen is toggled in settings on the fly.
 bus.on(CALM_HUD_EVENT, () => syncHeroMaskPlayback());
 syncHeroMaskPlayback();
 
@@ -3061,8 +3061,8 @@ function updateHeroHint() {
   }
 }
 
-// Текущая нода через которую реально идёт трафик — приходит из clash-API
-// event'ом ninety:node-changed. Когда null — fallback на nodes[0]/profile.
+// The current node the traffic actually goes through — arrives from the clash API
+// as the ninety:node-changed event. When null — fall back to nodes[0]/profile.
 let currentEffectiveNode = null;
 let currentEffectiveTag = null;
 
@@ -3072,14 +3072,14 @@ function activeNodeForDisplay() {
   return src?.kind === "sub" ? src.nodes[0] : src?.profile;
 }
 
-// Имя ноды как в списке нод (не адрес). host — запасной вариант.
+// The node name as in the node list (not the address). host is the fallback.
 function nodeDisplayLabel(n) {
   return n?.name || n?.host || "";
 }
 
-// Гарантированно непустое имя сервера для тоста/уведомления. Цепочка фолбэков:
-// фактическая нода из clash → первая нода/профиль источника → имя подписки.
-// Возвращает "" только если активного источника вообще нет.
+// A guaranteed non-empty server name for a toast/notification. A chain of fallbacks:
+// the actual node from clash → the source's first node/profile → the subscription name.
+// Returns "" only if there's no active source at all.
 function resolveServerLabel() {
   const eff = currentEffectiveNode;
   if (eff?.name || eff?.host) return eff.name || eff.host;
@@ -3093,24 +3093,24 @@ function resolveServerLabel() {
   return p?.name || p?.host || "";
 }
 
-// OS-уведомление + догоняющий тост о подключении с ИМЕНЕМ реально выбранной
-// ноды. Для подписки из >=2 нод балансировщик выбирает сервер уже ПОСЛЕ старта
-// ядра — опрашиваем clash, пока не появится фактический сервер (до ~3.5с),
-// иначе показали бы nodes[0] (первый в списке), а не фактический. Для одиночного
-// профиля нода одна — ждать нечего.
+// An OS notification + a catch-up toast about the connection with the NAME of the actually chosen
+// node. For a subscription with >=2 nodes the balancer picks the server only AFTER the core
+// starts — we poll clash until the actual server appears (up to ~3.5 s),
+// otherwise we'd show nodes[0] (the first in the list), not the actual one. For a single
+// profile there's one node — nothing to wait for.
 async function notifyConnectedWithRealNode(isMultiSub) {
   if (isMultiSub) {
     for (let i = 0; i < 7; i++) {
       await new Promise(r => setTimeout(r, 500));
-      if (state !== "connected") return; // успели отключиться
+      if (state !== "connected") return; // we got disconnected in the meantime
       try { await syncEffectiveFromClash(); } catch {}
       if (currentEffectiveNode) break;
     }
   }
   if (state !== "connected") return;
   const label = resolveServerLabel();
-  // Для подписки стартовый тост был обобщённым (балансировщик ещё не выбрал) —
-  // догоняем реальным сервером, когда он стал известен.
+  // For a subscription the initial toast was generic (the balancer hadn't chosen yet) —
+  // we follow up with the real server once it's known.
   if (label && isMultiSub) {
     toast(t("conn.protected"), "connected", 2000, { group: "conn", desc: t("conn.serverDesc", { label }) });
   }
@@ -3159,8 +3159,8 @@ function applySidebarState(next = state) {
   sidebarStateLabel.textContent = t(key);
 }
 
-// Для «При запуске: как было». Пишем "on" при каждом подключении и "off" только
-// при ручном «Отключить»: закрытие приложения с поднятым VPN оставляет "on".
+// For "On launch: as it was". We write "on" on every connection and "off" only
+// on a manual "Disconnect": closing the app with the VPN up leaves "on".
 function rememberVpnLastState(value) {
   try { localStorage.setItem(STORAGE_KEYS.vpnLastState, value); } catch {}
 }
@@ -3226,8 +3226,8 @@ function setState(next, opts = {}) {
     stopClashStream();
     stopMeter();
     stopQualityEngine("disconnected");
-    // Остановка подтверждается backend'ом (процессы завершены, порты освобождены),
-    // поэтому это отдельное переходное состояние, а не новый connect.
+    // The stop is confirmed by the backend (processes exited, ports released),
+    // so this is a separate transitional state, not a new connect.
     if (heroLabel) heroLabel.textContent = t("hero.disconnecting");
     if (heroHint) heroHint.hidden = false;
     setHeroHintText(STATE_KICKER.disconnecting);
@@ -3268,7 +3268,7 @@ function setState(next, opts = {}) {
     if (statsMode) statsMode.textContent = modeLabel(getMode());
     updateStatsServer();
     startTrafficStream();
-    // Учёт реально измеренного трафика активного источника (для гибрид-плитки).
+    // Tracking actually measured traffic of the active source (for the hybrid tile).
     startMeter({
       sourceKey: sourceKeyOf(activeDisplaySource()),
       token: runtimeIdentity.capture(),
@@ -3277,8 +3277,8 @@ function setState(next, opts = {}) {
     if (!activeStrictPrivacyRuntime) startWarpRescanLoop();
     else stopWarpRescanLoop();
     startHealthWatchdog();
-    // DNS-watchdog: если direct-DNS ляжет в середине сессии — переключит на резерв
-    // и реконнектит (sing-box перечитает DNS из свежего конфига).
+    // DNS watchdog: if direct DNS goes down mid-session, it switches to a fallback
+    // and reconnects (sing-box will reread DNS from the fresh config).
     if (!activeStrictPrivacyRuntime) {
       startDnsGuard({
         toast,
@@ -3286,13 +3286,13 @@ function setState(next, opts = {}) {
         onDnsSwitched: () => reconnectForSourceChange(t("dns.reconnect")),
       });
     } else {
-      // Строгий runtime использует собственный фиксированный IP-hosted DoH.
-      // Watchdog читает/меняет сохранённый direct-DNS и потому здесь не нужен.
+      // The strict runtime uses its own fixed IP-hosted DoH.
+      // The watchdog reads/changes the saved direct DNS and therefore isn't needed here.
       stopDnsGuard();
     }
-    // Проба всегда через локальный инбаунд sing-box: mixed-in (proxy/systemProxy)
-    // либо probe-in (TUN, тот же порт). «Напрямую» в TUN нельзя — bypass-правило
-    // Ninety.exe увело бы пробу в direct, и мерился бы голый канал, а не туннель.
+    // The probe always goes through the local sing-box inbound: mixed-in (proxy/systemProxy)
+    // or probe-in (TUN, the same port). "Direct" isn't allowed in TUN — the Ninety.exe
+    // bypass rule would send the probe direct, and the bare channel would be measured instead of the tunnel.
     if (activeStrictPrivacyRuntime) {
       stopQualityEngine("monitoringOff");
       showQualityChip(false);
@@ -3304,24 +3304,24 @@ function setState(next, opts = {}) {
       showQualityChip(loadOptions().quality?.enabled !== false);
     }
     updateWarpBadge();
-    // Повтор исключения после подтверждённого подключения: обычный путь ставит
-    // его ДО старта ядра, но сюда приходят и adopt чужого runtime, и смена ноды
-    // балансировщиком — там раннего вызова не было.
+    // Repeating the exclusion after a confirmed connection: the regular path sets
+    // it BEFORE the core starts, but adopting someone else's runtime and a node switch
+    // by the balancer also come here — there was no early call there.
     try { excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
-    // Эндпоинты апдейта стали достижимы через туннель — дочекать, если прямые
-    // проверки не проходили (у части провайдеров gitlab/github режутся напрямую).
+    // The update endpoints became reachable through the tunnel — finish the check if direct
+    // checks didn't go through (with some ISPs gitlab/github are cut when accessed directly).
     updateCheckIfStale();
-    // Журнал возврата сессии после OTA одноразовый: любое подтверждённое
-    // подключение его закрывает. Иначе после неудачного авто-возврата он жил до
-    // следующего удачного запуска и всё это время молча выключал обычные
-    // резервные копии состояния (backupNow пропускает запись, пока он есть).
+    // The session resume journal after OTA is one-time: any confirmed
+    // connection closes it. Otherwise after a failed auto-resume it lived until
+    // the next successful launch and all that time silently disabled regular
+    // state backups (backupNow skips the write while it exists).
     try {
       if (localStorage.getItem("ninety.update.resume") != null
           || localStorage.getItem("ninety.dpi.resumeAfterUpdate") != null) {
         void markUpdateRuntimeReady().catch(() => {});
       }
     } catch {}
-    // Wizard: подключились — переходим на финальный шаг.
+    // Wizard: connected — move on to the final step.
     if (wizardActive && wizardStepNum === 2) showOnbStep(3);
     maybeAutoLaunchProtectedBrowser();
   }
@@ -3330,8 +3330,8 @@ function setState(next, opts = {}) {
   runtimeIdleGate.notify();
 }
 
-// Единый рендерер пинга: ячейка «Пинг» телеметрии + location-card.
-// delay > 0 && < 65000 → число + grade; 0/null → "— мс"; >= 65000 → "Тайм-аут"
+// A single ping renderer: the telemetry "Ping" cell + the location card.
+// delay > 0 && < 65000 → number + grade; 0/null → "— ms"; >= 65000 → "Timeout"
 let lastPingDelay = null;
 function applyPingDisplay(delay) {
   lastPingDelay = delay;
@@ -3346,8 +3346,8 @@ function applyPingDisplay(delay) {
   if (locPing) locPing.textContent = text;
 }
 
-// ── Сессия (телеметрия secured): аптайм + накопленные тоталы ──
-// Мгновенная скорость живёт в сайдбаре; здесь — суммарный объём за сессию.
+// ── Session (secured telemetry): uptime + accumulated totals ──
+// The instant speed lives in the sidebar; here — the total volume for the session.
 let sessionTimer = null, sessionStart = 0, sessionDownBytes = 0, sessionUpBytes = 0;
 function fmtUptime(s) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -3374,11 +3374,11 @@ function stopSession() {
   setChannelState("UNKNOWN");
 }
 
-// ── real-time WS-стрим из clash-API ────────────────────────
+// ── real-time WS stream from the clash API ────────────────────────
 function applyTrafficValues({ up, down }) {
   if (state !== "connected" || !runtimeIdentity.capture()) return;
   qualityEngine.updatePassive({ down });
-  // down/up — байт/сек; интегрируем в session-тоталы (тик ≈ 1с).
+  // down/up are bytes/sec; we integrate them into the session totals (tick ≈ 1 s).
   sessionDownBytes += Math.max(0, down) || 0;
   sessionUpBytes += Math.max(0, up) || 0;
   const d = formatRate(down);
@@ -3394,8 +3394,8 @@ function applyPingValue({ delay }) {
   applyPingDisplay(delay);
 }
 
-// Клик по ячейке «Пинг» = принудительный force-test задержки текущей ноды.
-// При timeout/недоступности — показываем «Тайм-аут».
+// A click on the "Ping" cell = a forced latency test of the current node.
+// On timeout/unreachability we show "Timeout".
 let manualTestInFlight = false;
 telePing?.addEventListener("click", async () => {
   if (state !== "connected") return;
@@ -3405,9 +3405,9 @@ telePing?.addEventListener("click", async () => {
   telePing.dataset.testing = "true";
   if (statsPing) statsPing.textContent = "···";
   try {
-    // Клик = тест URLTest-ГРУППЫ (как urlTest("")), а не одиночный
-    // /proxies/{name}/delay. Число читается из history эффективной ноды → совпадает
-    // со списком нод. Подробности в refreshEffectiveDelay.
+    // A click = a test of the URLTest GROUP (like urlTest("")), not a single
+    // /proxies/{name}/delay. The number is read from the effective node's history → matches
+    // the node list. Details in refreshEffectiveDelay.
     const { delay } = await refreshEffectiveDelay({ timeoutMs: 5000, token });
     if (runtimeIdentity.isCurrent(token)) applyPingDisplay(delay > 0 ? delay : 65000);
   } catch (e) {
@@ -3430,7 +3430,7 @@ async function startTrafficStream() {
       onPing: (v) => { if (runtimeIdentity.isCurrent(token)) applyPingValue(v); },
       onNodeChange: ({ tag }) => {
         if (!runtimeIdentity.isCurrent(token)) return;
-        // Эффективная нода реально поменялась (URLTest перевыбрал или юзер выбрал)
+        // The effective node actually changed (URLTest reselected or the user chose)
         syncEffectiveFromClash({ knownTag: tag, token });
       },
     });
@@ -3438,14 +3438,14 @@ async function startTrafficStream() {
     console.warn("startClashStream failed", e);
   }
   if (state !== "connected" || !connectAttempts.isCurrent(epoch) || !runtimeIdentity.isCurrent(token)) return;
-  // Публичный IP — отложенно (sing-box секунду стартует), потом раз в 5 мин
+  // Public IP — deferred (sing-box takes a second to start), then every 5 min
   setTimeout(() => refreshPublicIp(epoch), 2500);
   if (publicIpTimer) clearInterval(publicIpTimer);
   publicIpTimer = setInterval(() => refreshPublicIp(epoch), 5 * 60_000);
 }
 
-// Подтягивает effective node через clash → обновляет hero/location/IP.
-// Если knownTag передан — используем его (без лишнего запроса в clash).
+// Pulls the effective node via clash → updates hero/location/IP.
+// If knownTag is passed — we use it (without an extra request to clash).
 async function syncEffectiveFromClash({ knownTag, token = runtimeIdentity.capture() } = {}) {
   if (!token || !runtimeIdentity.isCurrent(token)) return;
   let tag = knownTag || null;
@@ -3459,7 +3459,7 @@ async function syncEffectiveFromClash({ knownTag, token = runtimeIdentity.captur
   if (!tag) return;
   const src = getActiveSource();
   if (!src || src.kind !== "sub") return;
-  // Тэг outbound'а — единая формула из singbox.js (nodeTag), чтобы не разъезжалось.
+  // The outbound tag uses the single formula from singbox.js (nodeTag) so they don't diverge.
   const node = src.nodes.find((n, i) => nodeTag(i, n) === tag);
   if (!node) return;
   onEffectiveNodeChanged(token, tag, node);
@@ -3474,35 +3474,35 @@ function onEffectiveNodeChanged(token, tag, node) {
   syncTrayMenu();
   if (state === "connected" && prevHost !== node.host) {
     try { excludeVpnNode(node.host); } catch {}
-    // Сервер реально сменился — IP надо перечитать
+    // The server actually changed — the IP needs to be reread
     if (locIp) locIp.textContent = "— · —";
     setTimeout(refreshPublicIp, 600);
   }
   return true;
 }
 
-// Слушаем событие из proxies-view: юзер кликнул ноду / URLTest переключился
+// We listen to the event from proxies-view: the user clicked a node / URLTest switched
 window.addEventListener("ninety:node-changed", (ev) => {
   const tag = ev.detail?.tag;
   syncEffectiveFromClash({ knownTag: tag });
 });
 
-// DPI-обход и выбранная нода — критическое состояние: кроме localStorage сразу
-// обновляем дисковый снапшот. Иначе после очистки WebView2 мог восстановиться
-// предыдущий флаг DPI или старый "auto".
+// DPI bypass and the selected node are critical state: besides localStorage we immediately
+// update the disk snapshot. Otherwise after clearing WebView2 the previous DPI flag
+// or an old "auto" could be restored.
 window.addEventListener("ninety:dpi-changed", () => {
   syncTrayMenu();
   void backupNow();
 });
 window.addEventListener("ninety:proxy-selection-saved", () => { void backupNow(); });
 
-// ── Трей — вынесен в /lib/tray.js; здесь только контекст main-состояния ──
-// Объявлено заранее (до initTray и бутстрапа): getUpdateVersion читает
-// pendingUpdate уже на старте — если оставить let в секции Auto-update ниже,
-// первый syncTrayMenu падает в TDZ.
+// ── Tray — moved to /lib/tray.js; here only the main state context ──
+// Declared in advance (before initTray and bootstrap): getUpdateVersion reads
+// pendingUpdate already at startup — if we left the let in the Auto-update section below,
+// the first syncTrayMenu would fail in the TDZ.
 let pendingUpdate = null;
-// Объявлено рядом с pendingUpdate: первый bootstrap syncTrayMenu читает этот
-// флаг раньше секции Auto-update внизу файла.
+// Declared next to pendingUpdate: the first bootstrap syncTrayMenu reads this
+// flag before the Auto-update section at the bottom of the file.
 let updateInstalling = false;
 initTray({
   getState: () => state,
@@ -3513,14 +3513,14 @@ initTray({
   onSetMode: (m) => changeMode(m),
   onToggleVpn: () => handleConnectionIntent(),
   onUpdateClick: () => flushPendingUpdate(),
-  // Свёрнутое окно не получает ни focus, ни online — до наведения на значок
-  // единственный источник проверок это расписание. Порог в минуту не даёт
-  // случайному проходу мыши над треем дёргать эндпоинты.
+  // A minimized window gets neither focus nor online — until the icon is hovered
+  // the only source of checks is the schedule. A one-minute threshold keeps
+  // an accidental mouse pass over the tray from poking the endpoints.
   onTrayActivity: () => updateCheckIfStale(60_000),
-  // «Все серверы…» из трея: окно уже показано Rust-обработчиком, остаётся
-  // открыть экран со списком — там поиск и полный набор нод.
+  // "All servers…" from the tray: the window is already shown by the Rust handler, what's left is
+  // to open the list screen — that's where search and the full node set are.
   onOpenServers: () => switchView("proxies"),
-  // Успешный выбор сервера из трея: обновить эффективную ноду + hero/локацию.
+  // A successful server choice from the tray: update the effective node + hero/location.
   onServerSelected: (tag, _node, { reconnect = false } = {}) => {
     if (reconnect) reconnectForSourceChange(t("conn.applyingSettings"));
     else syncEffectiveFromClash({ knownTag: tag });
@@ -3585,8 +3585,8 @@ function finalizeConnected(snapshot, {
 
 function adoptRuntimeSnapshot(snapshot, source = activeDisplaySource(), context = {}) {
   const adopted = finalizeConnected(snapshot, { ...context, source });
-  // Перезагрузка WebView не убивает WFP-сессию: барьер прошлой попытки мог
-  // пережить её и остаться поверх принятого живого runtime.
+  // A WebView reload doesn't kill the WFP session: the previous attempt's barrier may have
+  // survived it and stayed on top of the adopted live runtime.
   if (adopted) void releaseTransitionBarrier(snapshot?.processGeneration);
   return adopted;
 }
@@ -3598,9 +3598,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     "stop_singbox",
     operationToken ? { operationToken } : {},
   );
-  // Click ripple — расходится от центра диска (anim 520ms). Диска может не быть
-  // (автозапуск дошёл сюда раньше разметки, чужой view) — украшение не имеет
-  // права ронять подключение.
+  // Click ripple — spreads from the center of the disc (anim 520 ms). The disc may not exist
+  // (autostart got here before the markup, someone else's view) — a decoration has no
+  // right to break the connection.
   const stage = heroDisc?.closest(".hero__stage");
   if (stage) {
     const ripple = document.createElement("div");
@@ -3617,9 +3617,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       observed = await invoke("runtime_snapshot");
     } catch (e) {
       console.warn("runtime snapshot before start failed", e);
-      // Эта ветка тоже выводит «не удалось отключить», но не проходит ни через
-      // stop, ни через catch старта — без записи она выглядела бы в журнале как
-      // подтверждённая остановка, за которой не следует ничего.
+      // This branch also shows "failed to disconnect", but goes neither through
+      // stop nor through the start catch — without a record it would look in the log like
+      // a confirmed stop followed by nothing.
       logSourceSwitchReconnect("preflight", operationToken, "failed", "runtime_snapshot_unavailable");
       setState("cleanup_error", {
         preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
@@ -3656,12 +3656,12 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
     const { mode, options, runtimePolicy } = preparedRuntime;
     const warpOnly = !strictPrivacy && !src && warpOnlyEnabled();
     if (!src && !warpOnly) { toast(t("conn.needSource"), "error"); return false; }
-    // Владение попыткой захватываем ДО первого await: DNS/WARP/port preflight
-    // больше не оставляет state=idle, поэтому второй клик отменяет эту попытку,
-    // а не запускает параллельный start_singbox.
+    // Ownership of the attempt is captured BEFORE the first await: the DNS/WARP/port preflight
+    // no longer leaves state=idle, so a second click cancels this attempt
+    // rather than starting a parallel start_singbox.
     const attemptEpoch = connectAttempts.begin();
     let connectStage = "preflight";
-    // Карта «outbound → нода» нужна уже в catch: по ней разбирается отказ ядра
+    // The "outbound → node" map is already needed in catch: the core refusal is parsed with it
     // «initialize outbound[N]».
     let outboundNodes = null;
     let endpointNodes = null;
@@ -3678,12 +3678,12 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         strictFailClosedLatched = true;
         startHealthWatchdog();
       }
-      // DNS-watchdog: имя сервера ноды резолвится через direct-DNS ДО туннеля —
-      // если он мёртв (Google/Cloudflare DoH в РФ), старт падает с невнятным
-      // «i/o timeout». Пробуем и при отказе переключаем на резерв ДО buildConfig,
-      // чтобы конфиг собрался уже с рабочим резолвером. Только пока юзер не ушёл.
-      // Транзитный барьер Kill Switch не выпускает сам Ninety.exe: проба увидела бы
-      // все резолверы мёртвыми и включила бы ложную тревогу с паузой сторожа.
+      // DNS watchdog: the node's server name is resolved via direct DNS BEFORE the tunnel —
+      // if it's dead (Google/Cloudflare DoH in Russia), the start fails with a vague
+      // "i/o timeout". We probe and on failure switch to a fallback BEFORE buildConfig,
+      // so that the config is built with a working resolver. Only while the user hasn't left.
+      // The Kill Switch transitional barrier doesn't let Ninety.exe itself out: the probe would see
+      // all resolvers as dead and raise a false alarm with a watchdog pause.
       if (!strictPrivacy && !killSwitchMustSurviveRuntimeStop()) {
         await ensureWorkingDirectDns({
           toast,
@@ -3691,24 +3691,24 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         });
       }
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
-      // Если WARP включён — тянем регистрацию из writable config dir/warp.json
-      // и передаём в builder. Без warpInfo builder тихо пропустит warp endpoint.
+      // If WARP is enabled — pull the registration from the writable config dir/warp.json
+      // and pass it to the builder. Without warpInfo the builder silently skips the warp endpoint.
       let warpInfo = null;
       if (options.warp?.enabled) {
         try { warpInfo = await invoke("warp_status"); } catch {}
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
         if (!warpInfo) {
-          // Сюда приходит и реконнект поверх сохранённого Kill Switch: голый
-          // idle снял бы барьер, и трафик пошёл бы напрямую.
+          // A reconnect on top of a saved Kill Switch also comes here: a bare
+          // idle would remove the barrier, and traffic would go direct.
           setState("idle", { preserveKillSwitch: killSwitchMustSurviveRuntimeStop() });
           toast(t("conn.warpUnreg"), "error", 3500);
           return false;
         }
       }
-      // Порты loopback-мостов (xhttp/naive/TT): дефолтные базы 31100+ может
-      // занять чужой процесс — Rust подбирает свободные диапазоны bind-пробой.
-      // Ошибка планирования не блокирует старт: билдер упадёт на статические
-      // дефолты, а занятый порт поймает fail-fast в start_singbox.
+      // Loopback bridge ports (xhttp/naive/TT): the default 31100+ bases may be
+      // taken by a foreign process — Rust picks free ranges with a bind probe.
+      // A planning error doesn't block the start: the builder falls back to the static
+      // defaults, and a busy port is caught by fail-fast in start_singbox.
       let bridgePorts = null;
       const needs = bridgeNeeds(src ? (src.kind === "sub" ? src.nodes : [src.profile]) : []);
       if (needs.xray || needs.naive || needs.trusttunnel) {
@@ -3716,14 +3716,14 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         catch (e) { console.warn("plan_bridge_ports failed", e); }
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       }
-      // Может ли система вообще IPv6. Нужен только в TUN: там ядро назначает
-      // адрес на интерфейс, и на машине с выключенным в Windows IPv6 весь
-      // TUN-режим падал целиком («set ipv6 address: Element not found»).
-      // Проба локальная и синхронная, сети не трогает. Ошибка не блокирует
-      // старт: undefined читается билдером как «не знаем» и оставляет
-      // сегодняшнее поведение с IPv6-адресом.
-      // Пересылка IP на внешнем адаптере зацикливает TUN (#168). Старт её не
-      // ждёт и от неё не зависит — только предупреждаем.
+      // Whether the system supports IPv6 at all. Needed only in TUN: there the core assigns
+      // an address to the interface, and on a machine with IPv6 disabled in Windows the whole
+      // TUN mode failed entirely ("set ipv6 address: Element not found").
+      // The probe is local and synchronous, doesn't touch the network. An error doesn't block
+      // the start: the builder reads undefined as "don't know" and keeps
+      // today's behavior with the IPv6 address.
+      // IP forwarding on the external adapter loops TUN (#168). The start doesn't
+      // wait for it and doesn't depend on it — we only warn.
       if (mode === "tun") void warnAboutForwarding();
       let systemIpv6;
       if (mode === "tun") {
@@ -3731,8 +3731,8 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         catch (e) { console.warn("system_ipv6_available failed", e); }
         if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       }
-      // Two-core: xhttp-ноды уходят в xray-мост (config.xray), в sing-box —
-      // socks-перенаправление. xray=null когда xhttp в источнике нет.
+      // Two-core: xhttp nodes go into the xray bridge (config.xray), sing-box gets
+      // a socks redirect. xray=null when the source has no xhttp.
       const {
         config,
         xray,
@@ -3753,11 +3753,11 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       outboundNodes = builtOutboundNodes;
       endpointNodes = builtEndpointNodes;
       const configJson = JSON.stringify(config);
-      // Сервер активной ноды — в exclude winws ДО запуска ядра. Раньше
-      // исключение ставилось только по факту connected, то есть уже после
-      // первого TLS/VLESS-handshake к серверу: именно его winws и мог
-      // покорёжить, а симптом выглядел как «первый коннект не встаёт».
-      // Ошибку не считаем фатальной: DPI-обход может быть вовсе выключен.
+      // The active node's server goes into winws exclude BEFORE the core starts. Previously
+      // the exclusion was set only upon connected, i.e. after
+      // the first TLS/VLESS handshake to the server: that's exactly what winws could
+      // mangle, and the symptom looked like "the first connect doesn't come up".
+      // We don't consider the error fatal: DPI bypass may be off altogether.
       try { await excludeVpnNode(activeNodeForDisplay()?.host); } catch {}
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch) || state !== "connecting") return false;
       let runtimeToken = runtimeIdentity.begin({
@@ -3769,9 +3769,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         configJson,
         mode: runtimeInfo.mode,
         xrayJson: xray ? JSON.stringify(xray) : null,
-        // naive/trusttunnel клиенты (по одному на ноду); null когда таких нод нет.
+        // naive/trusttunnel clients (one per node); null when there are no such nodes.
         sidecarsJson: sidecars && sidecars.length ? JSON.stringify(sidecars) : null,
-        // «Полностью отключить логи» → Rust не пишет файлы ни одного компонента.
+        // "Disable logs completely" → Rust doesn't write files for any component.
         logsDisabled: !!runtimeInfo.options.log?.disabled,
         sourceFingerprint: runtimeToken.sourceFingerprint,
         configHash: runtimeToken.configHash,
@@ -3782,18 +3782,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       if (!runtimeSnapshot?.running || !Number(runtimeSnapshot.processGeneration)) {
         throw new Error("start_singbox не вернул подтверждённый runtime snapshot");
       }
-      // Пока ядро стартовало (settle-паузы мостов), юзер мог нажать «Отключить»:
-      // тот клик застаёт child=None и глушить ему нечего. Ловим отмену по epoch
-      // и гасим только что поднятое ядро — иначе UI мигал «отключено» и
-      // возвращался в «Защищено».
+      // While the core was starting (bridge settle pauses), the user may have pressed "Disconnect":
+      // that click finds child=None and has nothing to kill. We catch the cancellation by epoch
+      // and stop the just started core — otherwise the UI blinked "disconnected" and
+      // went back to "Protected".
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
         try { await stopCurrentOperation(); } catch {}
         try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
-      // Backend является источником истины для processGeneration: локальный
-      // токен нужен только чтобы передать ожидаемый identity в start_singbox,
-      // после актуальной проверки дальше работаем с подтверждённым snapshot Rust.
+      // The backend is the source of truth for processGeneration: the local
+      // token is needed only to pass the expected identity to start_singbox,
+      // after the actual check we work with the confirmed Rust snapshot.
       runtimeToken = runtimeIdentity.adopt(runtimeSnapshot, { source: runtimeSource });
       connectStage = "topology";
       const topologyReadiness = await waitForMatchingSourceTopology({
@@ -3854,9 +3854,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
           throw error;
         }
       }
-      // Системный прокси выставляем ТОЛЬКО для mode=systemProxy. Для голого
-      // "proxy" юзер настраивает HTTP/SOCKS клиента сам, для "tun" уже идёт
-      // полный intercept через TUN-интерфейс.
+      // The system proxy is set ONLY for mode=systemProxy. For bare
+      // "proxy" the user configures the HTTP/SOCKS client themselves, for "tun" there's already
+      // full interception through the TUN interface.
       connectStage = "system_proxy";
       if (mode === "systemProxy") {
         const probeHostPort = runtimeSnapshot.probeProxyEndpoint?.address;
@@ -3882,15 +3882,15 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         });
         return false;
       }
-      // При proxy→TUN старый ordinary barrier жил до полной готовности TUN.
-      // Останавливаем guard-only watcher до финального disarm: stop инвалидирует
-      // snapshot в полёте, а уже queued rearm сериализован раньше следующего
-      // apply и потому не сможет остаться последней операцией.
+      // On proxy→TUN the old ordinary barrier lived until TUN was fully ready.
+      // We stop the guard-only watcher before the final disarm: stop invalidates
+      // the snapshot in flight, and an already queued rearm is serialized before the next
+      // apply and therefore can't remain the last operation.
       const retiringOrdinaryBarrier = ordinaryFailClosedLatched
         && !runtimeInfo.strictPrivacy
         && mode === "tun";
       if (retiringOrdinaryBarrier) stopHealthWatchdog();
-      // Kill switch — часть readiness, а не фоновый best-effort после connected.
+      // The kill switch is part of readiness, not a background best-effort after connected.
       connectStage = "kill_switch";
       const killSwitchReady = await applyKillSwitch(true);
       if (!isCurrentNetworkIntent(epoch, "connected") || !runtimeIdentity.isCurrent(runtimeToken)) {
@@ -3905,10 +3905,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       ordinaryFailClosedLatched = !runtimeInfo.strictPrivacy
         && !!loadOptions().general?.killSwitch
         && getMode() !== "tun";
-      // Фейл финальной проверки при ЖИВОМ намерении — это фейл старта: бросаем
-      // в catch (shutdownCore → idle + тост). Тихий стоп оставлял UI навсегда
-      // в «connecting» при уже погашенном ядре. Тихо выходим только при отмене —
-      // статус юзеру выставил его собственный клик.
+      // A failure of the final check with a LIVE intent is a start failure: we throw
+      // into catch (shutdownCore → idle + toast). A silent stop left the UI forever
+      // in "connecting" with the core already stopped. We exit silently only on cancellation —
+      // the status was set for the user by their own click.
       connectStage = "final_snapshot";
       let finalSnapshot;
       try { finalSnapshot = await invoke("runtime_snapshot"); }
@@ -3936,10 +3936,10 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
             && src0?.kind === "sub"
             && Array.isArray(src0.nodes)
             && src0.nodes.length >= 2;
-          // In-app тост сразу. Для подписки нода ещё не выбрана балансировщиком —
-          // показываем имя подписки (не врём конкретным сервером), затем
-          // notifyConnectedWithRealNode догонит тост фактическим сервером. Для
-          // одиночного профиля сразу его имя.
+          // An in-app toast right away. For a subscription the balancer hasn't chosen the node yet —
+          // we show the subscription name (not lying with a specific server), then
+          // notifyConnectedWithRealNode will follow up the toast with the actual server. For
+          // a single profile — its name right away.
           const initLabel = isMultiSub
             ? (src0.subscription?.name || t("conn.subFallback"))
             : nodeDisplayLabel(activeNodeForDisplay());
@@ -3947,9 +3947,9 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
             group: "conn",
             desc: initLabel || t("conn.tunnelUp"),
           });
-          syncTrayMenu(); // трей → «Отключиться» (для sub ещё раз обновится после sync)
-          // Effective node + OS-уведомление с именем фактического сервера (внутри
-          // делает syncEffectiveFromClash → обновляет hero/локацию/трей).
+          syncTrayMenu(); // tray → "Disconnect" (for a sub it will be updated once more after sync)
+          // Effective node + an OS notification with the actual server's name (inside it
+          // does syncEffectiveFromClash → updates hero/location/tray).
           notifyConnectedWithRealNode(isMultiSub);
         },
       });
@@ -3965,18 +3965,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
       return true;
     } catch (e) {
       if (!isCurrentNetworkIntent(epoch, "connected") || !connectAttempts.isCurrent(attemptEpoch)) {
-        // Юзер уже отменил подключение — состояние/тосты выставил его клик,
-        // здесь только страховочный стоп без перетирания UI.
+        // The user has already cancelled the connection — the state/toasts were set by their click,
+        // here only a safety stop without overwriting the UI.
         try { await stopCurrentOperation(); } catch {}
         try { await disableSystemProxy(invoke); } catch {}
         return false;
       }
       console.error("start failed", e);
-      // Диагностика провалившегося старта раньше писалась только для смены
-      // источника. Смена режима переподключается по токену qualityRemediation,
-      // поэтому её отказ не оставлял в журнале ничего: после подтверждённой
-      // остановки лог просто обрывался, а на экране появлялась ошибка. Стадия и
-      // код нужны для любой операции, включая реконнект вообще без токена.
+      // Diagnostics of a failed start used to be written only for a source
+      // switch. A mode change reconnects with the qualityRemediation token,
+      // so its failure left nothing in the log: after a confirmed
+      // stop the log just broke off, while an error appeared on screen. The stage and
+      // code are needed for any operation, including a reconnect with no token at all.
       const code = safeSourceSwitchReason(e?.code || e?.name || "error");
       logSourceSwitchReconnect("connect", operationToken, "failed", `${connectStage}_${code}`);
       const preserveGuard = killSwitchMustSurviveRuntimeStop();
@@ -3985,18 +3985,18 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
         operationToken,
       });
       if (!cleaned) {
-        // При недоступном BFE не останавливаем ещё живой runtime без barrier.
-        // Выходим из вечного connecting в recoverable error; setState заодно
-        // ещё раз ставит preserve-reconcile в очередь. Явный disconnect остаётся
-        // доступен пользователю и снимает session-scoped policy.
+        // With BFE unavailable we don't stop a still live runtime without a barrier.
+        // We exit the endless connecting into a recoverable error; setState also
+        // queues the preserve-reconcile once more. An explicit disconnect stays
+        // available to the user and removes the session-scoped policy.
         if (state !== "cleanup_error") {
           setState("cleanup_error", { preserveKillSwitch: preserveGuard });
         }
         return false;
       }
-      // Ядро отказалось поднимать конкретный outbound — значит у ноды параметр,
-      // которого статические проверки ещё не знают. Ядро само назвало индекс:
-      // выключаем эту ноду и говорим, какую именно, вместо «старт не удался».
+      // The core refused to bring up a specific outbound — so the node has a parameter
+      // the static checks don't know yet. The core named the index itself:
+      // we disable this node and say which one exactly, instead of "start failed".
       const rejected = matchCoreOutboundRejection(
         `${e?.message || ""}\n${e || ""}`,
         outboundNodes,
@@ -4032,11 +4032,11 @@ async function connectNetwork({ epoch = networkIntentEpoch, operationToken = nul
 }
 
 let connectionIntentInFlight = null;
-// Более новый intent (реконнект, смена источника) может забрать владение прямо
-// посреди отключения. Состояние при этом обязан закрыть тот, кто его выставил:
-// runtime к этому моменту уже подтверждённо остановлен, а «disconnecting» ждут
-// и hero-диск, и runtimeIdleGate — без idle очередь реконнекта висит вечно, и
-// UI выходит из залипания только следующим кликом пользователя.
+// A newer intent (reconnect, source switch) may take ownership right
+// in the middle of a disconnect. The state must then be closed by whoever set it:
+// by this point the runtime has been confirmedly stopped, and "disconnecting" is awaited
+// by both the hero disc and runtimeIdleGate — without idle the reconnect queue hangs forever, and
+// the UI gets unstuck only with the user's next click.
 function finalizeStoppedRuntime() {
   if (state === "disconnecting") setState("idle");
   return false;
@@ -4053,10 +4053,10 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
   if (!(await shutdownCore({ finalize: false }))) return false;
   if (lateStart) {
     await coreStartBarrier.wait();
-    // Поздний старт мог поднять ядро — останавливаем его в любом случае, даже
-    // если намерение уже сменилось. Раньше здесь был голый return false:
-    // состояние оставалось «Отключение…», а очередь реконнекта ждала простоя
-    // вечно. Освободить её можно только после подтверждённой остановки.
+    // A late start may have brought up the core — we stop it in any case, even
+    // if the intent has already changed. Previously there was a bare return false here:
+    // the state stayed "Disconnecting…", and the reconnect queue waited for idle
+    // forever. It can be released only after a confirmed stop.
     if (!(await shutdownCore({ finalize: false }))) return false;
   }
   if (!isCurrentNetworkIntent(epoch, "idle")) return finalizeStoppedRuntime();
@@ -4073,12 +4073,12 @@ async function disconnectNetwork({ epoch, userInitiated = false } = {}) {
     setState("cleanup_error");
     return false;
   }
-  // Ручное «Отключить» обязано подтвердить не только смерть runtime, но и
-  // освобождение WFP lease. Иначе UI показывал бы idle, watchdog уже молчал,
-  // а сохранённая Rust-сессия продолжала блокировать весь компьютер.
+  // A manual "Disconnect" must confirm not only the runtime's death but also
+  // the release of the WFP lease. Otherwise the UI would show idle, the watchdog would already be silent,
+  // while the saved Rust session kept blocking the whole computer.
   const killSwitchReleased = await applyKillSwitch(false);
-  // Неосвобождённый lease важнее чужого intent: чей бы ни был следующий шаг,
-  // WFP всё ещё блокирует весь компьютер, и это состояние надо показать.
+  // An unreleased lease matters more than someone else's intent: whoever's step is next,
+  // WFP still blocks the whole computer, and this state must be shown.
   if (!killSwitchReleased) {
     setState("cleanup_error", {
       preserveKillSwitch: killSwitchMustSurviveRuntimeStop(),
@@ -4102,14 +4102,14 @@ async function userToggleNetwork(onResolvedKind) {
   const epoch = beginNetworkIntent("idle");
   let snapshot = null;
   try { snapshot = await invoke("runtime_snapshot"); } catch (e) { console.warn("toggle snapshot failed", e); }
-  // Повторный клик мог уже заменить intent, пока runtime_snapshot был в IPC.
-  // Старый toggle после этого не имеет права сам запускать ещё один disconnect.
+  // A repeated click may have already replaced the intent while runtime_snapshot was in IPC.
+  // The old toggle then has no right to start yet another disconnect on its own.
   if (!isCurrentNetworkIntent(epoch, "idle")) return false;
-  // connectionIntentInFlight сюда включать НЕЛЬЗЯ: handleConnectionIntent
-  // присваивает его промисом ЭТОГО же вызова до того, как мы проснёмся после
-  // await runtime_snapshot — проверка видела саму себя, backendActive был
-  // всегда true, и клик «Подключить» детерминированно уходил в disconnect.
-  // Конкурентные клики отсекает in-flight guard в handleConnectionIntent.
+  // connectionIntentInFlight must NOT be included here: handleConnectionIntent
+  // assigns it the promise of THIS very call before we wake up after
+  // await runtime_snapshot — the check saw itself, backendActive was
+  // always true, and the "Connect" click deterministically went into disconnect.
+  // Concurrent clicks are cut off by the in-flight guard in handleConnectionIntent.
   const backendActive = snapshot?.running === true
     || snapshot?.starting === true
     || coreStartBarrier.isPending()
@@ -4135,9 +4135,9 @@ async function handleConnectionIntent({ internal = false } = {}) {
     if (repeatedAction === "join") {
       return connectionIntentInFlight.promise;
     }
-    // Повторный клик отменяет только запуск. Повторный клик во время уже
-    // идущего disconnect присоединяется к тому же Promise и не создаёт второй
-    // stop_singbox поверх первого.
+    // A repeated click cancels only the launch. A repeated click during an already
+    // running disconnect joins the same Promise and doesn't create a second
+    // stop_singbox on top of the first.
     const epoch = beginNetworkIntent("idle");
     const run = disconnectNetwork({ epoch, userInitiated: true });
     const intent = { kind: "disconnect", promise: run };
@@ -4180,15 +4180,15 @@ async function runtimeSnapshotIsLive(snapshot, source = activeDisplaySource()) {
 heroDisc?.addEventListener("click", () => handleConnectionIntent());
 
 // ── Bootstrap ──────────────────────────────────────────────
-// Все модульные let уже объявлены — строке «Готов» можно читать источник и ноду.
+// All module lets are already declared — the "Ready" line can read the source and the node.
 homeReadyBooted = true;
 updateHomeReady();
 if (locPing) locPing.textContent = `— ${t("units.ms")}`;
 window.addEventListener("ninety:profile-store-ready", (ev) => {
   refreshProfilesSummary();
   syncTrayMenu();
-  // Основная копия хранилища не прочиталась, данные подняты из .bak — она
-  // может быть старше. Пользователь должен об этом знать.
+  // The main storage copy couldn't be read, the data was loaded from .bak — it
+  // may be older. The user must know about this.
   if (ev?.detail?.source === "backup") {
     toast(t("store.recoveredTitle"), "warn", 9000, {
       group: "profile-store",
@@ -4197,12 +4197,12 @@ window.addEventListener("ninety:profile-store-ready", (ev) => {
   }
 });
 
-// Отказ защищённого хранилища профилей раньше был виден только в консоли
-// WebView: приложение продолжало работать, изменения жили в памяти, и о том,
-// что они не переживут перезапуск, пользователь узнавал по пропавшим профилям.
-// Одно сообщение на сессию — стадии отказа идут пачкой, спамить незачем.
-// Та же логика для резервной копии состояния: три отказа подряд означают, что
-// восстанавливать после потери профиля WebView2 будет нечего.
+// A failure of the protected profile storage used to be visible only in the WebView
+// console: the app kept working, changes lived in memory, and the user learned
+// that they wouldn't survive a restart from the missing profiles.
+// One message per session — failure stages come in a batch, there's no reason to spam.
+// The same logic for the state backup: three failures in a row mean that
+// there will be nothing to restore after losing the WebView2 profile.
 let stateBackupErrorShown = false;
 window.addEventListener("ninety:state-backup-error", (ev) => {
   console.warn("state backup unhealthy:", ev?.detail?.failures, ev?.detail?.reason);
@@ -4218,8 +4218,8 @@ let profileStoreErrorShown = false;
 window.addEventListener("ninety:profile-store-error", (ev) => {
   const stage = ev?.detail?.stage || "";
   console.warn("profile store error:", stage, ev?.detail?.code || "");
-  // Хранилище исправно, просто данных больше лимита: говорим именно это и
-  // каждый раз — пользователь может повторить действие.
+  // The storage is fine, there's just more data than the limit: we say exactly that, and
+  // every time — the user may retry the action.
   if (ev?.detail?.code === "too_large") {
     toast(t("store.tooLargeTitle"), "error", 12000, {
       group: "profile-store-size",
@@ -4235,8 +4235,8 @@ window.addEventListener("ninety:profile-store-error", (ev) => {
   });
   notify(t("store.errorTitle"), t("store.errorDesc"));
 });
-// Portable после сломанного обновления 0.15.0–0.16.0: backend уже вернул
-// программу в исходную папку и настройки на место — сообщаем об этом один раз.
+// Portable after the broken 0.15.0–0.16.0 update: the backend has already returned
+// the program to the original folder and the settings to their place — we report it once.
 invoke("portable_repair_report")
   .then((report) => {
     if (!report) return;
@@ -4250,9 +4250,9 @@ refreshProfilesSummary();
 updateHeroHint();
 syncTrayMenu();
 
-// Обновление подписок — через туннель, когда он поднят (mixed-in, в TUN —
-// probe-in на том же порту): панель не видит реальный IP. Если через прокси
-// не вышло, subscriptions.js повторяет напрямую.
+// Subscription updates go through the tunnel when it's up (mixed-in, in TUN —
+// probe-in on the same port): the panel doesn't see the real IP. If it didn't work through the proxy,
+// subscriptions.js retries directly.
 setSubscriptionProxy(() =>
   state === "connected" && runtimeProbeHostPort()
     ? `http://${runtimeProbeHostPort()}`
@@ -4261,10 +4261,10 @@ setSubscriptionProxy(() =>
 
 setSubscriptionTunnelTransit(() => state === "connecting" || state === "disconnecting");
 
-// ── Бэкап состояния (localStorage → writable config dir) ────
-// Мутации бэкапятся точечно (backupSoon в refreshProfilesSummary/settings);
-// периодический тик подстраховывает ключи, меняющиеся мимо этих точек
-// (traffic-meter, обучение движка качества и т.п.).
+// ── State backup (localStorage → writable config dir) ────
+// Mutations are backed up at specific points (backupSoon in refreshProfilesSummary/settings);
+// a periodic tick covers keys that change outside these points
+// (traffic-meter, quality engine learning, etc.).
 setTimeout(backupNow, 15_000);
 setInterval(backupNow, 10 * 60_000);
 
@@ -4279,8 +4279,8 @@ async function reconcileNetworkRuntime() {
       adoptRuntimeSnapshot(snapshot, source, { epoch });
       return;
     }
-    // Старый runtime не соответствует текущему источнику/режиму: сначала
-    // подтверждённо гасим его, затем autostart решит, нужен ли новый запуск.
+    // The old runtime doesn't match the current source/mode: first we
+    // confirmedly stop it, then autostart decides whether a new launch is needed.
     if (!(await shutdownRuntimeForPolicyReplacement(snapshot))) {
       throw new Error("не удалось очистить старый runtime");
     }
@@ -4310,8 +4310,8 @@ async function reconcileNetworkRuntime() {
   }
 }
 
-// startMinimized: на ручном запуске скрыть окно если опция включена.
-// (При --autostarted Rust уже скрыл окно в setup() — здесь повтор без вреда.)
+// startMinimized: on a manual launch hide the window if the option is on.
+// (With --autostarted Rust has already hidden the window in setup() — repeating it here is harmless.)
 (async () => {
   try {
     const opts = loadOptions();
@@ -4321,18 +4321,18 @@ async function reconcileNetworkRuntime() {
   } catch {}
 })();
 
-// Авто-запуск после reconcile: при автостарте через Windows login
-// (--autostarted) ИЛИ при перезапуске, о котором попросило подключение
-// (--connect), поднимаем VPN с последним сервером. DPI-обход поднимается, если
-// он был включён, — и без VPN, если подключения никто не просил. Элевация — ОДНИМ
-// перезапуском: TUN-режим и DPI требуют admin-прав; если процесс ещё не
-// elevated и что-то из них нужно — тихо relaunch_elevated.
+// Auto-start after reconcile: on autostart via Windows login
+// (--autostarted) OR on a restart requested by the connection
+// (--connect), we bring up the VPN with the last server. DPI bypass is brought up if
+// it was enabled — and without the VPN if nobody asked to connect. Elevation is done with ONE
+// restart: TUN mode and DPI require admin rights; if the process isn't
+// elevated yet and any of them is needed — a silent relaunch_elevated.
 async function autostartNetworkRuntime() {
-    // После OTA-апдейта процесс перезапускается БЕЗ --autostarted/--connect, и
-    // should_autoconnect=false → блок бы не вошёл. update-modal перед установкой
-    // пишет, что было поднято (ninety.update.resume = {vpn,dpi}) — по нему
-    // возвращаем сессию. Легаси-ключ ninety.dpi.resumeAfterUpdate писали версии
-    // ≤0.1.88 (только DPI); читаем ещё релиз-другой с прежней семантикой.
+    // After an OTA update the process restarts WITHOUT --autostarted/--connect, and
+    // should_autoconnect=false → the block wouldn't be entered. Before installing update-modal
+    // writes what was up (ninety.update.resume = {vpn,dpi}) — we use it
+    // to restore the session. The legacy key ninety.dpi.resumeAfterUpdate was written by versions
+    // ≤0.1.88 (DPI only); we still read it for a release or two with the old semantics.
     const resume = (() => {
       try {
         const raw = localStorage.getItem("ninety.update.resume");
@@ -4348,8 +4348,8 @@ async function autostartNetworkRuntime() {
       } catch { return null; }
     })();
     const launchAutoconnect = await invoke("should_autoconnect");
-    // Обычный запуск: подключение по настройке «При запуске». Автозапуск при
-    // входе в Windows и перезапуск ради подключения решают сами (флаги выше).
+    // A regular launch: connecting per the "On launch" setting. Autostart at
+    // Windows sign-in and a restart for connecting decide on their own (the flags above).
     const settingAutoconnect = !launchAutoconnect && !resume?.vpn && startupConnectRequested({
       setting: loadOptions()?.general?.startupConnect,
       lastState: (() => {
@@ -4357,8 +4357,8 @@ async function autostartNetworkRuntime() {
       })(),
     });
     const autoconnect = launchAutoconnect || settingAutoconnect;
-    // TUN без прав: ради одной настройки запуска окно UAC не показываем —
-    // эта сессия подключается через системный прокси.
+    // TUN without rights: we don't show a UAC window for a single launch setting —
+    // this session connects via the system proxy.
     if (settingAutoconnect && getMode() === "tun" && !(await invoke("is_elevated"))) {
       setSessionMode("systemProxy");
       toast(t("elev.tunSkippedOnStart"), "warn", 6000, { group: "conn" });
@@ -4376,19 +4376,19 @@ async function autostartNetworkRuntime() {
     });
     if (!plan.shouldRun) return;
     const { vpnWanted, tunWanted, dpiWanted } = plan;
-    // Элевация ради TUN — только если VPN реально будем поднимать.
+    // Elevation for TUN — only if we're actually going to bring up the VPN.
     if (((tunWanted && vpnWanted) || dpiWanted) && !(await invoke("is_elevated"))) {
-      if (tunWanted) setMode("tun"); // перезапущенный admin-инстанс поднимется в TUN
-      // Только DPI-обход — без VPN: иначе каждый запуск такого пользователя без
-      // прав заканчивался поднятым туннелем.
-      // Сценарий автозапуска: новый процесс остаётся в трее, как и прежний.
+      if (tunWanted) setMode("tun"); // the restarted admin instance will come up in TUN
+      // Only DPI bypass — without the VPN: otherwise every launch of such a user without
+      // rights ended with the tunnel up.
+      // The autostart scenario: the new process stays in the tray, like the previous one.
       const started = await invoke("relaunch_elevated", { connect: vpnWanted, keepInTray: true });
-      if (started) return; // текущий процесс вот-вот завершится
-      // Элевация не удалась (отказ UAC, политика). Обещанный fallback обязан
-      // быть настоящим: раньше режим оставался tun, sing-box без прав интерфейс
-      // не поднимал, и автозапуск заканчивался вторым запросом UAC или молчаливым
-      // «не подключается». Опускаемся до режима, который работает без прав.
-      // Только на эту сессию: отказ относился к одному запуску, а не к выбору TUN.
+      if (started) return; // the current process is about to exit
+      // Elevation failed (UAC refusal, a policy). The promised fallback must
+      // be real: previously the mode stayed tun, sing-box without rights didn't bring up
+      // the interface, and autostart ended with a second UAC prompt or a silent
+      // "won't connect". We drop down to a mode that works without rights.
+      // Only for this session: the refusal applied to one launch, not to choosing TUN.
       if (tunWanted && getMode() === "tun") {
         setSessionMode("systemProxy");
         console.warn("elevation refused: autostart falls back to system proxy");
@@ -4396,8 +4396,8 @@ async function autostartNetworkRuntime() {
       }
     }
 
-    // Второй snapshot после reconcile — последний fail-safe перед стартом:
-    // никакой frontend idle не является доказательством, что backend idle.
+    // The second snapshot after reconcile is the last fail-safe before the start:
+    // no frontend idle is proof that the backend is idle.
     let runningSnapshot = await invoke("runtime_snapshot");
     if (runningSnapshot?.running) {
       if (await runtimeSnapshotIsLive(runningSnapshot)) {
@@ -4409,7 +4409,7 @@ async function autostartNetworkRuntime() {
       runningSnapshot = null;
     }
     if (vpnWanted && !runningSnapshot?.running && state !== "connected" && hasConnectSource()) {
-      await new Promise(r => setTimeout(r, 600)); // дать UI домонтироваться
+      await new Promise(r => setTimeout(r, 600)); // let the UI finish mounting
       const beforeStart = await invoke("runtime_snapshot");
       if (beforeStart?.running) {
         if (await runtimeSnapshotIsLive(beforeStart)) {
@@ -4424,13 +4424,13 @@ async function autostartNetworkRuntime() {
         await connectNetwork({ epoch });
       }
     }
-    // Исключение ноды переживает жёсткое завершение при подключённом VPN: файлы
-    // лежат в app_data, а очистка висит на переходе в idle, которого в таком
-    // сценарии не было. Залипшее значение меняет матчинг профилей winws, поэтому
-    // снимаем его на старте всегда, а не только когда поднимаем DPI.
+    // The node exclusion survives a hard termination with the VPN connected: the files
+    // live in app_data, and the cleanup hangs on the transition to idle, which didn't happen in this
+    // scenario. A stuck value changes winws profile matching, so
+    // we always remove it at startup, not only when bringing up DPI.
     if (state !== "connected") await clearVpnNodeExclusion();
-    // DPI запускаем только после завершения VPN bootstrap. Endpoint сначала
-    // попадает в managed exclusion, backend всё равно создаёт пустые файлы сам.
+    // DPI is started only after the VPN bootstrap finishes. The endpoint first
+    // goes into the managed exclusion, the backend creates the empty files itself anyway.
     if (dpiWanted) {
       if (state === "connected") await excludeVpnNode(activeNodeForDisplay()?.host);
       await autostartDpiIfEnabled();
@@ -4485,10 +4485,10 @@ async function bootstrapNetworkRuntime() {
   return bootstrapCoordinator.run();
 }
 
-// 0.8.0 держала логин и пароль для соседей по сети в настройках, то есть
-// открытым текстом в localStorage. Переносим их в хранилище бэкенда и
-// перезаписываем настройки уже без них. Стоит до bootstrap: первое
-// подключение должно найти пару у бэкенда, иначе вход для соседей закроется.
+// 0.8.0 kept the login and password for network neighbors in settings, i.e.
+// in plain text in localStorage. We move them into the backend storage and
+// rewrite the settings without them. This comes before bootstrap: the first
+// connection must find the pair at the backend, otherwise the neighbors' inbound will close.
 (async () => {
   const legacy = takeLegacyLanCredentials();
   if (!legacy) return;
@@ -4502,9 +4502,9 @@ async function bootstrapNetworkRuntime() {
 
 bootstrapNetworkRuntime();
 
-// Синхронизация флага autostart с реальным состоянием Windows (задача
-// Планировщика). Если юзер удалил задачу через Планировщик / Параметры —
-// тут подтянем актуальное состояние в options.
+// Syncing the autostart flag with the actual Windows state (the Task Scheduler
+// task). If the user deleted the task via Task Scheduler / Settings —
+// we pull the actual state into options here.
 (async () => {
   try {
     const enabled = await invoke("autostart_is_enabled");
@@ -4515,8 +4515,8 @@ bootstrapNetworkRuntime();
   } catch {}
 })();
 
-// Если пользователь включил обработчики vless:// / tt:// / naive+...,
-// освежаем registry-путь при старте: после OTA/переустановки exe мог переехать.
+// If the user enabled the vless:// / tt:// / naive+... handlers,
+// we refresh the registry path at startup: after OTA/a reinstall the exe may have moved.
 (async () => {
   try {
     if (loadOptions().general?.linkHandlers) await applyLinkHandlers(true);
@@ -4526,13 +4526,13 @@ bootstrapNetworkRuntime();
 })();
 
 // ── Auto-update ────────────────────────────────────────────
-// Обновление, найденное фоновой проверкой пока окно свёрнуто в трей, копится в
-// pendingUpdate (объявлен выше, до syncTrayMenu). Окно модалкой не выдёргиваем —
-// показываем когда юзер вернётся (фокус окна / клик по пункту трея).
+// An update found by the background check while the window is minimized to the tray accumulates in
+// pendingUpdate (declared above, before syncTrayMenu). We don't pull the window out with a modal —
+// we show it when the user comes back (window focus / a click on the tray item).
 let updateModalShowing = false;
 let activeUpdateVersion = null;
-// OS-уведомление об апдейте — один раз на версию за сессию: фоновые проверки
-// повторяются, без дедупа юзер в трее ловил бы тост о той же версии каждый тик.
+// The OS notification about an update — once per version per session: background checks
+// repeat, and without dedup a user in the tray would get a toast about the same version every tick.
 let lastNotifiedUpdateVersion = null;
 
 async function markUpdateRuntimeReady() {
@@ -4543,8 +4543,8 @@ async function markUpdateRuntimeReady() {
   await backupNow();
 }
 
-// Окно действительно перед пользователем? Проверяем focus последним: это
-// закрывает окно гонки, когда CloseRequested/hide приходит между двумя IPC.
+// Is the window really in front of the user? We check focus last: this
+// closes the race window when CloseRequested/hide arrives between two IPC calls.
 async function windowIsForeground() {
   if (!tauriWin) return true;
   try {
@@ -4634,38 +4634,38 @@ async function showUpdateModal(update, opts = {}) {
   }
 }
 
-// Показать отложенное обновление. respectSkip=false (по умолчанию) — вызов
-// пришёл от явного действия пользователя (пункт трея, кнопка «Проверить»), и
-// прежнее «Позже» он этим действием и переспросил. respectSkip=true — вызов
-// автоматический (фокус окна, хвост закрытой модалки): пропущенную версию не
-// навязываем, но из трея она никуда не девается.
+// Show the pending update. respectSkip=false (default) — the call
+// came from an explicit user action (the tray item, the "Check" button), and
+// with this action they re-asked about the previous "Later". respectSkip=true — the call
+// is automatic (window focus, the tail of a closed modal): we don't impose the skipped version,
+// but it doesn't disappear from the tray.
 async function flushPendingUpdate({ requireForeground = false, respectSkip = false } = {}) {
   if (!pendingUpdate || updateModalShowing) return;
   if (respectSkip && updateShouldSkip(pendingUpdate.version)) return;
   if (requireForeground && !(await windowIsForeground())) return;
-  // Пока ждали IPC окна, OTA мог забрать focus/tray-handler.
+  // While we waited for the window IPC, OTA may have taken the focus/tray handler.
   if (!pendingUpdate || updateModalShowing) return;
   const u = pendingUpdate;
   pendingUpdate = null;
-  syncTrayMenu(); // снять пункт «Обновить» из трея
+  syncTrayMenu(); // remove the "Update" item from the tray
   await showUpdateModal(u, { respectSkip: false });
 }
 
-// Прокси для проверки/скачивания апдейта: при поднятом VPN — свой локальный
-// инбаунд (как рефреш подписок). Без него проверка ВСЕГДА идёт «напрямую»
-// (reqwest не чтит системный прокси, в TUN трафик Ninety.exe уходит в direct
-// bypass-правилом) — у части провайдеров эндпоинты так недоступны вовсе.
+// Proxy for checking/downloading the update: with the VPN up — our own local
+// inbound (like subscription refresh). Without it the check ALWAYS goes "direct"
+// (reqwest doesn't honor the system proxy, in TUN Ninety.exe's traffic goes direct via
+// the bypass rule) — with some ISPs the endpoints aren't reachable that way at all.
 function updaterProxy() {
   const hostPort = state === "connected" ? runtimeProbeHostPort() : null;
   return hostPort ? `http://${hostPort}` : null;
 }
 
-// OTA в трее раньше не оставляла ни следа: любой отказ (нет сети, заблокирован
-// эндпоинт, не закрылся Resource) молчал в консоли WebView, и снаружи это было
-// неотличимо от «обновлений нет». Пишем исход каждой проверки в рантайм-журнал —
-// он виден в разделе «Логи».
-// «О программе» слушает это событие: без него карточка обновлений оживала бы
-// только при перерисовке секции, то есть уже после того, как всё случилось.
+// OTA in the tray used to leave no trace: any failure (no network, a blocked
+// endpoint, a Resource that didn't close) was silent in the WebView console, and from the outside it was
+// indistinguishable from "no updates". We write the outcome of every check into the runtime log —
+// it's visible in the "Logs" section.
+// "About" listens to this event: without it the updates card would come alive
+// only on a section redraw, i.e. after everything had happened.
 function emitUpdateState() {
   try { window.dispatchEvent(new CustomEvent("ninety:update-state")); } catch {}
 }
@@ -4680,16 +4680,16 @@ function recordUpdateEvent(phase, result, reason = null) {
   }).catch(error => console.warn("update diagnostic failed", error));
 }
 
-// true — проверка ДОСТИГЛА сервера (апдейт есть или его нет); false — не смогли
-// проверить (нет сети / эндпоинты недоступны) → скедулер уходит в бэкоф-ретрай.
+// true — the check REACHED the server (there's an update or there isn't); false — we couldn't
+// check (no network / endpoints unreachable) → the scheduler goes into a backoff retry.
 async function performUpdateCheck(request) {
-  emitUpdateState(); // проверка началась — карточка показывает это сразу
+  emitUpdateState(); // the check has started — the card shows it right away
   if (!updaterAvailable()) {
     if (request.interactive) toast(t("update.unavailable"), "error", 2500);
     return false;
   }
-  // Не создаём новый Rust Update, пока не закрыт Resource от предыдущей
-  // неудачной cleanup-попытки.
+  // We don't create a new Rust Update until the Resource from the previous
+  // failed cleanup attempt is closed.
   if (!(await drainUpdateResourceCleanup())) {
     recordUpdateEvent("update_check", "failed", "cleanup_pending");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
@@ -4698,14 +4698,14 @@ async function performUpdateCheck(request) {
   let update;
   try {
     const proxy = updaterProxy();
-    // При активном VPN не откатываемся на прямой запрос: обычный TUN специально
-    // выпускает Ninety.exe через direct, а proxy/systemProxy reqwest не подхватывает.
-    // Ошибка уйдёт в штатный backoff и повторится через туннель после восстановления.
+    // With an active VPN we don't fall back to a direct request: regular TUN deliberately
+    // lets Ninety.exe out via direct, and in proxy/systemProxy reqwest doesn't pick it up.
+    // The error goes into the regular backoff and is retried through the tunnel after recovery.
     update = await checkForUpdate({ proxy });
   } catch (e) {
     console.warn("update check failed", e);
-    // Причина — только транспорт: адреса эндпоинтов и текст ошибки в журнал не
-    // уезжают, там и так фиксируется сам факт недостижимости.
+    // The reason is only the transport: endpoint addresses and the error text don't go into
+    // the log, the very fact of unreachability is recorded there anyway.
     recordUpdateEvent("update_check", "failed", updaterProxy() ? "unreachable_via_tunnel" : "unreachable_direct");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
     return false;
@@ -4716,32 +4716,32 @@ async function performUpdateCheck(request) {
       syncTrayMenu();
     }
     emitUpdateState();
-    // Фиксируем и пустой результат: без него «OTA молчит, потому что нечего
-    // ставить» неотличимо от «проверки вообще не идут» — а в трее это разные
-    // диагнозы с разным лечением.
+    // We record an empty result too: without it "OTA is silent because there's nothing
+    // to install" is indistinguishable from "checks aren't running at all" — and in the tray these are different
+    // diagnoses with different treatments.
     recordUpdateEvent("update_check", "none", null);
     if (request.interactive) toast(t("update.none"), "info", 2400);
     return true;
   }
 
-  // Для ожидания в трее оставляем plain metadata. Нативный Update держит Rust
-  // Resource и HTTP client/proxy момента check(), поэтому сразу освобождаем его.
+  // For waiting in the tray we keep plain metadata. The native Update holds a Rust
+  // Resource and the HTTP client/proxy of the check() moment, so we release it right away.
   const metadata = snapshotUpdate(update);
 
-  // Pending публикуется ПЕРВЫМ делом — до уборки ресурса и до оконного IPC.
-  // Апдейт уже найден, и пункт трея с подсказкой не должны зависеть ни от
-  // успеха close(), ни от гонки с focus-обработчиком: раньше неудачная уборка
-  // выбрасывала полностью валидную находку, и в трее не появлялось ничего.
+  // Pending is published FIRST — before cleaning up the resource and before the window IPC.
+  // The update has already been found, and the tray item with the tooltip must depend neither on
+  // the success of close() nor on a race with the focus handler: previously a failed cleanup
+  // threw away a perfectly valid finding, and nothing appeared in the tray.
   if (!(updateModalShowing && String(activeUpdateVersion) === String(metadata.version))) {
     pendingUpdate = metadata;
     syncTrayMenu();
     emitUpdateState();
   }
 
-  // Неудачная уборка Rust-ресурса — проблема утечки, а не проверки. Гейт на
-  // создание новых Update стоит в начале функции (drainUpdateResourceCleanup),
-  // здесь же важно не превратить это в «обновлений нет»: проверка сервер
-  // достигла, и скедулер не должен уходить в бэкоф-цикл.
+  // A failed cleanup of the Rust resource is a leak problem, not a check problem. The gate on
+  // creating new Updates sits at the start of the function (drainUpdateResourceCleanup),
+  // and here it's important not to turn this into "no updates": the check reached the server,
+  // and the scheduler must not go into a backoff loop.
   if (!(await closeUpdateResource(update))) {
     recordUpdateEvent("update_resource", "degraded", "close_failed");
     if (request.interactive) toast(t("update.checkFailed"), "error", 4000);
@@ -4756,8 +4756,8 @@ async function performUpdateCheck(request) {
   });
   recordUpdateEvent("update_found", plan.action, plan.reason);
 
-  // Ручной клик мог присоединиться к фоновому flight, пока тот ждал оконный
-  // IPC: тогда обещанная модалка важнее плана, составленного для фона.
+  // A manual click may have joined the background flight while it was waiting for the window
+  // IPC: then the promised modal matters more than the plan made for the background.
   if (request.interactive) {
     await flushPendingUpdate();
     return true;
@@ -4778,27 +4778,27 @@ function runUpdateCheck({ silent = true } = {}) {
   return updateChecks.run({ interactive: !silent });
 }
 
-// ── Расписание проверок — по таймстампам, не по setInterval ──
-// Прежний setInterval(6ч) ломался о два сценария: (1) автозапуск с Windows —
-// первая проверка через 3с стабильно умирала об ещё не поднятую сеть, и до
-// следующей было 6 часов тишины; (2) сон/гибернация — интервальный таймер не
-// тикает во сне, реальный период уплывал далеко за 6ч. Теперь:
-//   успех  → следующая через 30м (проверка = один JSON ~1КБ, дёшево);
-//   провал → бэкоф 30с → 2м → 5м → 15м (дальше по 15м) до первого успеха;
-//   лёгкий тик раз в 60с сравнивает часы (переживает сон и троттлинг скрытого
-//   окна — Chromium в трее коалесцирует таймеры как раз до 1/мин);
-//   внеплановые триггеры: появилась сеть (online), развернули окно, поднялся
-//   VPN (эндпоинты станут доступны через туннель), наведение/ПКМ по значку в
-//   трее. Всё это работает и в трее: апдейт доедет OS-уведомлением, меткой на
-//   значке и пунктом «Обновить до vX» в меню.
+// ── Check schedule — by timestamps, not by setInterval ──
+// The former setInterval(6h) broke in two scenarios: (1) autostart with Windows —
+// the first check after 3 s consistently died on a network that wasn't up yet, and until
+// the next one there were 6 hours of silence; (2) sleep/hibernation — an interval timer doesn't
+// tick during sleep, the real period drifted far beyond 6 h. Now:
+//   success → the next one in 30 min (a check = one ~1 KB JSON, cheap);
+//   failure → backoff 30 s → 2 m → 5 m → 15 m (then every 15 m) until the first success;
+//   a light tick every 60 s compares the clock (survives sleep and throttling of a hidden
+//   window — Chromium in the tray coalesces timers to exactly 1/min);
+//   unscheduled triggers: the network appeared (online), the window was restored, the VPN
+//   came up (the endpoints become reachable through the tunnel), hover/right click on the icon in
+//   the tray. All of this works in the tray too: the update arrives as an OS notification, a badge on
+//   the icon and the "Update to vX" item in the menu.
 //
-// Период — 30 минут, а не два часа: у свёрнутого окна нет ни focus, ни online,
-// и между релизом и появлением признака в трее стояла случайная пауза до двух
-// часов. Стоимость проверки — один JSON, эта частота ничего не стоит.
+// The period is 30 minutes, not two hours: a minimized window has neither focus nor online,
+// and between a release and the sign appearing in the tray there was a random pause of up to two
+// hours. A check costs one JSON, this frequency costs nothing.
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const UPDATE_RETRY_STEPS_MS = [30_000, 2 * 60_000, 5 * 60_000, 15 * 60_000];
-const UPDATE_STALE_MS = 30 * 60_000; // «давно не проверялись» для focus/connect
-let updateNextCheckAt = Date.now() + 3000; // первая — через 3с после старта
+const UPDATE_STALE_MS = 30 * 60_000; // "not checked for a long time" for focus/connect
+let updateNextCheckAt = Date.now() + 3000; // the first one — 3 s after start
 let updateLastSuccessAt = 0;
 let updateRetryIdx = 0;
 
@@ -4810,7 +4810,7 @@ function updateCheckSucceeded() {
 }
 
 async function scheduledUpdateCheck() {
-  // Модалка открыта — не дёргаем проверку под ней (и не сбиваем установку).
+  // The modal is open — we don't trigger a check under it (and don't disrupt the installation).
   if (updateChecks.isRunning() || updateModalShowing) return;
   if (await runUpdateCheck({ silent: true })) {
     updateCheckSucceeded();
@@ -4821,8 +4821,8 @@ async function scheduledUpdateCheck() {
   }
 }
 
-// Внеплановая проверка (фокус/online/connect) — только если давно не было
-// успешной, чтобы каждый Alt-Tab/реконнект не дёргал эндпоинты.
+// An unscheduled check (focus/online/connect) — only if there hasn't been a successful one
+// for a long time, so that every Alt-Tab/reconnect doesn't poke the endpoints.
 function updateCheckIfStale(staleMs = UPDATE_STALE_MS) {
   if (Date.now() - updateLastSuccessAt >= staleMs) scheduledUpdateCheck();
 }
@@ -4830,41 +4830,41 @@ function updateCheckIfStale(staleMs = UPDATE_STALE_MS) {
 setTimeout(scheduledUpdateCheck, 3000);
 setInterval(() => { if (Date.now() >= updateNextCheckAt) scheduledUpdateCheck(); }, 60_000);
 
-// Сеть появилась (Wi-Fi догнал после логина, вышли из самолётного режима).
+// The network appeared (Wi-Fi caught up after login, airplane mode was turned off).
 window.addEventListener("online", () => updateCheckIfStale(60_000));
 
-// Вернулись к окну (фокус из трея/таскбара) → показать отложенный апдейт;
-// заодно дочекать, если с последней удачной проверки прошло полчаса.
+// Came back to the window (focus from the tray/taskbar) → show the pending update;
+// also finish the check if half an hour has passed since the last successful one.
 (async () => {
   try {
     await tauriWin?.onFocusChanged?.(({ payload: focused }) => {
       activityController.setFocused(!!focused);
       if (!focused) return;
-      // Фокус — не согласие смотреть пропущенную версию: она остаётся в трее.
+      // Focus isn't consent to look at a skipped version: it stays in the tray.
       flushPendingUpdate({ respectSkip: true });
       updateCheckIfStale();
-      // Страховка от рассинхрона значка: применяем состояние принудительно,
-      // мимо дедупа — именно в случае сбоя payload и не отличается от того,
-      // который до значка не доехал.
+      // A safeguard against an icon desync: we apply the state forcibly,
+      // bypassing dedup — precisely in the failure case the payload doesn't differ from the one
+      // that never reached the icon.
       syncTrayMenu({ force: true });
     });
   } catch (e) { console.warn("focus listener failed", e); }
 })();
 
-// Глобальная функция для кнопки «Проверить обновления» в settings
+// A global function for the "Check for updates" button in settings
 window.__ninetyUpdateCheck = async () => {
   if (await runUpdateCheck({ silent: false })) updateCheckSucceeded();
 };
 
 // ── Subscriptions auto-refresh ─────────────────────────────
-// Тик каждые 30 минут (первый — через 60 сек, чтобы не тормозить старт), но
-// каждая подписка обновляется по СВОЕМУ интервалу: profile-update-interval из
-// заголовка панели, без заголовка — раз в 6 часов. Раньше заголовок сохранялся,
-// но игнорировался — всё дёргалось каждые 30 минут. Ручное «Обновить все»
-// по-прежнему обновляет немедленно. Ошибки не показываем — фоновая задача.
+// A tick every 30 minutes (the first after 60 s so as not to slow down the start), but
+// each subscription is updated by ITS OWN interval: profile-update-interval from
+// the panel header, without a header — every 6 hours. Previously the header was saved
+// but ignored — everything was polled every 30 minutes. A manual "Update all"
+// still updates immediately. We don't show errors — it's a background task.
 const SUBS_REFRESH_DEFAULT_HOURS = 6;
 async function silentRefreshSubs() {
-  // В строгом режиме фоновый запрос без туннеля раскрыл бы реальный IP панели.
+  // In strict mode a background request without the tunnel would reveal the real IP to the panel.
   if (loadOptions().privacy?.strictTunnel && state !== "connected") return;
   const now = Date.now();
   let refreshed = 0;
@@ -4889,20 +4889,20 @@ async function silentRefreshSubs() {
 setTimeout(silentRefreshSubs, 60_000);
 setInterval(silentRefreshSubs, 30 * 60_000);
 
-// «Только что» / «N мин назад» обновляем каждые 30 сек
+// "Just now" / "N min ago" is updated every 30 s
 setInterval(refreshSubCardFromActive, 30_000);
 
 // ── Deep links ──────────────────────────────────────────────
-// Разбор форматов — в /lib/deeplink.js (чистая функция, покрыта тестами).
-// Windows запускает Ninety с argv, single-instance plugin перехватывает и
-// emit'ит onOpenUrl в первый процесс. Авто-импорта нет — юзер видит prefilled
-// URL в add-modal и подтверждает (защита от malicious links).
-// Дедупликация нужна только против ОДНОГО события, продублированного разными
-// каналами (listen + onOpenUrl + getCurrent приходят почти одновременно на
-// cold-start). Бессрочная память об URL превращала это в другую проблему:
-// пользователь закрывал модалку, кликал ту же ссылку-приглашение снова — и
-// приложение не делало ничего до перезапуска. Поэтому запоминаем на короткое
-// окно, а не навсегда.
+// Format parsing is in /lib/deeplink.js (a pure function, covered by tests).
+// Windows launches Ninety with argv, the single-instance plugin intercepts it and
+// emits onOpenUrl into the first process. There's no auto-import — the user sees the prefilled
+// URL in add-modal and confirms (protection against malicious links).
+// Deduplication is needed only against ONE event duplicated by different
+// channels (listen + onOpenUrl + getCurrent arrive almost simultaneously on
+// cold start). An indefinite memory of the URL turned this into a different problem:
+// the user closed the modal, clicked the same invitation link again — and
+// the app did nothing until a restart. So we remember for a short
+// window, not forever.
 const DEEP_LINK_DEDUPE_MS = 4000;
 const handledDeepLinks = new Map();
 function handleDeepLinkUrl(rawUrl) {
@@ -4932,16 +4932,16 @@ function handleDeepLinkUrl(rawUrl) {
         if (Array.isArray(urls)) for (const u of urls) handleDeepLinkUrl(u);
       });
     }
-    // onOpenUrl получает URL'ы и при cold-start (если Windows запустил Ninety
-    // самим ninety://...), и при warm second-instance через single-instance.
+    // onOpenUrl receives URLs both on cold start (if Windows launched Ninety
+    // with ninety://... itself) and on a warm second instance via single-instance.
     if (dl?.onOpenUrl) {
       await dl.onOpenUrl((urls) => {
         if (!Array.isArray(urls)) return;
         for (const u of urls) handleDeepLinkUrl(u);
       });
     }
-    // Также проверяем getCurrent на случай если URL был передан до того
-    // как мы подписались (cold-start race).
+    // We also check getCurrent in case the URL was passed before
+    // we subscribed (cold-start race).
     if (dl?.getCurrent) {
       try {
         const initial = await dl.getCurrent();
@@ -4957,10 +4957,10 @@ function handleDeepLinkUrl(rawUrl) {
   }
 })();
 
-// ── Экран «Диагностика» ────────────────────────────────────
-// Монтируем лениво, при первом входе: экран тяжелее прочих (три проверки,
-// лента инцидентов), а открывают его далеко не в каждой сессии. Прогон НЕ
-// стартует сам — пробы уходят в сеть, и решение об этом остаётся за человеком.
+// ── The "Diagnostics" screen ────────────────────────────────────
+// Mounted lazily, on the first visit: the screen is heavier than the others (three checks,
+// the incident feed), and it's opened far from every session. The run does NOT
+// start by itself — probes go to the network, and that decision stays with the person.
 let diagnoseCtl = null;
 function ensureDiagnoseView() {
   if (diagnoseCtl) return diagnoseCtl;
@@ -4971,9 +4971,9 @@ function ensureDiagnoseView() {
     getGeneration: () => Number(runtimeIdentity.capture()?.processGeneration) || null,
     isConnected: () => state === "connected",
     isTunMode: () => getMode() === "tun",
-    // Прямые пробы физически не пройдут при включённом kill switch и запрещены
-    // политикой строгого туннеля: колонка «напрямую» честно остаётся пустой,
-    // вместо выдуманного «недоступно».
+    // Direct probes physically won't get through with the kill switch on and are forbidden
+    // by the strict tunnel policy: the "direct" column honestly stays empty
+    // instead of a made-up "unreachable".
     allowDirect: () => !strictPrivacyRequested() && !loadOptions().general?.killSwitch,
     getNodeEndpoint: () => (currentEffectiveNode?.host
       ? { host: currentEffectiveNode.host, port: Number(currentEffectiveNode.port) || 443 }
@@ -4994,10 +4994,10 @@ function onDiagnoseViewEnter() {
   ensureDiagnoseView()?.refreshFeed();
 }
 
-// Windows пересылает трафик между сетями: в TUN соединения ядра уходят в петлю,
-// и снаружи это выглядит как бесконечная «Проверка» (#168). Настройку не
-// трогаем — она бывает нужна осознанно; говорим один раз за запуск, а команду
-// исправления даёт «Диагностика».
+// Windows forwards traffic between networks: in TUN the core's connections go into a loop,
+// and from the outside it looks like an endless "Checking" (#168). We don't touch
+// the setting — it's sometimes needed deliberately; we say it once per launch, and the fix
+// command is given by "Diagnostics".
 let forwardingWarned = false;
 async function warnAboutForwarding() {
   if (forwardingWarned) return;
@@ -5015,9 +5015,9 @@ async function warnAboutForwarding() {
   toast(t("conn.forwarding"), "warn", 0, { desc: t("conn.forwardingDesc", { iface }) });
 }
 
-// Действие из вердикта или из строки матрицы. Правило маршрутизации пишем в те
-// же options.route.customRules, что и экран правил, и так же дёргаем реконнект:
-// иначе правило легло бы в конфиг только при следующем подключении.
+// An action from the verdict or from a matrix row. The routing rule is written into the same
+// options.route.customRules as the rules screen does, and we trigger a reconnect the same way:
+// otherwise the rule would get into the config only on the next connection.
 async function handleDiagnoseAction(action, params = {}) {
   if (action === "dpi") { switchView("dpi"); return; }
   if (action === "switchNode") { switchView("proxies"); return; }

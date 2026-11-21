@@ -1,4 +1,4 @@
-// Ninety · catalogo IT (Italiano). Traduzione automatica da EN/RU — НУЖНА ВЫЧИТКА НОСИТЕЛЯ (necessaria revisione di un madrelingua).
+// Ninety · catalogo IT (Italiano). Traduzione automatica da EN/RU — NEEDS NATIVE PROOFREADING (necessaria revisione di un madrelingua).
 // Le chiavi rispecchiano ru.js (parità 771); se una chiave manca, il runtime ricade su en.
 export const it = {
   titlebar: { min: "Riduci a icona", max: "Ingrandisci", close: "Chiudi" },
@@ -64,7 +64,7 @@ export const it = {
     channelTitle: "Qualità del canale",
   },
 
-  // Меню и tooltip системного трея (mode-лейблы берутся из mode.*)
+  // System tray menu and tooltip (mode labels are taken from mode.*)
   tray: {
     show: "Mostra Ninety",
     connect: "Connetti",

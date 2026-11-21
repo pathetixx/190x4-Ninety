@@ -1,16 +1,16 @@
-// Ninety · избранные серверы
-// Выбор пользователя, а не движка: хранится по источнику (подписке), чтобы
-// теги из чужой подписки не всплывали в списке текущей.
+// Ninety · favorite servers
+// The user's choice, not the engine's: stored per source (subscription) so that
+// tags from another subscription don't pop up in the current one's list.
 
 import { selectionSourceKey } from "/lib/proxy-selection.js";
 import { STORAGE_KEYS } from "/lib/storage-policy.js";
 
 const KEY = STORAGE_KEYS.favourites;
 
-// getProbeHistory зовут на каждую строку каждого рендера, а рендер идёт по
-// поллингу раз в 4 с. Дорогая часть — JSON.parse, поэтому кэшируем разбор, но
-// сверяем исходную строку: иначе внешняя запись (очистка данных, восстановление
-// из бэкапа) осталась бы незамеченной и модуль воскрешал бы стёртое.
+// getProbeHistory is called for every row of every render, and rendering follows
+// the 4 s polling. The expensive part is JSON.parse, so we cache the parse but
+// compare the source string: otherwise an external write (clearing data, restoring
+// from a backup) would go unnoticed and the module would resurrect erased data.
 let _cacheRaw = null;
 let _cacheVal = null;
 function readAll() {
@@ -36,9 +36,9 @@ function writeAll(map) {
 
 
 
-// Сборки до исправления ключа писали всё в одно ведро с пустым id («sub:»).
-// Эти записи никому не принадлежат и держат теги серверов на диске — чистим
-// при первой же записи.
+// Builds before the key fix wrote everything into one bucket with an empty id ("sub:").
+// These entries belong to nobody and keep server tags on disk — we clean them up
+// on the very first write.
 function dropLegacyBuckets(map) {
   let changed = false;
   for (const k of Object.keys(map)) {
@@ -59,9 +59,9 @@ export function isFavourite(source, tag) {
 }
 
 export function toggleFavourite(source, tag) {
-  // Источник без собственного ключа запомнить нечем: прежнее ведро "none" тут же
-  // стирал dropLegacyBuckets на этой же записи — звезда «загоралась» и пропадала
-  // на следующем рендере.
+  // A source without its own key has nothing to remember with: the former "none" bucket was immediately
+  // erased by dropLegacyBuckets in this same write — the star "lit up" and disappeared
+  // on the next render.
   const key = selectionSourceKey(source);
   if (!key) return false;
   const map = readAll();

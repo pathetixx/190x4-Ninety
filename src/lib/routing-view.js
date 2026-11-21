@@ -1,14 +1,14 @@
-// Ninety · Подраздел «Правила маршрутизации» — UI (порт из Claude Design handoff).
-// Гибкие пользовательские правила поверх регионального: домен / IP / процесс /
-// готовый список → Через VPN / Напрямую / Блок. Под списком — «Основа»: что
-// добавляют регион и другие настройки после пользовательских правил. Источник истины формы правила и валидация —
-// routing-rules.js; сериализация в sing-box — singbox.js::customRulesToSingbox;
-// хранилище — options.route.customRules. Живой пикер процессов и монитор
-// соединений берут данные из бэкенда (clash-api.js / netproc).
+// Ninety · The "Routing rules" subsection — UI (ported from the Claude Design handoff).
+// Flexible user rules on top of the regional one: domain / IP / process /
+// ready list → Through VPN / Direct / Block. Under the list is the "Base": what
+// the region and other settings add after the user rules. The source of truth for the rule shape and validation is
+// routing-rules.js; serialization into sing-box is singbox.js::customRulesToSingbox;
+// storage is options.route.customRules. The live process picker and the connection
+// monitor take their data from the backend (clash-api.js / netproc).
 //
-// Точка входа: mountRoutingRules(rootEl, { onChange }) — строит весь rr-блок
-// внутри rootEl. onChange("route.customRules") дёргает реконнект (как другие
-// route-настройки), если соединение активно.
+// Entry point: mountRoutingRules(rootEl, { onChange }) — builds the whole rr block
+// inside rootEl. onChange("route.customRules") triggers a reconnect (like other
+// route settings) if the connection is active.
 
 import { loadOptions, getOptionsSnapshot, updateOption } from "/lib/options.js";
 import {
@@ -28,7 +28,7 @@ import { escapeAttr, escapeHtml as esc } from "/lib/esc.js";
 import { isContextMenuKey, openPMenu } from "/lib/pmenu.js";
 import { t, getLang } from "/lib/i18n/index.js";
 
-// Подписи правил — из каталога i18n (строятся в рантайме под текущий язык).
+// Rule labels come from the i18n catalog (built at runtime for the current language).
 const TYPE_LABELS = () => ({
   domain: t("rr.type.domain"), ip: t("rr.type.ip"), process: t("rr.type.process"), set: t("rr.type.set"),
 });
@@ -40,10 +40,10 @@ const ACTION_LABELS = () => ({
 });
 const RULE_ACTION_ORDER = ["proxy", "direct", "block", "node", "warp"];
 
-// Серверы активного источника — цели для действия «через сервер». Тег считаем
-// тем же nodeTag, что и сборщик конфига: правило хранит именно его, поэтому
-// переупорядочивание подписки цель не ломает. Источник может быть не готов
-// (нет подписки, стор ещё не прогрет) — тогда просто пустой список.
+// Servers of the active source — targets for the "through a server" action. The tag is computed
+// with the same nodeTag as the config builder: the rule stores exactly that, so
+// reordering the subscription doesn't break the target. The source may not be ready
+// (no subscription, the store isn't warmed up yet) — then just an empty list.
 let nodesCache = { at: 0, list: [] };
 function availableNodes() {
   const now = Date.now();
@@ -66,9 +66,9 @@ function availableNodes() {
   }
 }
 
-// Тег outbound'а из clash → вид действия для чипа монитора. С мульти-выходом
-// соединение может уйти в конкретную ноду (тег node-<хеш>) — без этой развёртки
-// монитор рисовал бы его как обычное «через VPN».
+// Outbound tag from clash → the action kind for the monitor chip. With multi-exit
+// a connection may go to a specific node (tag node-<hash>) — without this expansion
+// the monitor would draw it as a regular "through VPN".
 function outboundKind(outbound) {
   const raw = String(outbound || "");
   if (raw.startsWith("node-")) return "node";
@@ -84,8 +84,8 @@ function outboundLabel(outbound) {
   return ACTION_LABELS()[outboundKind(raw)];
 }
 
-// Подпись правила «через сервер»: имя цели, а не абстрактное «через сервер» —
-// иначе список из трёх таких правил выглядит одинаково.
+// Label of a "through a server" rule: the target's name, not an abstract "through a server" —
+// otherwise a list of three such rules looks identical.
 function actionLabelFor(rule) {
   if (rule?.action !== "node") return ACTION_LABELS()[rule?.action] || ACTION_LABELS().proxy;
   const name = String(rule?.target?.name || "").trim();
@@ -93,7 +93,7 @@ function actionLabelFor(rule) {
 }
 const REGION_SHORT = () => ({ ru: t("rr.region.ru"), cn: t("rr.region.cn"), ir: t("rr.region.ir"), tr: t("rr.region.tr"), by: t("rr.region.by") });
 
-/* ── иконки (Lucide-стиль, currentColor) ── */
+/* ── icons (Lucide style, currentColor) ── */
 const I = {
   route: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.4"/><circle cx="18" cy="5" r="2.4"/><path d="M8.4 19H16a3 3 0 0 0 0-6H8a3 3 0 0 1 0-6h2.6"/></svg>',
   grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>',
@@ -123,8 +123,8 @@ const I = {
 };
 const TYPE_ICON = { domain: I.globe, ip: I.net, process: I.app, set: I.list };
 
-// Готовый список словами: страна — флагом и названием, список сайтов — его
-// именем в каталоге. Полная ссылка (geosite:youtube) остаётся в подсказке.
+// A ready list in words: a country with a flag and its name, a site list by its
+// name in the catalog. The full reference (geosite:youtube) stays in the tooltip.
 function flagImg(code) {
   return '<span class="rr-flag"><img src="/assets/flags/' + escapeAttr(code) + '.svg" alt=""></span>';
 }
@@ -137,7 +137,7 @@ function setChip(value, cls = "rr-chip") {
     : '<span class="' + cls + ' rr-chip--set"' + title + ">" + esc(ref.name) + "</span>";
 }
 
-// Поиск страны идёт и по коду, и по названию на языке интерфейса.
+// Country search works both by code and by the name in the interface language.
 function searchCountries(query, limit = 60) {
   const q = String(query ?? "").trim().toLowerCase();
   if (!q) return POPULAR_GEOIP.slice();
@@ -154,8 +154,8 @@ const ACTION_ICON = { proxy: I.vpn, direct: I.direct, block: I.block, node: I.se
 
 /* ── helpers ── */
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-// Склонение по каталогу: plural(n, "pluralRules") → rr.pluralRules.{one|few|many}.
-// RU — три формы; прочие языки — англо-подобно (1 → one, иначе many).
+// Plural forms from the catalog: plural(n, "pluralRules") → rr.pluralRules.{one|few|many}.
+// RU has three forms; other languages are English-like (1 → one, otherwise many).
 function plural(n, key) {
   const one = t(`rr.${key}.one`), few = t(`rr.${key}.few`), many = t(`rr.${key}.many`);
   if (getLang() === "ru") {
@@ -167,39 +167,39 @@ function plural(n, key) {
   return n === 1 ? one : many;
 }
 
-// Глобальный реестр живых mount'ов — при повторном mount (re-render секции
-// Настроек) гасим прежние интервалы монитора, чтобы не плодить поллинг.
+// A global registry of live mounts — on a repeated mount (re-rendering the Settings
+// section) we stop the previous monitor intervals so as not to multiply polling.
 let activeInstance = null;
 
 export function mountRoutingRules(rootEl, opts = {}) {
   if (!rootEl) return null;
-  // Если секцию перерисовали — глушим прошлый монитор.
+  // If the section was redrawn — stop the previous monitor.
   if (activeInstance) activeInstance.destroy();
 
   const onChange = typeof opts.onChange === "function" ? opts.onChange : () => {};
-  // hideTitle: под-экран Настроек уже даёт заголовок «Правила маршрутизации» в
-  // settings-head — глушим внутренний .rr-head__title, чтобы не дублировать.
+  // hideTitle: the Settings sub-screen already provides the "Routing rules" title in
+  // settings-head — we hide the internal .rr-head__title to avoid duplicating it.
   const hideTitle = !!opts.hideTitle;
 
-  // ── состояние ──
+  // ── state ──
   let rules = loadRules();
   let tab = "rules";
   let monitorPaused = false;
   let monConns = [];
   let monTimer = null;
-  let monExpanded = new Set(); // раскрытые группы приложений (по имени процесса)
+  let monExpanded = new Set(); // expanded app groups (by process name)
   let dragId = null;
 
-  // модалка
+  // modal
   let draft = null;
   let procMode = "pick";
   let escHandler = null;
-  // Валидность значения зависит от режима совпадения (keyword ≠ полный домен),
-  // поэтому переключатель режима обязан перерисовать чипы и пересчитать превью.
+  // Value validity depends on the match mode (keyword ≠ full domain),
+  // so the mode switch must redraw the chips and recompute the preview.
   let repaintValueChips = () => {};
 
   function loadRules() {
-    // Снимок вместо loadOptions(): клон правил тут делается свой, ниже.
+    // A snapshot instead of loadOptions(): the rules get their own clone here, below.
     const r = getOptionsSnapshot().route?.customRules;
     return Array.isArray(r) ? structuredCloneSafe(r) : [];
   }
@@ -207,20 +207,20 @@ export function mountRoutingRules(rootEl, opts = {}) {
     try { return structuredClone(v); } catch { return JSON.parse(JSON.stringify(v)); }
   }
 
-  // Персист + реконнект. Зовётся на любое изменение списка.
-  // Отдаём КЛОН: снапшот настроек морозится (options.js::commitCache), а `rules`
-  // остаётся живым состоянием экрана, которое мутируют add/edit/toggle/drag.
-  // Клон заодно исключает обратную связь — правка списка после commit() не
-  // должна задним числом менять уже сохранённый снапшот.
-  // labelOnly — изменилась только подпись правила: сохраняем и бэкапим как
-  // обычно, но под отдельным путём, который не требует рестарта ядра.
+  // Persist + reconnect. Called on any change to the list.
+  // We hand over a CLONE: the settings snapshot gets frozen (options.js::commitCache), while `rules`
+  // stays the screen's live state, mutated by add/edit/toggle/drag.
+  // The clone also rules out feedback — editing the list after commit() must not
+  // retroactively change the already saved snapshot.
+  // labelOnly — only the rule's label changed: we save and back up as
+  // usual, but under a separate path that doesn't require a core restart.
   function commit(silent, labelOnly = false) {
     updateOption("route.customRules", structuredCloneSafe(rules));
     onChange(labelOnly ? "route.customRules.label" : "route.customRules");
     if (!silent) toast(t("rr.rulesUpdated"), "success", 1600);
   }
 
-  /* ── каркас блока ── */
+  /* ── block skeleton ── */
   function buildShell() {
     rootEl.innerHTML = "";
     const block = el("div", "rr-block");
@@ -272,10 +272,10 @@ export function mountRoutingRules(rootEl, opts = {}) {
 
   const $ = (sel) => rootEl.querySelector(sel);
 
-  /* ═══ ФАЙЛ ПРАВИЛ: экспорт / импорт ═══ */
-  // Диалог выбора файла и запись/чтение — в бэкенде (rules_file.rs): путь
-  // выбирает пользователь, страница путей не передаёт. Пока диалог открыт,
-  // повторное нажатие не плодит второе окно.
+  /* ═══ RULES FILE: export / import ═══ */
+  // The file picker dialog and writing/reading are in the backend (rules_file.rs): the path
+  // is chosen by the user, the page doesn't pass paths. While the dialog is open,
+  // a repeated press doesn't spawn a second window.
   const invoke = localizedInvoke(window.__TAURI__?.core?.invoke);
   const IMPORT_ERRORS = () => ({
     parse: t("rr.io.errParse"),
@@ -317,9 +317,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
         toast(t("rr.io.importFailed"), "error", 4200, { desc: IMPORT_ERRORS()[parsed.error] });
         return;
       }
-      // Пустой список — просто берём файл. Иначе спрашиваем: добавить новые к
-      // своим (обмен наборами) или заменить целиком (одинаковые правила на
-      // всех устройствах).
+      // An empty list — just take the file. Otherwise we ask: add the new ones to
+      // yours (exchanging sets) or replace entirely (the same rules on
+      // all devices).
       let mode = "replace";
       if (rules.length) {
         const choice = await openConfirmModal({
@@ -354,7 +354,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     }
   }
 
-  /* ═══ СПИСОК ПРАВИЛ ═══ */
+  /* ═══ RULE LIST ═══ */
   function actionPill(rule) {
     const a = ACTION_LABELS()[rule?.action] ? rule.action : "proxy";
     return '<span class="rr-action rr-action--' + escapeAttr(a) + '"><span class="rr-action__dot"></span>' + esc(actionLabelFor({ ...rule, action: a })) + "</span>";
@@ -372,8 +372,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     let chips = vis.map((v) => (rule.type === "set" ? setChip(v) : '<span class="rr-chip">' + esc(v) + "</span>")).join("");
     if (extra > 0) chips += '<span class="rr-chip rr-chip--more">+' + extra + " " + esc(t("rr.more")) + "</span>";
     const matchNote = rule.type === "domain" ? '<span class="rr-match">' + esc(MATCH_LABELS()[rule.match] || MATCH_LABELS().suffix) + "</span>" : "";
-    // Подпись нормализуем и при показе: правило могло прийти из бэкапа или
-    // старой версии в обход sanitizeRule.
+    // The label is normalized on display too: the rule may have come from a backup or
+    // an old version, bypassing sanitizeRule.
     const name = normalizeRuleName(rule.name);
     if (name) row.dataset.named = "true";
 
@@ -403,8 +403,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
       renderRules(); commit();
     });
 
-    // Правый клик и клавиша Menu / Shift+F10 — меню с теми же действиями, что
-    // кнопки строки: действия выполняют сами кнопки, разойтись им не с чем.
+    // Right click and the Menu / Shift+F10 key — a menu with the same actions as
+    // the row buttons: the actions are performed by the buttons themselves, there's nothing for them to diverge on.
     const openRuleMenu = (anchor, opts) => openPMenu(anchor, [
       { id: "edit", label: t("rr.edit"), icon: I.edit },
       { id: "toggle", label: rule.enabled === false ? t("rr.enableRule") : t("rr.disableRule"), icon: I.check },
@@ -420,7 +420,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       openRuleMenu(row, { returnFocus: e.target, focusFirst: true });
     });
 
-    // drag-reorder через grip
+    // drag-reorder via the grip
     const grip = row.querySelector(".rr-grip");
     grip.addEventListener("mousedown", () => row.setAttribute("draggable", "true"));
     row.addEventListener("dragstart", (e) => { dragId = rule.id; row.classList.add("is-dragging"); e.dataTransfer.effectAllowed = "move"; });
@@ -458,9 +458,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
     host.appendChild(baseSection());
   }
 
-  /* ═══ ОСНОВА: что срабатывает после правил пользователя ═══ */
-  // Порядок строк — порядок правил в конфиге (singbox.js::buildRoute): Discord
-  // мимо туннеля, локальная сеть, регион, реклама, всё остальное.
+  /* ═══ BASE: what fires after the user rules ═══ */
+  // The row order is the rule order in the config (singbox.js::buildRoute): Discord
+  // past the tunnel, the local network, the region, ads, everything else.
   function baseRow(icon, title, chipsHtml, action, note = "") {
     const row = el("div", "rr-brow");
     row.innerHTML =
@@ -514,8 +514,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     box.querySelector('[data-act="region"]').addEventListener("click", () => (detached ? attachRegion() : detachRegion(region)));
     return box;
   }
-  // «Сделать своими»: правила региона встают в конец своих — там же, где база
-  // срабатывала раньше, поэтому маршрутизация не меняется, пока их не тронуть.
+  // "Make them mine": the region's rules go to the end of yours — exactly where the base
+  // used to fire, so routing doesn't change until you touch them.
   function detachRegion(region) {
     rules = [...rules, ...regionRules(region)];
     updateOption("route.customRules", structuredCloneSafe(rules));
@@ -553,7 +553,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     return e;
   }
 
-  /* ═══ МОДАЛКА ADD/EDIT ═══ */
+  /* ═══ ADD/EDIT MODAL ═══ */
   function openModal(existing) {
     draft = existing ? structuredCloneSafe(existing) : newRule();
     procMode = "pick";
@@ -591,8 +591,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     if (!body) return;
     body.innerHTML = "";
 
-    // 0) необязательная подпись — первой, до типа: при смене типа тело формы
-    // пересоздаётся, поэтому значение живёт в draft.name, а не только в input.
+    // 0) the optional label — first, before the type: when the type changes the form body
+    // is recreated, so the value lives in draft.name, not only in the input.
     const nameField = el("div", "rr-field");
     const nameLabel = el("label", "rr-label", esc(t("rr.fieldName")));
     nameLabel.htmlFor = "rr-name-input";
@@ -604,8 +604,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     nameInput.spellcheck = false;
     nameInput.placeholder = t("rr.namePlaceholder");
     nameInput.value = clampRuleName(typeof draft.name === "string" ? draft.name : "");
-    // Лимит в символах, как в sanitizeRule; maxlength считал бы UTF-16 и резал
-    // emoji. Во время IME-композиции не трогаем — дождёмся завершения.
+    // The limit is in characters, as in sanitizeRule; maxlength would count UTF-16 and cut
+    // emoji. During IME composition we don't touch it — we wait for it to finish.
     const syncName = (e) => {
       if (e?.isComposing) return;
       if (Array.from(nameInput.value).length > RULE_NAME_MAX) nameInput.value = clampRuleName(nameInput.value);
@@ -616,7 +616,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     nameField.append(nameLabel, nameInput);
     body.appendChild(nameField);
 
-    // a) тип
+    // a) type
     const typeField = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldType"))}</div>`);
     const seg = el("div", "rr-seg");
     RULE_TYPE_ORDER.forEach((ty) => {
@@ -634,19 +634,19 @@ export function mountRoutingRules(rootEl, opts = {}) {
     typeField.appendChild(seg);
     body.appendChild(typeField);
 
-    // b) значения по типу
+    // b) values by type
     if (draft.type === "domain") body.appendChild(domainFields());
     else if (draft.type === "ip") body.appendChild(ipFields());
     else if (draft.type === "set") body.appendChild(setFields());
     else body.appendChild(processFields());
 
-    // c) действие
+    // c) action
     const actField = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldAction"))}</div>`);
     const pick = el("div", "rr-actions-pick");
     const nodes = availableNodes();
-    // Поле выбора сервера живёт всегда, но показывается только под действием
-    // «через сервер»: перерисовывать всю модалку на каждый клик по действию
-    // значило бы терять уже введённые значения.
+    // The server picker field always exists, but is shown only under the
+    // "through a server" action: redrawing the whole modal on every click on an action
+    // would mean losing values already entered.
     const nodeField = nodeTargetField(nodes);
     RULE_ACTION_ORDER.forEach((a) => {
       const b = el("button", "rr-apick");
@@ -759,8 +759,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
     queueMicrotask(updatePreview);
     return f;
   }
-  // Готовый список: выбор из каталога, а не ввод — имя, которого нет в
-  // первоисточнике, ядро не скачает. Пустой поиск показывает популярные.
+  // A ready list: a choice from the catalog, not input — a name that doesn't exist in
+  // the original source can't be downloaded by the core. An empty search shows the popular ones.
   function setFields() {
     let kind = "geosite";
     const f = el("div", "rr-field", `<div class="rr-label">${esc(t("rr.fieldSets"))}</div><div class="rr-sublabel">${esc(t("rr.subSets"))}</div>`);
@@ -909,12 +909,12 @@ export function mountRoutingRules(rootEl, opts = {}) {
       });
     }
 
-    // Watchdog: бэкенд-команда обязана отвечать, но если она зависнет (паника до
-    // фикса / редкий ABI-сбой), промис никогда не settl-ится и спиннер висит
-    // вечно. Гонка с таймаутом гарантирует, что UI всегда восстанавливается.
+    // Watchdog: the backend command must respond, but if it hangs (a panic before
+    // the fix / a rare ABI failure), the promise never settles and the spinner hangs
+    // forever. A race with a timeout guarantees that the UI always recovers.
     const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const MIN_SPIN = 500; // мин. показ спиннера, чтобы анимация загрузки успела сыграть
+    const MIN_SPIN = 500; // minimum spinner display, so the loading animation has time to play
     function failState() {
       scroll.innerHTML = "";
       const st = el("div", "rr-picker__state");
@@ -935,8 +935,8 @@ export function mountRoutingRules(rootEl, opts = {}) {
         if (box.isConnected) failState();
         return;
       }
-      // Бэкенд часто отвечает за пару мс — даём спиннеру дожить минимум MIN_SPIN,
-      // иначе вместо анимации виден лишь однокадровый «дёрг» при подмене контента.
+      // The backend often responds within a couple of ms — we let the spinner live at least MIN_SPIN,
+      // otherwise instead of the animation there's only a one-frame "twitch" when the content is replaced.
       const left = MIN_SPIN - (performance.now() - t0);
       if (left > 0) await sleep(left);
       if (!box.isConnected) return;
@@ -954,9 +954,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
     return box;
   }
 
-  // Селект серверов для действия «через сервер». Пустой источник — это не
-  // ошибка ввода, а состояние приложения (подписки ещё нет), поэтому вместо
-  // пустого селекта показываем подсказку и не даём сохранить такое правило.
+  // The server picker for the "through a server" action. An empty source isn't
+  // an input error but an app state (no subscription yet), so instead of
+  // an empty select we show a hint and don't allow saving such a rule.
   function nodeTargetField(nodes) {
     const box = el("div", "rr-nodepick");
     if (!nodes.length) {
@@ -966,9 +966,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
     box.innerHTML = `<div class="rr-label rr-nodepick__label">${esc(t("rr.fieldNode"))}</div>`;
     const sel = el("select", "rr-select");
     sel.setAttribute("aria-label", t("rr.fieldNode"));
-    // Цель, сохранённая раньше, могла исчезнуть из подписки: добавляем её в
-    // список отдельным пунктом, иначе селект молча подменил бы сервер на первый
-    // в списке, а пользователь узнал бы об этом только по трафику.
+    // A previously saved target may have disappeared from the subscription: we add it to
+    // the list as a separate item, otherwise the select would silently replace the server with the first
+    // in the list, and the user would only find out from the traffic.
     const known = new Set(nodes.map((n) => n.tag));
     const options = [...nodes];
     const targetTag = String(draft.target?.tag || "");
@@ -998,9 +998,9 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const save = document.getElementById("rr-save");
     if (!save) return;
     const hasValues = draft.values.some((v) => isValidValue(draft.type, v, draft.match));
-    // «Через сервер» без выбранной цели сохранять нельзя: sanitizeRule молча
-    // деградировал бы его до «через VPN», и правило делало бы не то, что видел
-    // пользователь в момент сохранения.
+    // "Through a server" without a selected target can't be saved: sanitizeRule would silently
+    // degrade it to "through VPN", and the rule would do something other than what the user
+    // saw at the moment of saving.
     const targeted = draft.action !== "node" || !!String(draft.target?.tag || draft.target?.name || "").trim();
     save.disabled = !hasValues || !targeted;
   }
@@ -1009,7 +1009,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     const { rule } = sanitizeRule(draft);
     if (!rule.values.length) return;
     const idx = rules.findIndex((r) => r.id === rule.id);
-    // Переименование не меняет конфиг ядра — не рвём соединение ради подписи.
+    // Renaming doesn't change the core config — we don't break the connection for a label.
     const labelOnly = idx >= 0 && sameRuleExceptName(rules[idx], rule);
     if (idx >= 0) rules[idx] = rule; else rules.push(rule);
     closeModal();
@@ -1017,21 +1017,21 @@ export function mountRoutingRules(rootEl, opts = {}) {
     commit(false, labelOnly);
   }
 
-  /* ═══ МОНИТОР СОЕДИНЕНИЙ (группировка по приложению, Throne-style) ═══ */
-  const UNKNOWN_KEY = "__ninety_unknown__"; // ведро для соединений без определённого процесса
+  /* ═══ CONNECTION MONITOR (grouped by app, Throne-style) ═══ */
+  const UNKNOWN_KEY = "__ninety_unknown__"; // bucket for connections without a determined process
   function routeChip(outbound) {
     const kind = outboundKind(outbound);
     return '<span class="rr-action rr-action--' + escapeAttr(kind) + '"><span class="rr-action__dot"></span>' + esc(outboundLabel(outbound)) + "</span>";
   }
-  // Сводка маршрутов группы: по точке на каждый различный outbound.
+  // Group route summary: one dot per distinct outbound.
   function routeDots(conns) {
     const set = [...new Set(conns.map((c) => outboundKind(c.outbound)))];
     return '<span class="rr-appgrp__dots">' +
       set.map((o) => '<span class="rr-dot rr-dot--' + escapeAttr(o) + '" title="' + escapeAttr(ACTION_LABELS()[o]) + '"></span>').join("") +
       "</span>";
   }
-  // Группировка соединений по имени процесса; именованные — выше, по числу
-  // соединений, затем по алфавиту. Ведро UNKNOWN_KEY — соединения без процесса.
+  // Grouping connections by process name; named ones go higher, by the number of
+  // connections, then alphabetically. The UNKNOWN_KEY bucket is connections without a process.
   function groupConns(conns) {
     const map = new Map();
     for (const c of conns) {
@@ -1118,7 +1118,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
     if (cnt) cnt.textContent = monConns.length + " " + plural(monConns.length, "pluralConns");
   }
   async function pollConns() {
-    // Стоп, если секцию перерисовали/ушли с монитора.
+    // Stop if the section was redrawn/we left the monitor.
     if (!rootEl.isConnected || tab !== "monitor") { stopMonTimer(); return; }
     try {
       const list = await getConnections();
@@ -1126,7 +1126,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
       monConns = Array.isArray(list) ? list : [];
       paintConns();
     } catch {
-      // ядро может быть offline (idle) — просто молчим, покажем пусто
+      // the core may be offline (idle) — just stay silent, show it empty
       monConns = [];
       paintConns();
     }
@@ -1138,7 +1138,7 @@ export function mountRoutingRules(rootEl, opts = {}) {
   }
   function stopMonTimer() { if (monTimer) { clearInterval(monTimer); monTimer = null; } }
 
-  /* ═══ ВКЛАДКИ ═══ */
+  /* ═══ TABS ═══ */
   function setTab(next) {
     tab = next;
     $("#tab-rules").dataset.on = String(next === "rules");

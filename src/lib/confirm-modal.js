@@ -1,4 +1,4 @@
-// Ninety · явное in-app подтверждение для опасных действий.
+// Ninety · explicit in-app confirmation for dangerous actions.
 
 import { escapeAttr, escapeHtml } from "/lib/esc.js";
 import { t } from "/lib/i18n/index.js";
@@ -26,8 +26,8 @@ function onKey(e) {
   }
 }
 
-// Результат: true — подтвердили, false — отмена/Esc, "alt" — нажали
-// необязательную третью кнопку (altLabel), когда у выбора два исхода.
+// Result: true — confirmed, false — cancel/Esc, "alt" — the optional third
+// button (altLabel) was pressed, when the choice has two outcomes.
 export function openConfirmModal({
   title,
   message,

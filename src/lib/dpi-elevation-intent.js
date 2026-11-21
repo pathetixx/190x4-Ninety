@@ -1,6 +1,6 @@
-// Перед UAC-relaunch намерение включить DPI должно быть сохранено заранее:
-// успешный Rust relaunch завершает текущий процесс немедленно, поэтому запись
-// после invoke уже не выполнится. При отмене/ошибке возвращаем прежнее значение.
+// Before a UAC relaunch the intent to enable DPI must be saved in advance:
+// a successful Rust relaunch terminates the current process immediately, so a write
+// after invoke would never run. On cancel/error we restore the previous value.
 export async function persistDpiIntentForRelaunch({
   getEnabled,
   setEnabled,
