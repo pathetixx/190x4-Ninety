@@ -305,6 +305,7 @@ export const tr = {
       label: "VPN ile ilişkilendir",
       descTun: "TUN modundaki VPN tüm trafiği yakalar — atlatma otomatik olarak duraklar.",
       descOther: "Atlatma VPN’den bağımsızdır ve VPN kapalıyken de çalışır. Etkin sunucunun adresi istisnalara otomatik eklenir.",
+      descSystemProxy: "Bu modda atlatma, VPN üzerinden giden sitelere dokunmaz. Doğrudan giden trafikte çalışır: bölgesel siteler, “Doğrudan” kuralları ve sistem proxy'sini kullanmayan programlar. YouTube'un atlatmadan geçmesi için Ayarlar → Yönlendirme bölümüne şu kuralı ekleyin: hazır liste <b>youtube</b> → “Doğrudan”.",
     },
 
     domains: { label: "Alan adı listeleri", unit: "alan adı atlatıldı", user: "Alan adlarım", exclude: "İstisnalar" },

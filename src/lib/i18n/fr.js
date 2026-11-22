@@ -309,6 +309,7 @@ export const fr = {
       label: "Lier au VPN",
       descTun: "Le VPN en mode TUN intercepte tout le trafic — le contournement se met en pause automatiquement.",
       descOther: "Le contournement est indépendant du VPN et fonctionne même VPN éteint. L’adresse du serveur actif est ajoutée automatiquement aux exceptions.",
+      descSystemProxy: "Dans ce mode, le contournement ne touche pas les sites qui passent par le VPN. Il agit sur le trafic direct : sites régionaux, règles « Direct » et programmes qui n’utilisent pas le proxy système. Pour faire passer YouTube par le contournement, ajoutez dans Paramètres → Routage la règle : liste prête <b>youtube</b> → « Direct ».",
     },
 
     domains: { label: "Listes de domaines", unit: "domaines contournés", user: "Mes domaines", exclude: "Exclusions" },

@@ -458,7 +458,11 @@ function renderBody() {
           </div>
           <div class="dpi-row__d" style="max-width:none">${S.vpnMode === "tun"
             ? t("dpi.vpn.descTun")
-            : t("dpi.vpn.descOther")}</div>
+            // System proxy sends browser traffic through sing-box, and sites routed to the VPN
+            // never reach winws on the real interface: "independent of the VPN" misled here.
+            : S.vpnMode === "systemProxy"
+              ? t("dpi.vpn.descSystemProxy")
+              : t("dpi.vpn.descOther")}</div>
         </article>
 
         <article class="dpi-card">

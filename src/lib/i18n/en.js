@@ -305,6 +305,7 @@ export const en = {
       label: "Link with the VPN",
       descTun: "VPN in TUN mode intercepts all traffic — bypass pauses automatically.",
       descOther: "The bypass is independent of the VPN and works even when the VPN is off. The address of the active server is added to the exceptions automatically.",
+      descSystemProxy: "In this mode the bypass doesn't touch sites that go through the VPN. It works for traffic that goes direct: regional sites, “Direct” rules and apps that don't use the system proxy. To send YouTube through the bypass, add a rule in Settings → Routing: ready-made list <b>youtube</b> → “Direct”.",
     },
 
     domains: { label: "Domain lists", unit: "domains bypassed", user: "My domains", exclude: "Exclusions" },

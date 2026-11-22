@@ -313,6 +313,7 @@ export const pl = {
       label: "Powiąż z VPN",
       descTun: "VPN w trybie TUN przechwytuje cały ruch — omijanie wstrzymuje się automatycznie.",
       descOther: "Omijanie jest niezależne od VPN i działa nawet przy wyłączonym VPN. Adres aktywnego serwera jest automatycznie dodawany do wyjątków.",
+      descSystemProxy: "W tym trybie omijanie nie dotyczy stron, które idą przez VPN. Działa na ruch bezpośredni: strony regionalne, reguły „Bezpośrednio” i programy bez proxy systemowego. Aby YouTube szedł przez omijanie, dodaj w Ustawienia → Routing regułę: gotowa lista <b>youtube</b> → „Bezpośrednio”.",
     },
 
     domains: { label: "Listy domen", unit: "domen omijanych", user: "Moje domeny", exclude: "Wykluczenia" },

@@ -309,6 +309,7 @@ export const it = {
       label: "Collega con la VPN",
       descTun: "La VPN in modalità TUN intercetta tutto il traffico — il bypass va in pausa automaticamente.",
       descOther: "L’aggiramento è indipendente dalla VPN e funziona anche a VPN spenta. L’indirizzo del server attivo viene aggiunto alle eccezioni automaticamente.",
+      descSystemProxy: "In questa modalità l’aggiramento non tocca i siti che passano dalla VPN. Agisce sul traffico diretto: siti regionali, regole «Diretto» e programmi che non usano il proxy di sistema. Per far passare YouTube dall’aggiramento, aggiungi in Impostazioni → Routing la regola: elenco pronto <b>youtube</b> → «Diretto».",
     },
 
     domains: { label: "Elenchi di domini", unit: "domini aggirati", user: "I miei domini", exclude: "Esclusioni" },

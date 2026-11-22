@@ -301,6 +301,7 @@ export const zh = {
       label: "与 VPN 联动",
       descTun: "TUN 模式下 VPN 拦截所有流量——绕过会自动暂停。",
       descOther: "绕过独立于 VPN，即使 VPN 关闭也能工作。当前服务器的地址会自动加入例外。",
+      descSystemProxy: "此模式下，经 VPN 的网站不受绕过影响。绕过只作用于直连流量：地区网站、“直连”规则以及不使用系统代理的程序。要让 YouTube 走绕过，请在 设置 → 路由 中添加规则：预设列表 <b>youtube</b> → “直连”。",
     },
 
     domains: { label: "域名列表", unit: "个域名已绕过", user: "我的域名", exclude: "排除项" },

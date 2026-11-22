@@ -309,6 +309,7 @@ export const es = {
       label: "Vincular con la VPN",
       descTun: "La VPN en modo TUN intercepta todo el tráfico — la evasión se pone en pausa automáticamente.",
       descOther: "La evasión es independiente de la VPN y funciona incluso con la VPN apagada. La dirección del servidor activo se añade a las excepciones automáticamente.",
+      descSystemProxy: "En este modo la evasión no afecta a los sitios que van por la VPN. Funciona con el tráfico directo: sitios regionales, reglas «Directo» y programas que no usan el proxy del sistema. Para que YouTube pase por la evasión, añade en Ajustes → Enrutamiento la regla: lista predefinida <b>youtube</b> → «Directo».",
     },
 
     domains: { label: "Listas de dominios", unit: "dominios evadidos", user: "Mis dominios", exclude: "Exclusiones" },

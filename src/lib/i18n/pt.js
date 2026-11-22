@@ -309,6 +309,7 @@ export const pt = {
       label: "Associar à VPN",
       descTun: "A VPN em modo TUN interceta todo o tráfego — o contorno entra em pausa automaticamente.",
       descOther: "O contorno é independente da VPN e funciona mesmo com a VPN desligada. O endereço do servidor ativo é adicionado às exceções automaticamente.",
+      descSystemProxy: "Neste modo, o contorno não afeta os sites que passam pela VPN. Atua no tráfego direto: sites regionais, regras «Direto» e programas que não usam o proxy do sistema. Para que o YouTube passe pelo contorno, adicione em Definições → Encaminhamento a regra: lista pronta <b>youtube</b> → «Direto».",
     },
 
     domains: { label: "Listas de domínios", unit: "domínios contornados", user: "Os meus domínios", exclude: "Exclusões" },

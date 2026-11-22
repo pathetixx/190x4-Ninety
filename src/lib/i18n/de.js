@@ -305,6 +305,7 @@ export const de = {
       label: "Mit dem VPN verknüpfen",
       descTun: "Das VPN im TUN-Modus fängt den gesamten Traffic ab — die Umgehung pausiert automatisch.",
       descOther: "Die Umgehung ist unabhängig vom VPN und funktioniert auch bei ausgeschaltetem VPN. Die Adresse des aktiven Servers wird automatisch zu den Ausnahmen hinzugefügt.",
+      descSystemProxy: "In diesem Modus berührt die Umgehung keine Seiten, die über das VPN laufen. Sie wirkt auf direkten Traffic: regionale Seiten, „Direkt“-Regeln und Programme ohne System-Proxy. Damit YouTube über die Umgehung läuft, füge unter Einstellungen → Routing eine Regel hinzu: fertige Liste <b>youtube</b> → „Direkt“.",
     },
 
     domains: { label: "Domain-Listen", unit: "Domains umgangen", user: "Meine Domains", exclude: "Ausnahmen" },
