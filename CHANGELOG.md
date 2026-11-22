@@ -6,6 +6,20 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.18.1 — 2026-11-22
+
+## English
+
+- DPI bypass auto-pick now also checks that YouTube videos load, not just the YouTube page, and re-tests the best strategies several times before recommending one.
+- Auto-pick keeps your current strategy when another one is only marginally faster.
+- In System proxy mode, the DPI bypass card now explains which traffic the bypass covers and how to send YouTube through it.
+
+## Русский
+
+- Автоподбор стратегии обхода DPI теперь проверяет, что загружается видео YouTube, а не только страница, и перед рекомендацией несколько раз перепроверяет лучшие стратегии.
+- Автоподбор оставляет вашу текущую стратегию, если другая быстрее лишь в пределах погрешности.
+- В режиме «Системный прокси» карточка обхода DPI теперь объясняет, на какой трафик действует обход и как пустить через него YouTube.
+
 ## v0.18.0 — 2026-11-20
 
 ## English

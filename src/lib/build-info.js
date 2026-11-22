@@ -7,7 +7,7 @@
 // The only field for manual editing is channel: the generator carries it over from
 // the previous version of the file.
 export const BUILD_INFO = {
-  version: "0.18.0",
+  version: "0.18.1",
   commit: "local",
   date: "—",
   core: "sing-box 1.14.3-ninety.8",
