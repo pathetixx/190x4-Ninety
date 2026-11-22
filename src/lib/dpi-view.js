@@ -232,10 +232,11 @@ function renderBody() {
   } else if (p.phase === "running") {
     const total = p.total || autopickCount();
     const pct = total ? (p.i / total * 100).toFixed(1) : 0;
+    const isFinal = p.stage === "final";
     autopick = `<div class="dpi-autopick__prog">
-        <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">${t("dpi.autopick.checking", { name: esc(p.name || "…") })}</span></div>
+        <div class="dpi-autopick__prog-top"><span class="dpi-autopick__prog-now">${t(isFinal ? "dpi.autopick.checkingFinal" : "dpi.autopick.checking", { name: esc(p.name || "…") })}</span></div>
         <div class="dpi-bar"><span class="dpi-bar__fill" style="width:${pct}%"></span></div>
-        <div class="dpi-autopick__candidate">${t("dpi.autopick.progLine", { i: p.i, total })}</div>
+        <div class="dpi-autopick__candidate">${t(isFinal ? "dpi.autopick.progFinal" : "dpi.autopick.progLine", { i: p.i, total })}</div>
         <div class="dpi-autopick__actions"><button class="btn btn--sm" data-dpi-pick-cancel>${t("dpi.editor.cancel")}</button></div>
       </div>`;
   } else if (p.phase === "done") {
@@ -1020,7 +1021,7 @@ async function pickStart() {
   const epoch = ++dpiAutopickEpoch;
   autopickResume = S.base === "running" || S.base === "starting";
   if (autopickResume) S.base = "off";
-  S.autopick = { phase: "running", i: 0, total: autopickCount(), name: "", best: null, meta: "" };
+  S.autopick = { phase: "running", stage: "screen", i: 0, total: autopickCount(), name: "", best: null, meta: "" };
   renderAll();
   const ok = await ensureElevated();
   if (!ok || epoch !== dpiAutopickEpoch) { S.autopick = { phase: "idle", i: 0, total: 0, name: "", best: null, meta: "" }; autopickResume = false; return; }
@@ -1029,13 +1030,16 @@ async function pickStart() {
   await syncVpnNodeExclusion({ resolve: true });
   if (epoch !== dpiAutopickEpoch) return;
   try {
-    const r = await invoke("dpi_autotest", { monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled });
+    // The current strategy keeps its place when a rival is faster only within noise.
+    const r = await invoke("dpi_autotest", { monkey: S.monkey, logsDisabled: !!loadOptions()?.log?.disabled, current: S.strategy });
     if (epoch !== dpiAutopickEpoch) return;
     // An engine that didn't come up because of a race for the driver isn't "the strategy doesn't
     // work". We count it separately and report it separately, otherwise the number lies.
     const engineNote = r?.engine_failed
       ? " · " + t("dpi.autopick.metaEngine", { n: r.engine_failed })
       : "";
+    const videoNote = r?.video === "failed" ? " · " + t("dpi.autopick.metaVideoFail") : "";
+    const keptNote = r?.kept_current ? " · " + t("dpi.autopick.metaKept") : "";
     if (r?.best_id) {
       const best = STRATEGIES.find((s) => s.id === r.best_id);
       // A measurement beats the default: from now on the "recommended" badge is on
@@ -1050,7 +1054,7 @@ async function pickStart() {
       S.autopick = {
         phase: "done", i: r.total, total: r.total,
         best: best?.name || r.best_name,
-        meta: meta + engineNote,
+        meta: meta + videoNote + keptNote + engineNote,
       };
     } else {
       // The run found nothing — the previous recommendation is no longer confirmed,
@@ -1452,6 +1456,8 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
         S.autopick.i = d.i || S.autopick.i;
         S.autopick.total = d.total || S.autopick.total;
         S.autopick.name = d.name || S.autopick.name;
+        // "final" — re-measuring the best candidates, with its own counter.
+        S.autopick.stage = d.stage || S.autopick.stage;
         renderBody();
       }
     }).catch(() => {});

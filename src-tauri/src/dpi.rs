@@ -2727,6 +2727,22 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const AUTOTEST_ENGINE_SETTLE: Duration = Duration::from_millis(500);
 // Attempts to bring up the engine per strategy before counting a failure.
 const AUTOTEST_ENGINE_ATTEMPTS: usize = 2;
+// The video check. www.youtube.com only shows that the page opens, while the
+// slowdown hits the servers that deliver the video itself (*.googlevideo.com).
+// The redirector names the cache node assigned to this network.
+const VIDEO_REDIRECTOR_URL: &str = "https://redirector.googlevideo.com/report_mapping?di=no";
+const VIDEO_MAPPING_MAX_BYTES: usize = 16 * 1024;
+// The redirector sits on googlevideo.com itself and may not answer without desync.
+// Then it is asked again under strategies that opened every target, at most this
+// many times.
+const VIDEO_NODE_ATTEMPTS: usize = 3;
+// Finals: the best candidates of the first pass are measured again, over several
+// rounds and with the video check.
+const AUTOTEST_FINALISTS: usize = 3;
+const AUTOTEST_FINAL_ROUNDS: usize = 3;
+// The current strategy stays when it is this close to the winner of the finals.
+const AUTOTEST_KEEP_MARGIN_MS: u64 = 40;
+const AUTOTEST_KEEP_MARGIN_PCT: u64 = 20;
 
 // Client for one auto-tuning probe: no proxy, no connection reuse.
 // A connection pool here is a source of false successes, see dpi_autotest.
@@ -3962,14 +3978,286 @@ struct AutotestProgress {
     i: usize,
     total: usize,
     name: String,
+    // "screen" — the first pass over all strategies, "final" — re-measuring the best.
+    stage: &'static str,
 }
 
-/// Goes through the non-experimental strategies: brings up winws with each (up to
-/// AUTOTEST_ENGINE_ATTEMPTS attempts — "driver busy" is racy), probes all targets
-/// with a fresh connection each and picks the best by coverage, with ties broken by
-/// latency. Progress goes out as the "dpi:autotest" event, winws output goes to
-/// dpi-autotest.log. winws stays off after the test; the frontend applies the choice and
-/// restores the previous engine state.
+/// googlevideo hostnames encode the node name from report_mapping with a fixed
+/// substitution: the character at index i of `[0-9a-z]` becomes the one at
+/// (7 * i + 7) mod 36, `-` stays as is (waw02s20 → sn-f5f7lnl7).
+fn encode_video_node(name: &str) -> Option<String> {
+    const ALPHABET: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if name.is_empty() || name.len() > 40 || name.starts_with('-') || name.ends_with('-') {
+        return None;
+    }
+    name.bytes()
+        .map(|c| {
+            if c == b'-' {
+                return Some('-');
+            }
+            let i = ALPHABET.iter().position(|&a| a == c)?;
+            Some(ALPHABET[(7 * i + 7) % 36] as char)
+        })
+        .collect()
+}
+
+/// The video node host from a report_mapping answer. Its first line looks like
+/// `<client ip> => waw02s20 (<prefix>) [u]`.
+fn video_node_host(mapping: &str) -> Option<String> {
+    let line = mapping.lines().find(|line| line.contains("=>"))?;
+    let name = line.split("=>").nth(1)?.split_whitespace().next()?;
+    Some(format!(
+        "rr1---sn-{}.googlevideo.com",
+        encode_video_node(name)?
+    ))
+}
+
+/// Asks the redirector for this network's video node. None — the redirector didn't
+/// answer, or the node name doesn't resolve.
+async fn resolve_video_node(state: &DpiState, generation: u64) -> Result<Option<String>, String> {
+    let client = probe_client()?;
+    let fetch = async {
+        match client.get(VIDEO_REDIRECTOR_URL).send().await {
+            Ok(response) if response.status().is_success() => {
+                crate::util::read_response_capped(response, VIDEO_MAPPING_MAX_BYTES, "video node")
+                    .await
+                    .ok()
+            }
+            _ => None,
+        }
+    };
+    let body = tokio::select! {
+        body = fetch => body,
+        _ = wait_dpi_cancelled(state, generation) => {
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+        }
+    };
+    let Some(host) = body.and_then(|body| video_node_host(&String::from_utf8_lossy(&body))) else {
+        return Ok(None);
+    };
+    // A name of an unexpected shape encodes into a host that doesn't exist, and then
+    // the node check would fail every strategy alike. The redirector itself is
+    // the safer video check in that case.
+    let resolved =
+        tokio::time::timeout(PROBE_TIMEOUT, tokio::net::lookup_host((host.as_str(), 443))).await;
+    let exists = match resolved {
+        Ok(Ok(mut addrs)) => addrs.next().is_some(),
+        _ => false,
+    };
+    if !dpi_operation_current(state, generation) {
+        return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+    }
+    Ok(exists.then(|| format!("https://{host}/generate_204")))
+}
+
+/// One request with a fresh connection. Some(latency) — the target answered.
+async fn autotest_probe(
+    state: &DpiState,
+    generation: u64,
+    url: &str,
+) -> Result<Option<u64>, String> {
+    // A new client for each request. A shared reqwest::Client keeps a connection
+    // pool: after the first success the following strategies reuse
+    // the already established TCP+TLS, desync plays no part in it, and every single one
+    // got "passed". DPI cuts exactly the connection establishment —
+    // so only a fresh handshake should be measured.
+    let client = probe_client()?;
+    let t0 = Instant::now();
+    let ok = tokio::select! {
+        response = client.get(url).send() => match response {
+            Ok(r) => r.status().is_success() || r.status().is_redirection(),
+            Err(_) => false,
+        },
+        _ = wait_dpi_cancelled(state, generation) => {
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+        }
+    };
+    Ok(ok.then(|| t0.elapsed().as_millis() as u64))
+}
+
+/// Brings up winws for one autotest run and publishes it in the state, so dpi_stop/exit
+/// can cancel and reap it. Ok(false) — the engine didn't come up.
+async fn autotest_start_engine(
+    state: &DpiState,
+    generation: u64,
+    exe: &Path,
+    bin: &Path,
+    args: &[String],
+    log_writer: Option<&Arc<Mutex<DpiLogWriter>>>,
+    label: &str,
+) -> Result<bool, String> {
+    // The engine gets a second attempt: "driver busy" is a racy state,
+    // not a property of the strategy, and one such miss struck a working
+    // profile out of tuning entirely.
+    for attempt in 0..AUTOTEST_ENGINE_ATTEMPTS {
+        let mut cmd = std::process::Command::new(exe);
+        cmd.args(args).current_dir(bin);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        if let Some(writer) = log_writer {
+            writer
+                .lock_recover()
+                .append(format!("\n=== autotest: {label} (try {}) ===\n", attempt + 1).as_bytes());
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+        }
+        let mut child = match cmd.spawn() {
+            Ok(c) => {
+                // Auto-tuning brings up the same winws with the driver: an orphan of
+                // it fights over WinDivert just like one of dpi_start.
+                crate::job_guard::bind_pid(c.id());
+                c
+            }
+            Err(e) => {
+                if let Some(writer) = log_writer {
+                    writer
+                        .lock_recover()
+                        .append(format!("spawn winws: {e}\n").as_bytes());
+                }
+                dpi_sleep_or_cancel(state, generation, AUTOTEST_ENGINE_SETTLE).await?;
+                continue;
+            }
+        };
+        if let Some(writer) = log_writer {
+            if let Some(stdout) = child.stdout.take() {
+                spawn_dpi_log_pipe(stdout, writer.clone());
+            }
+            if let Some(stderr) = child.stderr.take() {
+                spawn_dpi_log_pipe(stderr, writer.clone());
+            }
+        }
+        {
+            let control = state.control.lock_recover();
+            if control.generation != generation || control.operation.is_none() {
+                drop(control);
+                let _ = terminate_child_bounded(&mut child, "winws autotest");
+                return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+            }
+            *state.child.lock_recover() = Some(child);
+        }
+        state.driver_loaded.store(true, Ordering::SeqCst);
+        dpi_sleep_or_cancel(state, generation, Duration::from_millis(700)).await?;
+        remember_owned_driver_services(state, bin);
+
+        // winws may have died on a bad argument or a busy driver. Without this
+        // check a dead strategy counted as working: the request still
+        // goes through if the site is open at the ISP anyway.
+        let alive = {
+            let mut guard = state.child.lock_recover();
+            match guard.as_mut() {
+                Some(child) => !matches!(child.try_wait(), Ok(Some(_))),
+                None => false,
+            }
+        };
+        if alive {
+            return Ok(true);
+        }
+        *state.child.lock_recover() = None;
+        dpi_sleep_or_cancel(state, generation, AUTOTEST_ENGINE_SETTLE).await?;
+    }
+    Ok(false)
+}
+
+// First-pass result of a strategy that opened at least one target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScreenScore {
+    strategy: usize,
+    covered: usize,
+    // Sum over the opened targets.
+    latency_ms: u64,
+}
+
+// Finals result of a strategy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinalScore {
+    strategy: usize,
+    // Successful requests over all rounds and targets.
+    ok: usize,
+    // Targets that opened in most rounds.
+    targets_open: usize,
+    // None — the run had no video check (a manual check of one site).
+    video_ok: Option<bool>,
+    median_ms: Option<u64>,
+}
+
+fn median_ms(samples: &mut [u64]) -> Option<u64> {
+    if samples.is_empty() {
+        return None;
+    }
+    samples.sort_unstable();
+    let mid = samples.len() / 2;
+    Some(if samples.len() % 2 == 1 {
+        samples[mid]
+    } else {
+        (samples[mid - 1] + samples[mid]) / 2
+    })
+}
+
+/// Candidates for the finals: the fastest strategies among those with the best
+/// coverage, plus the current one if its coverage is just as good — otherwise it
+/// couldn't keep its place.
+fn pick_finalists(scores: &[ScreenScore], current: Option<usize>, limit: usize) -> Vec<usize> {
+    let Some(top) = scores.iter().map(|s| s.covered).max().filter(|&c| c > 0) else {
+        return Vec::new();
+    };
+    let mut group: Vec<&ScreenScore> = scores.iter().filter(|s| s.covered == top).collect();
+    group.sort_by_key(|s| (s.latency_ms, s.strategy));
+    let mut out: Vec<usize> = group.iter().take(limit).map(|s| s.strategy).collect();
+    if let Some(current) = current {
+        if !out.contains(&current) && group.iter().any(|s| s.strategy == current) {
+            out.push(current);
+        }
+    }
+    out
+}
+
+/// Winner of the finals: the most successful requests, then the lowest median.
+/// The current strategy keeps its place when it is just as reliable and within the
+/// noise margin, otherwise two runs on the same network recommend different profiles.
+/// The flag is true when the current strategy was kept over a faster one.
+fn rank_finals(scores: &[FinalScore], current: Option<usize>) -> Option<(&FinalScore, bool)> {
+    let best = scores.iter().filter(|s| s.ok > 0).min_by_key(|s| {
+        (
+            std::cmp::Reverse(s.ok),
+            s.median_ms.unwrap_or(u64::MAX),
+            s.strategy,
+        )
+    })?;
+    let kept = current
+        .filter(|&c| c != best.strategy)
+        .and_then(|c| scores.iter().find(|s| s.strategy == c))
+        .filter(|c| c.ok == best.ok)
+        .filter(|c| match (c.median_ms, best.median_ms) {
+            (Some(cm), Some(bm)) => {
+                let margin = AUTOTEST_KEEP_MARGIN_MS.max(bm * AUTOTEST_KEEP_MARGIN_PCT / 100);
+                cm <= bm.saturating_add(margin)
+            }
+            _ => false,
+        });
+    Some(match kept {
+        Some(current) => (current, true),
+        None => (best, false),
+    })
+}
+
+fn video_status(video_ok: Option<bool>) -> &'static str {
+    match video_ok {
+        Some(true) => "ok",
+        Some(false) => "failed",
+        None => "skipped",
+    }
+}
+
+/// Goes through the non-experimental strategies: brings up winws with each, probes all
+/// targets once with a fresh connection each. The best of this pass by coverage
+/// (up to AUTOTEST_FINALISTS, plus the current strategy) go to the finals: several
+/// rounds over the same targets plus the YouTube video node, ranked by successful
+/// requests and then by median latency. Progress goes out as the "dpi:autotest"
+/// event, winws output goes to dpi-autotest.log. winws stays off after the test; the
+/// frontend applies the choice and restores the previous engine state.
 ///
 /// IMPORTANT: pointless in TUN — there the probe goes into the tunnel bypassing winws, and the frontend
 /// doesn't allow such a run. In proxy/systemProxy the probe bypasses the system proxy
@@ -3981,6 +4269,7 @@ pub async fn dpi_autotest(
     test_url: Option<String>,
     monkey: bool,
     logs_disabled: Option<bool>,
+    current: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let logs_disabled = logs_disabled.unwrap_or(false);
     let generation = begin_dpi_operation(&state, "autotest")?;
@@ -3994,8 +4283,13 @@ pub async fn dpi_autotest(
     stop_managed_child(&state, "winws")?;
     // A single user URL replaces the whole set: a manual check of
     // a specific site is exactly one target, not an addition to the defaults.
-    let targets: Vec<String> = match test_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(url) => vec![url.to_string()],
+    let custom_url = test_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let targets: Vec<String> = match &custom_url {
+        Some(url) => vec![url.clone()],
         None => AUTOTEST_TARGETS.iter().map(|u| u.to_string()).collect(),
     };
 
@@ -4042,9 +4336,24 @@ pub async fn dpi_autotest(
             .and_then(prepare_dpi_log)
     };
     let total = strategies.len();
+    let current_idx = current
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .and_then(|c| strategies.iter().position(|s| s.name == c || s.id == c));
 
-    // (id, name, how many targets opened, total latency).
-    let mut best: Option<(String, String, usize, u64)> = None;
+    // The video node is looked up before the strategies, while winws is off: if the
+    // redirector answers directly, every strategy is measured against the same node.
+    // A manual check of one site measures exactly that site, without video.
+    let mut video_node: Option<String> = None;
+    if custom_url.is_none() {
+        video_node = resolve_video_node(&state, generation).await?;
+    }
+    let mut node_attempts = 0usize;
+
+    // argv of every strategy that came up, for the finals.
+    let mut prepared: Vec<Option<Vec<String>>> = vec![None; total];
+    let mut screen: Vec<ScreenScore> = Vec::new();
     let mut passed = 0usize;
     // Strategies on which the engine didn't come up. This is not "the strategy doesn't work",
     // and the report must tell them apart, otherwise a race for the driver reads as a failure of
@@ -4061,6 +4370,7 @@ pub async fn dpi_autotest(
                 i: idx + 1,
                 total,
                 name: strat.name.clone(),
+                stage: "screen",
             },
         );
         // The same allowlist as dpi_start, right before substitution.
@@ -4080,80 +4390,16 @@ pub async fn dpi_autotest(
         // Exactly the same argv that dpi_start will build: otherwise autotest checks something other
         // than what will be launched later (the node exclusion changes profile matching).
         let args = spread_exclusion_across_sections(args, &exclusion);
-        // The engine gets a second attempt: "driver busy" is a racy state,
-        // not a property of the strategy, and one such miss struck a working
-        // profile out of tuning entirely.
-        let mut alive = false;
-        for attempt in 0..AUTOTEST_ENGINE_ATTEMPTS {
-            let mut cmd = std::process::Command::new(&exe);
-            cmd.args(&args).current_dir(&bin);
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000);
-            }
-            if let Some(writer) = log_writer.as_ref() {
-                writer.lock_recover().append(
-                    format!("\n=== autotest: {} (try {}) ===\n", strat.name, attempt + 1)
-                        .as_bytes(),
-                );
-                cmd.stdout(std::process::Stdio::piped());
-                cmd.stderr(std::process::Stdio::piped());
-            }
-            let mut child = match cmd.spawn() {
-                Ok(c) => {
-                    // Auto-tuning brings up the same winws with the driver: an orphan of
-                    // it fights over WinDivert just like one of dpi_start.
-                    crate::job_guard::bind_pid(c.id());
-                    c
-                }
-                Err(e) => {
-                    if let Some(writer) = log_writer.as_ref() {
-                        writer
-                            .lock_recover()
-                            .append(format!("spawn winws: {e}\n").as_bytes());
-                    }
-                    dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
-                    continue;
-                }
-            };
-            if let Some(writer) = log_writer.as_ref() {
-                if let Some(stdout) = child.stdout.take() {
-                    spawn_dpi_log_pipe(stdout, writer.clone());
-                }
-                if let Some(stderr) = child.stderr.take() {
-                    spawn_dpi_log_pipe(stderr, writer.clone());
-                }
-            }
-            {
-                let control = state.control.lock_recover();
-                if control.generation != generation || control.operation.is_none() {
-                    drop(control);
-                    let _ = terminate_child_bounded(&mut child, "winws autotest");
-                    return Err(crate::util::i18n_error("backend.dpi.cancelled"));
-                }
-                *state.child.lock_recover() = Some(child);
-            }
-            state.driver_loaded.store(true, Ordering::SeqCst);
-            dpi_sleep_or_cancel(&state, generation, Duration::from_millis(700)).await?;
-            remember_owned_driver_services(&state, &bin);
-
-            // winws may have died on a bad argument or a busy driver. Without this
-            // check a dead strategy counted as working: the request still
-            // goes through if the site is open at the ISP anyway.
-            alive = {
-                let mut guard = state.child.lock_recover();
-                match guard.as_mut() {
-                    Some(child) => !matches!(child.try_wait(), Ok(Some(_))),
-                    None => false,
-                }
-            };
-            if alive {
-                break;
-            }
-            *state.child.lock_recover() = None;
-            dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
-        }
+        let alive = autotest_start_engine(
+            &state,
+            generation,
+            &exe,
+            &bin,
+            &args,
+            log_writer.as_ref(),
+            &strat.name,
+        )
+        .await?;
         if !alive {
             engine_failed += 1;
             continue;
@@ -4161,29 +4407,107 @@ pub async fn dpi_autotest(
 
         let mut ok_count = 0usize;
         let mut lat = 0u64;
+        // All targets are checked: stopping at the first failure made the score
+        // order-dependent — a strategy that fixes YouTube but not
+        // Discord was indistinguishable from a completely broken one.
         for target in &targets {
-            // A new client for each target. A shared reqwest::Client keeps a connection
-            // pool: after the first success the following strategies reuse
-            // the already established TCP+TLS, desync plays no part in it, and every single one
-            // got "passed". DPI cuts exactly the connection establishment —
-            // so only a fresh handshake should be measured.
-            let client = probe_client()?;
-            let t0 = Instant::now();
-            let ok = tokio::select! {
-                response = client.get(target.as_str()).send() => match response {
-                    Ok(r) => r.status().is_success() || r.status().is_redirection(),
-                    Err(_) => false,
-                },
-                _ = wait_dpi_cancelled(&state, generation) => {
-                    return Err(crate::util::i18n_error("backend.dpi.cancelled"));
-                }
-            };
-            // All targets are checked: stopping at the first failure made the score
-            // order-dependent — a strategy that fixes YouTube but not
-            // Discord was indistinguishable from a completely broken one.
-            if ok {
+            if let Some(ms) = autotest_probe(&state, generation, target).await? {
                 ok_count += 1;
-                lat = lat.saturating_add(t0.elapsed().as_millis() as u64);
+                lat = lat.saturating_add(ms);
+            }
+        }
+        // The redirector didn't answer without desync: a strategy that opened every
+        // target is the best chance to reach it.
+        if custom_url.is_none()
+            && video_node.is_none()
+            && ok_count == targets.len()
+            && node_attempts < VIDEO_NODE_ATTEMPTS
+        {
+            node_attempts += 1;
+            video_node = resolve_video_node(&state, generation).await?;
+        }
+
+        if !dpi_operation_current(&state, generation) {
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+        }
+        stop_managed_child(&state, "winws autotest")?;
+
+        prepared[idx] = Some(args);
+        if ok_count > 0 {
+            if ok_count == targets.len() {
+                passed += 1;
+            }
+            screen.push(ScreenScore {
+                strategy: idx,
+                covered: ok_count,
+                latency_ms: lat,
+            });
+        }
+        // pause so the driver can detach between runs
+        dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
+    }
+
+    // Finals. One request per target can't tell apart strategies that all opened
+    // everything: the winner was decided by milliseconds of jitter, and two runs on the
+    // same network recommended different profiles. The best candidates are measured
+    // again over several rounds, now with the video check. Without a resolved node the
+    // redirector itself is that check: the same googlevideo.com name for DPI.
+    let video_target = custom_url
+        .is_none()
+        .then(|| video_node.unwrap_or_else(|| VIDEO_REDIRECTOR_URL.to_string()));
+    let mut final_targets = targets.clone();
+    final_targets.extend(video_target.iter().cloned());
+    let finalists = pick_finalists(&screen, current_idx, AUTOTEST_FINALISTS);
+    let mut finals: Vec<FinalScore> = Vec::new();
+
+    for (n, &si) in finalists.iter().enumerate() {
+        if !dpi_operation_current(&state, generation) {
+            return Err(crate::util::i18n_error("backend.dpi.cancelled"));
+        }
+        let strat = &strategies[si];
+        let Some(args) = prepared[si].as_ref() else {
+            continue;
+        };
+        let _ = app.emit(
+            "dpi:autotest",
+            AutotestProgress {
+                i: n + 1,
+                total: finalists.len(),
+                name: strat.name.clone(),
+                stage: "final",
+            },
+        );
+        let alive = autotest_start_engine(
+            &state,
+            generation,
+            &exe,
+            &bin,
+            args,
+            log_writer.as_ref(),
+            &strat.name,
+        )
+        .await?;
+        if !alive {
+            continue;
+        }
+
+        let mut opened = vec![0usize; final_targets.len()];
+        let mut failed = vec![0usize; final_targets.len()];
+        let mut samples: Vec<u64> = Vec::new();
+        for _ in 0..AUTOTEST_FINAL_ROUNDS {
+            for (ti, target) in final_targets.iter().enumerate() {
+                // Misses in half the rounds already decide the target: a blocked one
+                // costs a full timeout per round, and another round adds nothing.
+                if failed[ti] * 2 >= AUTOTEST_FINAL_ROUNDS {
+                    continue;
+                }
+                match autotest_probe(&state, generation, target).await? {
+                    Some(ms) => {
+                        opened[ti] += 1;
+                        samples.push(ms);
+                    }
+                    None => failed[ti] += 1,
+                }
             }
         }
 
@@ -4192,38 +4516,56 @@ pub async fn dpi_autotest(
         }
         stop_managed_child(&state, "winws autotest")?;
 
-        if ok_count > 0 {
-            if ok_count == targets.len() {
-                passed += 1;
-            }
-            // Coverage first (how many targets opened), with ties broken by latency.
-            let better = match &best {
-                Some((_, _, bc, bl)) => ok_count > *bc || (ok_count == *bc && lat < *bl),
-                None => true,
-            };
-            if better {
-                best = Some((strat.id.clone(), strat.name.clone(), ok_count, lat));
-            }
-        }
-        // pause so the driver can detach between runs
+        let majority = |n: usize| n * 2 > AUTOTEST_FINAL_ROUNDS;
+        finals.push(FinalScore {
+            strategy: si,
+            ok: opened.iter().sum(),
+            targets_open: opened.iter().filter(|&&n| majority(n)).count(),
+            video_ok: video_target
+                .as_ref()
+                .map(|_| opened.last().is_some_and(|&n| majority(n))),
+            median_ms: median_ms(&mut samples),
+        });
         dpi_sleep_or_cancel(&state, generation, AUTOTEST_ENGINE_SETTLE).await?;
     }
 
-    match best {
-        // lat is the sum over the opened targets, while the UI labels the number as latency.
-        // We return the average per check, otherwise three successful probes look like one
-        // three times slower. This doesn't affect ranking: latencies
-        // are compared only within the same coverage.
-        Some((id, name, covered, lat)) => Ok(serde_json::json!({
-            "best_id": id, "best_name": name, "passed": passed, "total": total,
-            "latency_ms": lat / covered.max(1) as u64,
-            "targets": targets.len(), "best_targets": covered,
+    if let Some((winner, kept)) = rank_finals(&finals, current_idx) {
+        let strat = &strategies[winner.strategy];
+        return Ok(serde_json::json!({
+            "best_id": strat.id, "best_name": strat.name, "passed": passed, "total": total,
+            // The median of single requests: what the UI labels as latency.
+            "latency_ms": winner.median_ms,
+            "targets": final_targets.len(), "best_targets": winner.targets_open,
             "engine_failed": engine_failed,
-        })),
+            "video": video_status(winner.video_ok),
+            "kept_current": kept,
+        }));
+    }
+
+    // No finals result (the engine didn't come up for any finalist, or nothing opened
+    // in the finals): the leader of the first pass.
+    let leader = screen
+        .iter()
+        .min_by_key(|s| (std::cmp::Reverse(s.covered), s.latency_ms, s.strategy));
+    match leader {
+        // latency_ms is the sum over the opened targets, while the UI labels the number as
+        // latency. We return the average per check, otherwise three successful probes look
+        // like one three times slower.
+        Some(s) => {
+            let strat = &strategies[s.strategy];
+            Ok(serde_json::json!({
+                "best_id": strat.id, "best_name": strat.name, "passed": passed, "total": total,
+                "latency_ms": s.latency_ms / s.covered.max(1) as u64,
+                "targets": targets.len(), "best_targets": s.covered,
+                "engine_failed": engine_failed,
+                "video": "skipped", "kept_current": false,
+            }))
+        }
         None => Ok(serde_json::json!({
             "best_id": null, "best_name": null, "passed": 0, "total": total,
             "latency_ms": null, "targets": targets.len(), "best_targets": 0,
             "engine_failed": engine_failed,
+            "video": "skipped", "kept_current": false,
         })),
     }
 }
@@ -5550,5 +5892,110 @@ mod tests {
             .map(|i| format!("10.{}.{}.1", i / 256, i % 256))
             .collect();
         assert_eq!(endpoint_batch(&ips, &[]).ips.len(), MAX_ENDPOINT_IPS);
+    }
+
+    // Pairs taken from live hosts: the redirector named waw02s20, and the watch page
+    // on the same network served rr1---sn-f5f7lnl7 and rr1---sn-f5f7kn7e.
+    #[test]
+    fn video_node_name_encodes_like_googlevideo() {
+        assert_eq!(encode_video_node("waw02s20").as_deref(), Some("f5f7lnl7"));
+        assert_eq!(encode_video_node("waw07s01").as_deref(), Some("f5f7kn7e"));
+        assert_eq!(encode_video_node("ab-c1").as_deref(), Some("5c-je"));
+        let too_long = "a".repeat(41);
+        for bad in ["", "-ab", "ab-", "WAW02S20", "waw.02", too_long.as_str()] {
+            assert_eq!(encode_video_node(bad), None, "accepted {bad:?}");
+        }
+    }
+
+    #[test]
+    fn video_node_host_reads_the_mapping_line() {
+        let body = "2001:db8::1 => waw02s20 (2001:db8::/62) [u]\n\nDebug Info:\nAbC\n";
+        assert_eq!(
+            video_node_host(body).as_deref(),
+            Some("rr1---sn-f5f7lnl7.googlevideo.com")
+        );
+        assert_eq!(video_node_host("Debug Info:\nnothing here"), None);
+        assert_eq!(video_node_host("1.2.3.4 => bad.name (x)"), None);
+        assert_eq!(video_node_host("1.2.3.4 =>"), None);
+    }
+
+    #[test]
+    fn median_of_samples() {
+        assert_eq!(median_ms(&mut []), None);
+        assert_eq!(median_ms(&mut [7]), Some(7));
+        assert_eq!(median_ms(&mut [300, 100, 200]), Some(200));
+        assert_eq!(median_ms(&mut [400, 100, 300, 200]), Some(250));
+    }
+
+    fn screen(strategy: usize, covered: usize, latency_ms: u64) -> ScreenScore {
+        ScreenScore {
+            strategy,
+            covered,
+            latency_ms,
+        }
+    }
+
+    #[test]
+    fn finalists_are_the_fastest_with_best_coverage_plus_current() {
+        let scores = [
+            screen(0, 3, 900),
+            screen(1, 2, 100),
+            screen(2, 3, 300),
+            screen(3, 3, 200),
+            screen(4, 3, 600),
+        ];
+        assert_eq!(pick_finalists(&scores, None, 3), vec![3, 2, 4]);
+        // The current one is slower but just as complete: it gets a chance to stay.
+        assert_eq!(pick_finalists(&scores, Some(0), 3), vec![3, 2, 4, 0]);
+        // Lower coverage doesn't reach the finals even as the current one.
+        assert_eq!(pick_finalists(&scores, Some(1), 3), vec![3, 2, 4]);
+        assert_eq!(pick_finalists(&scores, Some(2), 3), vec![3, 2, 4]);
+        assert!(pick_finalists(&[], Some(0), 3).is_empty());
+    }
+
+    fn fin(strategy: usize, ok: usize, median_ms: Option<u64>) -> FinalScore {
+        FinalScore {
+            strategy,
+            ok,
+            targets_open: 4,
+            video_ok: Some(true),
+            median_ms,
+        }
+    }
+
+    #[test]
+    fn finals_rank_reliability_then_median() {
+        let scores = [
+            fin(0, 12, Some(150)),
+            fin(1, 11, Some(80)),
+            fin(2, 12, Some(120)),
+        ];
+        let (winner, kept) = rank_finals(&scores, None).unwrap();
+        assert_eq!((winner.strategy, kept), (2, false));
+    }
+
+    #[test]
+    fn current_strategy_stays_within_noise_margin() {
+        let scores = [fin(0, 12, Some(100)), fin(1, 12, Some(135))];
+        // 35 ms behind: under the 40 ms floor of the margin.
+        let (winner, kept) = rank_finals(&scores, Some(1)).unwrap();
+        assert_eq!((winner.strategy, kept), (1, true));
+        // The winner is the current one itself: nothing was kept over a faster one.
+        let (winner, kept) = rank_finals(&scores, Some(0)).unwrap();
+        assert_eq!((winner.strategy, kept), (0, false));
+        // Far behind: the faster one wins.
+        let slow = [fin(0, 12, Some(100)), fin(1, 12, Some(160))];
+        assert_eq!(rank_finals(&slow, Some(1)).unwrap().0.strategy, 0);
+        // The margin grows with latency: 20 % of 500 ms.
+        let high = [fin(0, 12, Some(500)), fin(1, 12, Some(590))];
+        assert_eq!(rank_finals(&high, Some(1)).unwrap().0.strategy, 1);
+        // Less reliable: no margin helps.
+        let flaky = [fin(0, 12, Some(100)), fin(1, 11, Some(100))];
+        assert_eq!(rank_finals(&flaky, Some(1)).unwrap().0.strategy, 0);
+    }
+
+    #[test]
+    fn finals_without_successes_have_no_winner() {
+        assert!(rank_finals(&[fin(0, 0, None), fin(1, 0, None)], Some(0)).is_none());
     }
 }

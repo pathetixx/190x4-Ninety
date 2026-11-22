@@ -23,9 +23,11 @@ Depending on the features the user enables, Ninety may contact:
   pinned DPI data and routing rule sets;
 - public connectivity and download-test endpoints, including Google and
   Cloudflare endpoints, to measure reachability, latency and throughput;
-- Discord, Discord's CDN and YouTube (`discord.com/api`, `cdn.discordapp.com`,
-  `www.youtube.com`) while the DPI auto-pick is running: it verifies that a
-  candidate strategy actually opens these services. These probes deliberately
+- Discord, Discord's CDN, YouTube and YouTube's video servers
+  (`discord.com/api`, `cdn.discordapp.com`, `www.youtube.com`,
+  `redirector.googlevideo.com` and the `*.googlevideo.com` video server it
+  names for the user's network) while the DPI auto-pick is running: it verifies
+  that a candidate strategy actually opens these services. These probes deliberately
   bypass the tunnel — the DPI engine works on the real interface — so they are
   made from the user's own address. Auto-pick runs only when started manually
   from the DPI screen;
