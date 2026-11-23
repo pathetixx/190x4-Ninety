@@ -16,7 +16,7 @@ export const BUILD_INFO = {
   platform: "Windows · x64",
   components: {
     naive: "154.0.8037.49-5",
-    trusttunnel: "1.1.12",
+    trusttunnel: "1.3.0",
     wintun: "0.14.1",
   },
 };

@@ -14,9 +14,9 @@
     "sha256": "36d14c117ed052c8d04d10a30db083423ad4e423c012c2ef2ca7286ec06afbbc"
   },
   "trusttunnel_client": {
-    "version": "v1.1.12",
-    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.1.12/trusttunnel_client-v1.1.12-windows-x86_64.zip",
-    "sha256": "56fb620f4cd30abbc1b4586c6645b56d90c8c0e977ba53d95fb0f542acb7cb1f"
+    "version": "v1.3.0",
+    "url": "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/v1.3.0/trusttunnel_client-v1.3.0-windows-x86_64.zip",
+    "sha256": "3c149e575fc3614cc184030b6a5188dc57f3d9c5cb91a264de6206d4416e5338"
   },
   "wintun": {
     "version": "0.14.1",
