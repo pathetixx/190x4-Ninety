@@ -40,6 +40,9 @@ export const XRAY_JSON_FORMAT = "xray-json";
 // switch to it: panels add such servers over time, and an extra request on
 // every update is unnecessary.
 export const XRAY_JSON_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
+// Version of the rule that compares the two formats. A remembered "no" taken by an
+// older rule is rechecked on the next update instead of waiting out the week.
+export const XRAY_JSON_DECISION_VERSION = 2;
 
 const invoke = localizedInvoke(window.__TAURI__?.core?.invoke)
   ?? (() => Promise.reject(new Error("Tauri invoke недоступен")));
@@ -431,12 +434,41 @@ async function fetchInfo(url, { hwid = false, scopedHwid = false, format = null 
 // ── xray JSON instead of the link list ─────────────────────────
 // Comparing the nodes of two responses of the same panel: the name, order and minor fields
 // differ between formats, while a server is the protocol, address, port and transport.
+const TRANSPORT_ALIASES = { raw: "tcp", splithttp: "xhttp", h2: "http" };
+// Protocols whose links carry no transport: the key compares only protocol and address.
+const TRANSPORTLESS_PROTOS = new Set(["hysteria", "hysteria2", "tuic", "shadowsocks", "socks"]);
+
+// A whole Xray outbound (proto "xray") is described by its own protocol and network.
+// The panel lists the same server in the link list as a plain link, which simply
+// lacks what only JSON carries (finalmask, VLESS encryption). Keyed as "xray" with
+// no transport, such servers never matched their links and the subscription stayed
+// on links that can't connect to them.
+function rawOutboundIdentity(node) {
+  const outbound = node?.outbound && typeof node.outbound === "object" ? node.outbound : {};
+  const protocol = String(outbound.protocol || "").toLowerCase();
+  const stream = outbound.streamSettings && typeof outbound.streamSettings === "object"
+    ? outbound.streamSettings
+    : {};
+  if (protocol === "hysteria") {
+    const version = Number(stream.hysteriaSettings?.version ?? outbound.settings?.version ?? 2);
+    return { proto: version === 2 ? "hysteria2" : "hysteria", type: "" };
+  }
+  return { proto: protocol || "xray", type: String(stream.network || "tcp") };
+}
+
 function looseNodeKey(node) {
+  let proto = profileProto(node);
+  let type = String(node?.type || "");
+  if (proto === "xray") ({ proto, type } = rawOutboundIdentity(node));
+  type = type.toLowerCase();
+  type = TRANSPORT_ALIASES[type] || type;
+  if (TRANSPORTLESS_PROTOS.has(proto)) type = "";
+  else if (!type) type = "tcp";
   return [
-    profileProto(node),
+    proto,
     String(node?.host || "").toLowerCase(),
     String(node?.port ?? ""),
-    String(node?.type || "").toLowerCase(),
+    type,
   ].join("|");
 }
 
@@ -458,13 +490,16 @@ export function preferXrayJson(linkProfiles, jsonProfiles) {
 
 /**
  * Pulls the subscription in the best available format. `state` is the remembered decision
- * {use, checkedAt}: while it's fresh, we don't recheck. JSON probe errors
+ * {use, checkedAt, v}: while it's fresh, we don't recheck. JSON probe errors
  * aren't fatal — the regular link list stays.
- * @returns {{info: object, parsed: object, xrayJson: {use: boolean, checkedAt: number}|null}}
+ * @returns {{info: object, parsed: object, xrayJson: {use: boolean, checkedAt: number, v: number}|null}}
  */
 async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Date.now()) {
   const known = state && typeof state === "object" ? state : null;
-  const fresh = !!known && now - (Number(known.checkedAt) || 0) < XRAY_JSON_RECHECK_MS;
+  // A "yes" stays valid across rule versions (newer rules only accept more), while
+  // a "no" from an older rule may have rejected a panel that deserved JSON.
+  const current = !!known && (!!known.use || Number(known.v) === XRAY_JSON_DECISION_VERSION);
+  const fresh = current && now - (Number(known.checkedAt) || 0) < XRAY_JSON_RECHECK_MS;
 
   if (fresh && known.use) {
     try {
@@ -482,7 +517,7 @@ async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Da
   if (fresh && !known.use) return { info, parsed, xrayJson: known };
   // An empty response is handled by the caller (HWID, format) — there's nothing to try JSON for.
   if (!parsed.profiles.length) return { info, parsed, xrayJson: known };
-  const checked = { use: false, checkedAt: now };
+  const checked = { use: false, checkedAt: now, v: XRAY_JSON_DECISION_VERSION };
   // The panel already returned a client config — there's no reason to ask for a second format.
   if (parsed.format) return { info, parsed, xrayJson: checked };
 
@@ -491,7 +526,7 @@ async function fetchRemoteSubscription(url, fetchOptions, state = null, now = Da
     if (jsonInfo.status < 400) {
       const jsonParsed = parseRemoteSubscription(jsonInfo.body);
       if (jsonParsed.format === "xray" && preferXrayJson(parsed.profiles, jsonParsed.profiles)) {
-        return { info: jsonInfo, parsed: jsonParsed, xrayJson: { use: true, checkedAt: now } };
+        return { info: jsonInfo, parsed: jsonParsed, xrayJson: { use: true, checkedAt: now, v: XRAY_JSON_DECISION_VERSION } };
       }
     }
   } catch (e) {

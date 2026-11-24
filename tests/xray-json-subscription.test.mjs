@@ -28,6 +28,7 @@ const { parseXrayConfig } = await import("/lib/xray-config-import.js");
 const { buildConfig, needsXrayBridge } = await import("/lib/singbox.js");
 const { nodeConfigIssue } = await import("/lib/node-validation.js");
 const {
+  XRAY_JSON_DECISION_VERSION,
   XRAY_JSON_FORMAT,
   XRAY_JSON_RECHECK_MS,
   addSubscriptionFromUrl,
@@ -175,6 +176,76 @@ test("preferXrayJson: только надмножество списка ссы�
   assert.equal(preferXrayJson([vless], [{ ...vless }]), false, "ничего нового");
   assert.equal(preferXrayJson([vless, tuic], [vless, xmc]), false, "JSON потерял бы TUIC");
   assert.equal(preferXrayJson([vless], []), false);
+});
+
+test("preferXrayJson: готовый outbound покрывает ссылку на тот же сервер", () => {
+  // The panel lists a masked ML-KEM server as a plain link without the mask;
+  // only the JSON outbound can actually reach it.
+  const pqLink = { proto: "vless", host: "mq.example", port: 1883, type: "tcp" };
+  const pqRaw = {
+    proto: "xray",
+    host: "mq.example",
+    port: 1883,
+    outbound: {
+      protocol: "vless",
+      settings: { address: "mq.example", port: 1883, encryption: "mlkem768x25519plus.native.0rtt.key" },
+      streamSettings: { network: "raw", finalmask: { tcp: [{ type: "header-custom" }] } },
+    },
+  };
+  const hyLink = { proto: "hysteria2", host: "hy.example", port: 27015 };
+  const hyRaw = { proto: "xray", host: "hy.example", port: 27015, outbound: hysteriaOutbound([{ type: "udphop" }]) };
+  const xmc = { proto: "xray", host: "c.example", port: 25565, outbound: xmcOutbound("c.example") };
+
+  assert.equal(preferXrayJson([pqLink, hyLink], [pqRaw, hyRaw, xmc]), true);
+  assert.equal(
+    preferXrayJson([{ ...pqLink, type: "xhttp" }], [pqRaw, xmc]),
+    false,
+    "другой транспорт — другой сервер",
+  );
+});
+
+test("подписка с маскированными ML-KEM серверами переходит на JSON", async () => {
+  globalThis.localStorage = makeStorage();
+  const pqLink = `vless://${UUID}@mq.example:1883?security=none&type=tcp&encryption=mlkem768x25519plus.native.0rtt.key&flow=xtls-rprx-vision#PQ`;
+  const pqOutbound = {
+    tag: "proxy",
+    protocol: "vless",
+    settings: { address: "mq.example", port: 1883, id: UUID, flow: "xtls-rprx-vision", encryption: "mlkem768x25519plus.native.0rtt.key" },
+    streamSettings: {
+      network: "tcp",
+      security: "none",
+      finalmask: { tcp: [{ type: "header-custom", settings: { clients: [[{ type: "hex", packet: "1018" }]] } }] },
+    },
+  };
+  const calls = [];
+  invokeHandler = async (cmd, args) => {
+    calls.push(args.format || "links");
+    if (args.format === XRAY_JSON_FORMAT) {
+      return { status: 200, body: JSON.stringify([config("PQ", pqOutbound), config("XMC", xmcOutbound())]) };
+    }
+    return { status: 200, body: Buffer.from(pqLink).toString("base64") };
+  };
+  const sub = await addSubscriptionFromUrl("https://panel.example/sub/pq");
+  assert.deepEqual(calls, ["links", XRAY_JSON_FORMAT]);
+  assert.equal(sub.xrayJson.use, true);
+  assert.deepEqual(sub.profiles.map((p) => p.label), ["HEADER-CUSTOM", "XMC"]);
+});
+
+test("отказ от JSON, принятый старым правилом, перепроверяется сразу", async () => {
+  globalThis.localStorage = makeStorage();
+  const calls = panel({ json: JSON.stringify([config("DE", realityOutbound())]) });
+  const sub = await addSubscriptionFromUrl("https://panel.example/sub/old");
+  assert.equal(sub.xrayJson.use, false);
+  assert.equal(sub.xrayJson.v, XRAY_JSON_DECISION_VERSION);
+
+  // A decision saved before the rule had a version: fresh by date, but not trusted.
+  const list = loadSubscriptions();
+  delete list[0].xrayJson.v;
+  saveSubscriptions(list);
+  calls.length = 0;
+  const refreshed = await refreshSubscription(sub.id);
+  assert.deepEqual(calls, ["links", XRAY_JSON_FORMAT]);
+  assert.equal(refreshed.xrayJson.v, XRAY_JSON_DECISION_VERSION);
 });
 
 const LINKS = `vless://${UUID}@de.example:443?security=reality&type=tcp&pbk=${PBK}&sid=abcd&sni=de.example&flow=xtls-rprx-vision#DE`;
