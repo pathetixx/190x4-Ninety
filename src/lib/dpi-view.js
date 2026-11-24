@@ -59,6 +59,8 @@ const I = {
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   sliders:  '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
   trash:    '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  plus:     '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  pencil:   '<path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/>',
 };
 function ic(name, size = 16, stroke = 1.5) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">${I[name] || ""}</svg>`;
@@ -78,7 +80,24 @@ const stratDesc = (d) => (getLang() === "ru" && d ? esc(d) : "");
 const stratExact = (n) =>
   STRATEGIES.find((s) => s.name === n) || STRATEGIES.find((s) => s.id === n) || null;
 const stratByName = (n) => stratExact(n) || STRATEGIES[0];
-const autopickCount = () => STRATEGIES.filter((s) => !s.experimental).length;
+// The user's own strategies come after the built-in set (custom: true). They are
+// the user's experiments, so auto-tuning doesn't measure them.
+const autopickCount = () => STRATEGIES.filter((s) => !s.experimental && !s.custom).length;
+const builtinStrategies = () => STRATEGIES.filter((s) => !s.custom);
+const customStrategies = () => STRATEGIES.filter((s) => s.custom);
+// Mirror of custom::MAX_CUSTOM_STRATEGIES: the backend refuses a fourth one anyway,
+// the UI only explains it before the user types a whole strategy.
+export const MAX_CUSTOM_STRATEGIES = 3;
+
+// A custom strategy has no channel description: say what it is built on, or why
+// it won't start as stored (its base left the set, the text no longer passes).
+function strategyDesc(s) {
+  if (!s?.custom) return stratDesc(s?.desc);
+  if (s.problem === "baseMissing") return esc(t("dpi.custom.issue.baseMissing", { arg: s.base || "" }));
+  if (s.problem) return esc(t("dpi.custom.broken"));
+  const base = s.base ? builtinStrategies().find((b) => b.id === s.base) : null;
+  return esc(base ? t("dpi.custom.descBase", { base: base.name }) : t("dpi.custom.descNoBase"));
+}
 
 // Which strategy to mark as recommended and on what basis.
 // measured=true is the result of auto-tuning on the user's network; false is
@@ -366,14 +385,18 @@ function renderBody() {
         <article class="dpi-card">
           <div class="dpi-card__head">
             <div class="dpi-card__label">${ic("shield", 13)}${t("dpi.strategy.label")}</div>
-            <button class="btn btn--sm" data-dpi-drawer>${ic("sliders", 13)} ${t("dpi.strategy.drawerBtn")}</button>
+            <div class="dpi-card__btns">
+              ${cur.custom ? `<button class="btn btn--sm" data-dpi-custom-edit="${escapeAttr(cur.id)}">${ic("pencil", 13)} ${t("dpi.custom.edit")}</button>` : ""}
+              <button class="btn btn--sm" data-dpi-drawer>${ic("sliders", 13)} ${t("dpi.strategy.drawerBtn")}</button>
+            </div>
           </div>
           <div class="dpi-strategy">
             <div class="dpi-strategy__row">
               <span class="dpi-strategy__name">${esc(cur.name)}</span>
+              ${cur.custom ? `<span class="dpi-strategy__tag" data-kind="custom">${t("dpi.custom.tag")}</span>` : ""}
               ${cur.name === rec.name ? `<span class="dpi-strategy__tag">${t(rec.measured ? "dpi.strategy.recTagMeasured" : "dpi.strategy.recTag")}</span>` : ""}
             </div>
-            <div class="dpi-strategy__desc">${stratDesc(cur.desc)}</div>
+            <div class="dpi-strategy__desc">${strategyDesc(cur)}</div>
           </div>
         </article>
 
@@ -1151,12 +1174,295 @@ function renderStratList(query) {
   if (!list) return;
   const q = (query || "").toLowerCase();
   const cur = stratByName(S.strategy);
-  const filtered = STRATEGIES.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q));
-  list.innerHTML = `<div class="drawer__section"><span>${t("dpi.drawer.count", { n: filtered.length })}</span><span>${t("dpi.drawer.activeMarked")}</span></div>` +
-    filtered.map((s) => `<div class="strat" data-active="${s.id === cur.id}" data-dpi-strat="${escapeAttr(s.id)}">
-        <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${stratDesc(s.desc)}</div></div>
+  const matches = (s) => !q || s.name.toLowerCase().includes(q) || (s.desc || "").toLowerCase().includes(q);
+  const builtins = builtinStrategies().filter(matches);
+  const customs = customStrategies().filter(matches);
+  const total = customStrategies().length;
+  const full = total >= MAX_CUSTOM_STRATEGIES;
+  const row = (s) => `<div class="strat" data-active="${s.id === cur.id}" data-custom="${!!s.custom}" data-broken="${!!s.problem}" data-dpi-strat="${escapeAttr(s.id)}">
+        <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${strategyDesc(s)}</div></div>
+        ${s.custom ? `<button class="strat__edit" data-dpi-custom-edit="${escapeAttr(s.id)}" title="${escapeAttr(t("dpi.custom.edit"))}" aria-label="${escapeAttr(t("dpi.custom.edit"))}">${ic("pencil", 13)}</button>` : ""}
         <span class="strat__check">${ic("check", 11, 2.5)}</span>
-      </div>`).join("");
+      </div>`;
+  // "My strategies" go first: the user comes back to them more often than to the
+  // twenty built-in ones. While searching, an empty block isn't shown.
+  const custom = q && !customs.length ? "" : `<div class="drawer__section"><span>${t("dpi.custom.section")}</span><span>${t("dpi.custom.count", { n: total, max: MAX_CUSTOM_STRATEGIES })}</span></div>
+    ${customs.map(row).join("")}
+    ${q ? "" : `<button class="strat-add" data-dpi-custom-new ${full ? "disabled" : ""}>${ic("plus", 14)} ${t("dpi.custom.add")}</button>
+    ${full ? `<div class="strat-add__note">${t("dpi.custom.limit", { max: MAX_CUSTOM_STRATEGIES })}</div>` : ""}`}`;
+  list.innerHTML = custom +
+    `<div class="drawer__section"><span>${t("dpi.drawer.count", { n: builtins.length })}</span><span>${t("dpi.drawer.activeMarked")}</span></div>` +
+    builtins.map(row).join("");
+}
+
+/* ═══════════ CUSTOM STRATEGY EDITOR (dynamic) ═══════════ */
+// One drawer for creating and editing. Every change of the text, target or base
+// goes to dpi_custom_check (debounced): the backend owns parsing and the allowlist,
+// so the editor shows exactly what the launch would accept.
+let customEl = null;
+let CE = null;
+let customCheckTimer = 0;
+let customCheckSeq = 0;
+
+function defaultCustomBase() {
+  const cur = stratExact(S.strategy);
+  if (cur && !cur.custom) return cur.id;
+  const fromCustom = cur?.base && builtinStrategies().find((s) => s.id === cur.base);
+  return fromCustom ? fromCustom.id : (stratExact(DEFAULT_STRATEGY) || builtinStrategies()[0])?.id || "";
+}
+
+function customTargetOpt(id) {
+  const on = CE.target === id;
+  const hint = id === "all" ? "targetAllHint" : "targetListsHint";
+  const title = id === "all" ? "targetAll" : "targetLists";
+  return `<button type="button" class="dpi-scope__opt" data-on="${on}" data-dpi-custom-target="${id}" role="radio" aria-checked="${on}">
+      <span class="dpi-scope__mark"></span>
+      <span class="dpi-scope__txt">
+        <span class="dpi-scope__t">${t("dpi.custom." + title)}</span>
+        <span class="dpi-scope__d">${t("dpi.custom." + hint)}</span>
+      </span>
+    </button>`;
+}
+
+function customBaseOptions() {
+  const builtins = builtinStrategies();
+  const known = !CE.base || builtins.some((s) => s.id === CE.base);
+  return `<option value="" ${CE.base ? "" : "selected"}>${esc(t("dpi.custom.baseNone"))}</option>` +
+    (known ? "" : `<option value="${escapeAttr(CE.base)}" selected>${esc(t("dpi.custom.issue.baseMissing", { arg: CE.base }))}</option>`) +
+    builtins.map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === CE.base ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+}
+
+function openCustomEditor(id = null) {
+  if (customEl) return;
+  const existing = id ? customStrategies().find((s) => s.id === id) : null;
+  if (id && !existing) return;
+  if (!existing && customStrategies().length >= MAX_CUSTOM_STRATEGIES) {
+    toast(t("dpi.custom.limit", { max: MAX_CUSTOM_STRATEGIES }), "warn", 3500);
+    return;
+  }
+  closeDrawer();
+  CE = {
+    id: existing?.id || null,
+    name: existing?.name || "",
+    text: existing?.text || "",
+    target: existing?.target === "all" ? "all" : "lists",
+    base: existing ? existing.base || "" : defaultCustomBase(),
+    // An existing strategy keeps the target the user chose; for a new one the
+    // editor may suggest "All traffic" once (see applyCustomReport).
+    targetTouched: !!existing,
+    report: null,
+    saving: false,
+  };
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="drawer-bg" data-dpi-custom-bg></div>
+    <aside class="drawer drawer--editor drawer--custom" role="dialog" aria-label="${escapeAttr(t(existing ? "dpi.custom.titleEdit" : "dpi.custom.titleNew"))}">
+      <div class="drawer__head">
+        <div><div class="drawer__kicker">CUSTOM STRATEGY · WINWS</div><div class="drawer__title">${t(existing ? "dpi.custom.titleEdit" : "dpi.custom.titleNew")}</div></div>
+        <button class="drawer__close" data-dpi-custom-close aria-label="${escapeAttr(t("dpi.editor.close"))}">${ic("close", 16)}</button>
+      </div>
+      <div class="dpi-editor dpi-custom">
+        <label class="dpi-custom__field">
+          <span class="dpi-custom__label">${t("dpi.custom.name")}</span>
+          <input type="text" class="dpi-custom__input" id="dpi-custom-name" maxlength="40" autocomplete="off" spellcheck="false"
+            placeholder="${escapeAttr(t("dpi.custom.namePlaceholder"))}" value="${escapeAttr(CE.name)}">
+        </label>
+        <label class="dpi-custom__field">
+          <span class="dpi-custom__label">${t("dpi.custom.args")}</span>
+          <textarea class="dpi-editor__area dpi-custom__area" id="dpi-custom-text" spellcheck="false" autocomplete="off"
+            placeholder="--dpi-desync=fake --dpi-desync-fooling=ts --dpi-desync-repeats=6 --dpi-desync-fake-tls=@tls_clienthello_max_ru.bin">${esc(CE.text)}</textarea>
+          <span class="dpi-editor__hint">${t("dpi.custom.argsHint")}</span>
+        </label>
+        <div class="dpi-custom__status" id="dpi-custom-status" aria-live="polite"></div>
+        <div class="dpi-custom__field" id="dpi-custom-target">
+          <span class="dpi-custom__label">${t("dpi.custom.target")}</span>
+          <div class="dpi-custom__targets" id="dpi-custom-targets" role="radiogroup" aria-label="${escapeAttr(t("dpi.custom.target"))}"></div>
+        </div>
+        <label class="dpi-custom__field">
+          <span class="dpi-custom__label">${t("dpi.custom.base")}</span>
+          <select class="dpi-fake-select dpi-custom__select" id="dpi-custom-base">${customBaseOptions()}</select>
+          <span class="dpi-editor__hint">${t("dpi.custom.baseHint")}</span>
+        </label>
+        <details class="dpi-custom__preview" id="dpi-custom-preview-wrap" hidden>
+          <summary>${t("dpi.custom.preview")}</summary>
+          <pre class="dpi-custom__cmd" id="dpi-custom-preview"></pre>
+        </details>
+      </div>
+      <div class="dpi-editor__foot dpi-custom__foot">
+        ${existing ? `<button class="btn btn--sm dpi-custom__delete" data-dpi-custom-delete>${ic("trash", 13)} ${t("dpi.custom.delete")}</button>` : "<span></span>"}
+        <div class="dpi-editor__actions">
+          <button class="btn btn--sm" data-dpi-custom-close>${t("dpi.editor.cancel")}</button>
+          <button class="btn btn--sm btn--primary" data-dpi-custom-save disabled>${ic("check", 13)} ${t("dpi.editor.save")}</button>
+        </div>
+      </div>
+    </aside>`;
+  customEl = wrap;
+  document.body.appendChild(wrap);
+  renderCustomTargets();
+  wrap.querySelector("#dpi-custom-name").addEventListener("input", (e) => { CE.name = e.target.value; updateCustomSave(); });
+  wrap.querySelector("#dpi-custom-text").addEventListener("input", (e) => { CE.text = e.target.value; scheduleCustomCheck(); });
+  wrap.querySelector("#dpi-custom-base").addEventListener("change", (e) => { CE.base = e.target.value; scheduleCustomCheck(0); });
+  scheduleCustomCheck(0);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    wrap.querySelector(".drawer-bg").dataset.open = "true";
+    wrap.querySelector(".drawer").dataset.open = "true";
+  }));
+  setTimeout(() => wrap.querySelector(existing ? "#dpi-custom-text" : "#dpi-custom-name")?.focus(), 320);
+}
+
+function closeCustomEditor() {
+  if (!customEl) return;
+  const w = customEl;
+  customEl = null;
+  CE = null;
+  clearTimeout(customCheckTimer);
+  customCheckSeq++;
+  w.querySelector(".drawer-bg").dataset.open = "false";
+  w.querySelector(".drawer").dataset.open = "false";
+  setTimeout(() => w.remove(), 340);
+}
+
+function renderCustomTargets() {
+  const box = customEl?.querySelector("#dpi-custom-targets");
+  const field = customEl?.querySelector("#dpi-custom-target");
+  if (!box || !field) return;
+  const r = CE.report;
+  // A full line brings its own filters, and a snippet with its own domain/IP
+  // filters is applied by them: the choice would change nothing there.
+  field.hidden = !!r?.ok && r.mode === "sections";
+  box.innerHTML = r?.ok && r.own_hosts
+    ? `<div class="dpi-custom__note">${t("dpi.custom.ownFilters")}</div>`
+    : customTargetOpt("lists") + customTargetOpt("all");
+}
+
+function scheduleCustomCheck(delay = 300) {
+  clearTimeout(customCheckTimer);
+  customCheckTimer = setTimeout(runCustomCheck, delay);
+}
+
+async function runCustomCheck() {
+  if (!CE) return;
+  const seq = ++customCheckSeq;
+  if (!CE.text.trim()) {
+    applyCustomReport(null);
+    return;
+  }
+  try {
+    const report = await invoke("dpi_custom_check", { text: CE.text, target: CE.target, base: CE.base || null });
+    if (seq !== customCheckSeq || !CE) return;
+    applyCustomReport(report);
+  } catch (e) {
+    if (seq !== customCheckSeq || !CE) return;
+    applyCustomReport({ ok: false, issues: [], failure: String(e?.message || e) });
+  }
+}
+
+function applyCustomReport(report) {
+  if (!CE) return;
+  // A snippet with --dpi-desync-any-protocol=1 is meant for traffic without a domain,
+  // which "Sites from the lists" can't match: suggest "All traffic" once, until
+  // the user picks a target themselves.
+  if (report?.ok && report.mode === "snippet" && report.any_protocol && !report.own_hosts
+      && !CE.targetTouched && CE.target === "lists") {
+    CE.target = "all";
+    CE.targetTouched = true;
+    renderCustomTargets();
+    scheduleCustomCheck(0);
+    return;
+  }
+  CE.report = report;
+  const status = customEl?.querySelector("#dpi-custom-status");
+  if (status) {
+    const issue = (i) => `<div class="dpi-custom__issue" data-level="${i.level === "warn" ? "warn" : "error"}">${ic(i.level === "warn" ? "info" : "alert", 13)}<span>${esc(t("dpi.custom.issue." + i.code, { arg: i.arg || "" }))}</span></div>`;
+    const issues = report?.issues || [];
+    const head = report?.ok
+      ? `<div class="dpi-custom__ok">${ic("check", 13)}<span>${esc(report.mode === "sections" ? t("dpi.custom.modeSections", { n: report.sections }) : t("dpi.custom.modeSnippet"))}</span></div>`
+      : "";
+    const failure = report?.failure ? `<div class="dpi-custom__issue" data-level="error">${ic("alert", 13)}<span>${esc(report.failure)}</span></div>` : "";
+    status.innerHTML = head + failure +
+      issues.filter((i) => i.level !== "warn").map(issue).join("") +
+      issues.filter((i) => i.level === "warn").map(issue).join("");
+  }
+  const previewWrap = customEl?.querySelector("#dpi-custom-preview-wrap");
+  const preview = customEl?.querySelector("#dpi-custom-preview");
+  if (previewWrap && preview) {
+    previewWrap.hidden = !report?.ok;
+    preview.textContent = report?.ok ? report.args.join(" ").split(" --new ").join("\n--new ") : "";
+  }
+  renderCustomTargets();
+  updateCustomSave();
+}
+
+function updateCustomSave() {
+  const btn = customEl?.querySelector("[data-dpi-custom-save]");
+  if (!btn || !CE) return;
+  btn.disabled = CE.saving || !CE.report?.ok || !CE.name.trim();
+}
+
+async function saveCustomEditor() {
+  if (!CE || CE.saving || !CE.report?.ok || !CE.name.trim()) return;
+  CE.saving = true;
+  updateCustomSave();
+  const editing = CE.id;
+  const wasActive = !!editing && stratExact(S.strategy)?.id === editing;
+  try {
+    const saved = await invoke("dpi_custom_save", {
+      id: editing, name: CE.name, text: CE.text, target: CE.target, base: CE.base || null,
+    });
+    closeCustomEditor();
+    // The selection is kept by name: follow a rename of the active strategy before
+    // loadStrategies would treat the old name as vanished and fall back.
+    if (wasActive) {
+      S.strategy = saved.name;
+      try { localStorage.setItem(LS.strategy, saved.name); } catch {}
+    }
+    await loadStrategies();
+    renderAll();
+    if (!editing) {
+      // A new strategy is applied right away: "added it and it works".
+      await setStrategy(stratByName(saved.id));
+    } else if (wasActive) {
+      await restartIfRunning();
+      toast(t("dpi.custom.toastSaved", { name: saved.name }), "info", 2000);
+    } else {
+      toast(t("dpi.custom.toastSaved", { name: saved.name }), "info", 2000);
+    }
+  } catch (e) {
+    if (CE) {
+      CE.saving = false;
+      updateCustomSave();
+    }
+    toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 4500);
+  }
+}
+
+async function deleteCustomEditor() {
+  if (!CE?.id || CE.saving) return;
+  const id = CE.id;
+  const name = customStrategies().find((s) => s.id === id)?.name || CE.name;
+  const ok = await openConfirmModal({
+    title: t("dpi.custom.deleteTitle"),
+    message: t("dpi.custom.confirmDelete", { name }),
+    confirmLabel: t("dpi.custom.delete"),
+    cancelLabel: t("dpi.editor.cancel"),
+    danger: true,
+  });
+  if (!ok || CE?.id !== id) return;
+  try {
+    await invoke("dpi_custom_delete", { id });
+    const wasActive = stratExact(S.strategy)?.id === id;
+    closeCustomEditor();
+    if (wasActive) {
+      S.strategy = (stratExact(DEFAULT_STRATEGY) || builtinStrategies()[0] || STRATEGIES[0]).name;
+      try { localStorage.setItem(LS.strategy, S.strategy); } catch {}
+    }
+    await loadStrategies();
+    renderAll();
+    if (wasActive) await restartIfRunning();
+    toast(t("dpi.custom.toastDeleted", { name }), "info", 2200);
+  } catch (e) {
+    toast(t("prof.toastErr", { err: e?.message || e }), "error", 4500);
+  }
 }
 
 /* ═══════════ DOMAIN LIST EDITOR (dynamic) ═══════════ */
@@ -1244,6 +1550,21 @@ function onClick(e) {
   if (target.closest("[data-dpi-open]")) { goView("dpi"); return; }
   if (target.closest("[data-dpi-drawer]")) { openDrawer(); return; }
   if (target.closest("[data-dpi-drawer-close]") || target.closest("[data-dpi-drawer-bg]")) { closeDrawer(); return; }
+  // The edit button sits inside the strategy row: it must win over row selection.
+  const customEdit = target.closest("[data-dpi-custom-edit]");
+  if (customEdit) { e.stopPropagation(); openCustomEditor(customEdit.dataset.dpiCustomEdit); return; }
+  if (target.closest("[data-dpi-custom-new]")) { openCustomEditor(null); return; }
+  if (target.closest("[data-dpi-custom-close]") || target.closest("[data-dpi-custom-bg]")) { closeCustomEditor(); return; }
+  if (target.closest("[data-dpi-custom-save]")) { saveCustomEditor(); return; }
+  if (target.closest("[data-dpi-custom-delete]")) { deleteCustomEditor(); return; }
+  const customTarget = target.closest("[data-dpi-custom-target]");
+  if (customTarget && CE) {
+    CE.target = customTarget.dataset.dpiCustomTarget === "all" ? "all" : "lists";
+    CE.targetTouched = true;
+    renderCustomTargets();
+    scheduleCustomCheck(0);
+    return;
+  }
   const strat = target.closest("[data-dpi-strat]");
   if (strat) { setStrategy(stratByName(strat.dataset.dpiStrat)); closeDrawer(); return; }
   if (target.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }
@@ -1448,7 +1769,11 @@ export async function mountDpiView({ onToast, switchView, ensureElevated: ee } =
   document.addEventListener("change", onChange);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (editorEl) closeListEditor();
+    // The confirm dialog (deleting a strategy) handles its own Escape and listens
+    // after us: without this check one key press closed the drawer under it too.
+    if (document.querySelector(".confirm-modal")) return;
+    if (customEl) closeCustomEditor();
+    else if (editorEl) closeListEditor();
     else if (drawerEl) closeDrawer();
   });
 

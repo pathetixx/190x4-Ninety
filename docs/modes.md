@@ -98,6 +98,17 @@ Use them only when:
 
 Admin rights: may be required depending on the selected action and driver state.
 
+### Custom strategies
+
+**Strategies → Custom strategy** saves up to three strategies built from your own winws parameters.
+
+- Paste a single section (`--dpi-desync=fake --dpi-desync-fooling=ts …`) or a full line with `--filter-tcp`, `--new` and `--wf-*`; a line copied from a zapret `.bat` file works as is.
+- A single section is applied to TCP ports 80 and 443: either to **Sites from the lists** (built-in lists and **My domains**) or to **All traffic**, including apps without a domain.
+- **Base** appends a built-in strategy after your parameters: your section matches first, everything else keeps working as in the base.
+- Fake payloads are referenced by file name, for example `@tls_clienthello_max_ru.bin`; only files from the strategy set are available.
+- Options that write or read arbitrary files (`--debug`, `--wf-raw`, `--pidfile`, `--hostlist-auto` and similar) are rejected: winws runs with administrator rights.
+- The editor checks the parameters as you type and shows the final winws command. Custom strategies are not part of automatic strategy selection.
+
 What can break:
 
 - helper tools can fail to start or stop cleanly;

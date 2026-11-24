@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod custom;
+
 #[derive(Default)]
 pub struct DpiState {
     // Child winws.exe. None — not running. The handle is mutable for try_wait/kill.
@@ -1707,10 +1709,21 @@ fn kill_stray_winws(_dpi_root: &Path) -> bool {
 
 /// Strategy list for the UI (JSON array). The same verified path as
 /// for launching: the generation's signed bundle or the built-in set, after the allowlist.
+/// The user's own strategies follow the built-in set, marked `custom: true`.
 #[tauri::command]
 pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
     let active = load_strategies(&app)?;
-    serde_json::to_string(&active.strategies).map_err(|e| format!("serialize strategies: {e}"))
+    let mut list = serde_json::to_value(&active.strategies)
+        .map_err(|e| format!("serialize strategies: {e}"))?;
+    let store = custom::load_store(&dpi_data_dir(&app)?);
+    if let Some(items) = list.as_array_mut() {
+        for item in &store.items {
+            let value = serde_json::to_value(custom::list_item(item, &active.strategies))
+                .map_err(|e| format!("serialize custom strategy: {e}"))?;
+            items.push(value);
+        }
+    }
+    serde_json::to_string(&list).map_err(|e| format!("serialize strategies: {e}"))
 }
 
 /// How many domains are in the active lists (for the "Domain lists" card).
@@ -1929,6 +1942,209 @@ fn remember_owned_driver_services(state: &DpiState, bin: &Path) {
 #[cfg(not(target_os = "windows"))]
 fn remember_owned_driver_services(_state: &DpiState, _bin: &Path) {}
 
+fn dpi_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(crate::app_paths::data_dir(app)?.join("dpi"))
+}
+
+// Pre-substitution winws arguments of the strategy to launch. Each part has
+// passed its own allowlist right here, whatever path brought the strategy:
+// the channel one for built-ins, the custom one for the user's text.
+struct LaunchArgs {
+    args: Vec<String>,
+    // Payload files a custom strategy names; checked against bin-data.
+    bins: Vec<String>,
+    // "Custom strategy «name» doesn't start:" token for launch errors.
+    broken_prefix: String,
+}
+
+fn custom_broken_prefix(name: &str) -> String {
+    let name = name.replace(['{', '}'], "");
+    crate::util::i18n_error_with("backend.dpi.customBroken", &[("name", &name)])
+}
+
+fn launch_args(
+    app: &AppHandle,
+    active: &ActiveStrategies,
+    strategy_id: &str,
+) -> Result<LaunchArgs, String> {
+    let not_found =
+        || crate::util::i18n_error_with("backend.dpi.strategyNotFound", &[("id", strategy_id)]);
+    if custom::is_custom_id(strategy_id) {
+        let store = custom::load_store(&dpi_data_dir(app)?);
+        let item = store
+            .items
+            .iter()
+            .find(|item| item.id == strategy_id)
+            .ok_or_else(not_found)?;
+        let broken_prefix = custom_broken_prefix(&item.name);
+        let report = custom::build_strategy(item, &active.strategies, &|_| true);
+        if let Some(issue) = report.first_error() {
+            return Err(format!("{broken_prefix} {}", issue.token()));
+        }
+        return Ok(LaunchArgs {
+            args: report.args,
+            bins: report.bins,
+            broken_prefix,
+        });
+    }
+    let strat = active
+        .strategies
+        .iter()
+        .find(|s| s.id == strategy_id)
+        .ok_or_else(not_found)?;
+    validate_strategy_args(&strat.args)?;
+    Ok(LaunchArgs {
+        args: strat.args.clone(),
+        bins: Vec::new(),
+        broken_prefix: String::new(),
+    })
+}
+
+// Whether a payload named by a custom strategy is available to winws: the
+// active bin-data or, without a channel set, the bundled payloads that
+// dpi_start copies into bin-data before every launch.
+fn custom_bin_lookup(
+    app: &AppHandle,
+    active: &ActiveStrategies,
+) -> Result<impl Fn(&str) -> bool, String> {
+    let bindata = bindata_dir(app)?;
+    let bundled = match active.channel {
+        Some(_) => None,
+        None => Some(bin_dir(app, false)?),
+    };
+    Ok(move |name: &str| {
+        bindata.join(name).is_file() || bundled.as_ref().is_some_and(|dir| dir.join(name).is_file())
+    })
+}
+
+fn custom_issue(code: &str, arg: &str) -> String {
+    crate::util::i18n_error_with(&format!("dpi.custom.issue.{code}"), &[("arg", arg)])
+}
+
+/// Live check of a custom strategy for the editor: issues, the detected shape
+/// and the final winws arguments. Saves nothing.
+#[tauri::command]
+pub async fn dpi_custom_check(
+    app: AppHandle,
+    text: String,
+    target: String,
+    base: Option<String>,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let active = load_strategies(&app)?;
+        let bin_exists = custom_bin_lookup(&app, &active)?;
+        let report = custom::build(
+            &text,
+            custom::Target::parse(&target),
+            custom::resolve_base(base.as_deref(), &active.strategies),
+            &bin_exists,
+        );
+        serde_json::to_value(&report).map_err(|e| format!("serialize check: {e}"))
+    })
+    .await
+    .map_err(|e| format!("custom strategy check failed: {e}"))?
+}
+
+/// Create (id = None) or update a custom strategy. The text must pass the same
+/// check the launch does; at most MAX_CUSTOM_STRATEGIES are kept.
+#[tauri::command]
+pub async fn dpi_custom_save(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    id: Option<String>,
+    name: String,
+    text: String,
+    target: String,
+    base: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _data = state.data.lock().await;
+    let active = load_strategies(&app)?;
+    let name = custom::normalize_name(&name).map_err(|code| custom_issue(code, ""))?;
+    let target = custom::Target::parse(&target);
+    let base = base.map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+    let bin_exists = custom_bin_lookup(&app, &active)?;
+    let report = custom::build(
+        &text,
+        target,
+        custom::resolve_base(base.as_deref(), &active.strategies),
+        &bin_exists,
+    );
+    if let Some(issue) = report.first_error() {
+        return Err(issue.token());
+    }
+
+    let dpi_data = dpi_data_dir(&app)?;
+    let mut store = custom::load_store(&dpi_data);
+    // The UI keeps the selection by name, so a name may not shadow another strategy.
+    let taken = active
+        .strategies
+        .iter()
+        .any(|s| s.name.eq_ignore_ascii_case(&name) || s.id.eq_ignore_ascii_case(&name))
+        || store
+            .items
+            .iter()
+            .any(|s| Some(s.id.as_str()) != id.as_deref() && s.name.eq_ignore_ascii_case(&name));
+    if taken {
+        return Err(custom_issue("nameTaken", ""));
+    }
+    let saved_id = match id {
+        Some(id) => {
+            let item = store
+                .items
+                .iter_mut()
+                .find(|item| item.id == id)
+                .ok_or_else(|| custom_issue("notFound", ""))?;
+            item.name = name;
+            item.text = text;
+            item.target = target.as_str().to_string();
+            item.base = base;
+            id
+        }
+        None => {
+            if store.items.len() >= custom::MAX_CUSTOM_STRATEGIES {
+                return Err(custom_issue(
+                    "limit",
+                    &custom::MAX_CUSTOM_STRATEGIES.to_string(),
+                ));
+            }
+            let id = custom::new_id(&store.items);
+            store.items.push(custom::CustomStrategy {
+                id: id.clone(),
+                name,
+                base,
+                target: target.as_str().to_string(),
+                text,
+            });
+            id
+        }
+    };
+    custom::save_store(&dpi_data, &store.items)?;
+    let item = store
+        .items
+        .iter()
+        .find(|item| item.id == saved_id)
+        .ok_or_else(|| custom_issue("notFound", ""))?;
+    serde_json::to_value(custom::list_item(item, &active.strategies))
+        .map_err(|e| format!("serialize custom strategy: {e}"))
+}
+
+#[tauri::command]
+pub async fn dpi_custom_delete(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    id: String,
+) -> Result<(), String> {
+    let _data = state.data.lock().await;
+    let dpi_data = dpi_data_dir(&app)?;
+    let mut store = custom::load_store(&dpi_data);
+    let before = store.items.len();
+    store.items.retain(|item| item.id != id);
+    if store.items.len() == before {
+        return Err(custom_issue("notFound", ""));
+    }
+    custom::save_store(&dpi_data, &store.items)
+}
+
 /// Starts winws with the selected strategy. game_filter: "off"|"tcpudp";
 /// ipset — the bypass scope: "any" (all domains) | "auto" (only those
 /// that winws itself detected as blocked) | "loaded" (IPs from ipset-all) |
@@ -1975,16 +2191,7 @@ pub async fn dpi_start(
         _ = wait_dpi_cancelled(&state, generation) => return Err(crate::util::i18n_error("backend.dpi.cancelled")),
     };
     let active = load_strategies(&app)?;
-    let strat = active
-        .strategies
-        .iter()
-        .find(|s| s.id == strategy_id)
-        .ok_or_else(|| {
-            crate::util::i18n_error_with("backend.dpi.strategyNotFound", &[("id", &strategy_id)])
-        })?;
-    // The second line of defense right before substitution: only arguments that passed
-    // the allowlist go to winws, whatever path brought the strategy here.
-    validate_strategy_args(&strat.args)?;
+    let launch = launch_args(&app, &active, &strategy_id)?;
 
     let bin = bin_dir(&app, monkey)?;
     let exe = bin.join("winws.exe");
@@ -2005,9 +2212,22 @@ pub async fn dpi_start(
     // %BIN% → writable bin-data (the channel overlay), NOT the engine: cwd below stays
     // on the read-only resource (winws.exe + WinDivert.dll are loaded from there).
     let bindata = ensure_bindata(&app, &active)?;
+    // A payload missing from the set would make winws exit with "could not read":
+    // name the file instead of showing the engine's raw output.
+    if let Some(missing) = launch
+        .bins
+        .iter()
+        .find(|name| !bindata.join(name).is_file())
+    {
+        return Err(format!(
+            "{} {}",
+            launch.broken_prefix,
+            crate::util::i18n_error_with("dpi.custom.issue.binMissing", &[("arg", missing)])
+        ));
+    }
     let bindata_s = strip_verbatim(&bindata.to_string_lossy());
     let lists_s = strip_verbatim(&lists.to_string_lossy());
-    let args: Vec<String> = strat
+    let args: Vec<String> = launch
         .args
         .iter()
         .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))

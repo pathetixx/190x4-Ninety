@@ -1056,3 +1056,131 @@
   color: var(--text-lo);
 }
 .dpi-editor__actions { display: flex; gap: 8px; }
+
+/* ═══════════ CUSTOM STRATEGIES ═══════════ */
+.dpi-card__btns { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.dpi-strategy__tag[data-kind="custom"] {
+  color: var(--text-hi);
+  background: var(--overlay-2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.strat[data-custom="true"] { grid-template-columns: 1fr auto auto; }
+.strat[data-broken="true"] .strat__desc { color: var(--warn); }
+.strat__edit {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: var(--r-xs);
+  border: 0;
+  background: none;
+  color: var(--text-lo);
+  cursor: pointer;
+  transition: color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.strat__edit:hover { color: var(--text-hi); background: var(--overlay-3); }
+.strat-add {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 4px 0 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--line-2);
+  background: none;
+  color: var(--text-mid);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out), border-color 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+.strat-add:hover:not(:disabled) { color: var(--text-hi); border-color: var(--accent-soft); background: var(--overlay-2); }
+.strat-add:disabled { opacity: 0.5; cursor: not-allowed; }
+.strat-add__note { padding: 2px 12px 6px; font-size: 11px; line-height: 1.45; color: var(--text-lo); }
+
+.drawer--custom .dpi-custom { overflow-y: auto; gap: 14px; }
+.dpi-custom__field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dpi-custom__field[hidden] { display: none; }
+.dpi-custom__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-mid);
+}
+.dpi-custom__input {
+  padding: 9px 12px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-2);
+  background: var(--ink-3);
+  color: var(--text-hi);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+.dpi-custom__input:focus { border-color: var(--accent-soft); }
+.dpi-custom__input::placeholder { color: var(--text-lo); }
+.drawer--custom .dpi-custom__area { flex: none; min-height: 132px; resize: vertical; line-height: 1.6; }
+.dpi-custom__targets { display: grid; gap: 8px; }
+.dpi-custom__note,
+.dpi-custom__ok,
+.dpi-custom__issue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dpi-custom__note { display: block; color: var(--text-mid); background: var(--overlay-2); }
+.dpi-custom__ok { color: var(--text-hi); background: var(--overlay-2); }
+.dpi-custom__ok svg { color: var(--accent-bright); margin-top: 1px; }
+.dpi-custom__issue svg { margin-top: 1px; }
+.dpi-custom__issue span,
+.dpi-custom__ok span { min-width: 0; overflow-wrap: anywhere; }
+.dpi-custom__issue[data-level="error"] {
+  color: var(--text-hi);
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.dpi-custom__issue[data-level="error"] svg { color: var(--accent-bright); }
+.dpi-custom__issue[data-level="warn"] {
+  color: var(--text-mid);
+  background: var(--overlay-2);
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+.dpi-custom__issue[data-level="warn"] svg { color: var(--warn); }
+.dpi-custom__status { display: flex; flex-direction: column; gap: 6px; }
+.dpi-custom__status:empty { display: none; }
+.dpi-custom__select { font-size: 12px; }
+.dpi-custom__preview[hidden] { display: none; }
+.dpi-custom__preview summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-mid);
+}
+.dpi-custom__preview summary:hover { color: var(--text-hi); }
+.dpi-custom__cmd {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-1);
+  background: var(--ink-0);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.dpi-custom__foot { padding: 12px 20px 16px; border-top: 1px solid var(--line-1); }
+.dpi-custom__delete { color: var(--text-mid); }
+.dpi-custom__delete:hover { color: var(--accent-bright); }
+/* There is no shared disabled state for .btn: without this, Save looked active
+   while the parameters still had errors. */
+.dpi-custom__foot .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  pointer-events: none;
+}
