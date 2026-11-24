@@ -167,10 +167,12 @@ jobs:
           # compress 1.20.0 and brotli 1.2.3, the fixes are in 1.20.2 and 1.2.7.
           go get github.com/klauspost/compress@v1.20.2
           go get github.com/andybalholm/brotli@v1.2.7
-          # GO-2026-6443, as in sing-box above. The fix is in 1.83.2 and in master, but
-          # not in 1.84.0, so for Xray this is a downgrade from 1.84.0. The same go get
-          # is in security.yml.
-          go get google.golang.org/grpc@v1.83.2
+          # GO-2026-6278: gorilla/websocket fills the WebSocket mask key from a weak
+          # PRNG. No tagged release has the fix yet (upstream still ships 1.5.3), so we
+          # take the exact fix commit d67f418 ("Use crypto/rand for mask key").
+          # The grpc 1.85.0 this snapshot ships already has the GO-2026-6443 fix, so the
+          # former downgrade to 1.83.2 is gone. The same go get is in security.yml.
+          go get github.com/gorilla/websocket@v1.5.4-0.20240701034025-d67f41855da4
           # The same HTTP/2 vulnerabilities in x/net as in sing-box above.
           go get golang.org/x/net@v0.62.0
           go mod tidy

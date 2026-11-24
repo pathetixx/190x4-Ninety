@@ -98,6 +98,20 @@ Use them only when:
 
 Admin rights: may be required depending on the selected action and driver state.
 
+### Custom strategies
+
+**Strategies → Custom strategy** saves up to three strategies of your own, in the same format as the built-in ones: a name, a description, an experimental flag and the winws arguments split into sections by `--new`.
+
+- **Base** copies the sections of a built-in strategy into the editor. Change only the sections you need: winws takes the first matching section from the top, and the rest keep working as in the base. A changed section is marked, and it can be restored from the base.
+- **Full text** edits the whole strategy at once. It accepts winws parameters, a line copied from a zapret `.bat` file, or JSON in the built-in format (`name`, `desc`, `experimental`, `args`). **Import** reads such a file and recognises the built-in strategy it was made from; **To file** and **Copy JSON** export the strategy in the same format.
+- `--wf-tcp`/`--wf-udp` interception is assembled from the section filters, so a section on a new port gets its packets. Explicit `--wf-*` ports are kept only where filters can't imply them (`*` or negated filters).
+- Fake payloads are referenced by file name, for example `@tls_clienthello_max_ru.bin`; only files from the strategy set are available. Lists are limited to the app's own list files.
+- Options that write or read arbitrary files or replace the WinDivert filter (`--debug`, `--wf-raw`, `--pidfile`, `--hostlist-auto` and similar) are rejected: winws runs with administrator rights.
+- The paths, the game filter, the **Where the bypass applies** setting and the active VPN server exclusion are applied to a custom strategy exactly as to a built-in one.
+- The editor checks the parameters as you type and shows the final winws command. **Check with winws** runs `winws --dry-run` with that command; it needs administrator rights, otherwise the parameters are checked at launch. Custom strategies are not part of automatic strategy selection.
+
+**Exclusions** accept domains, IP addresses and subnets. Addresses go to a separate IP list, because winws matches the domain list by host name only.
+
 What can break:
 
 - helper tools can fail to start or stop cleanly;
