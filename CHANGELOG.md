@@ -6,6 +6,22 @@ Every release, newest first — the same notes the app shows in its update windo
 
 Все релизы, свежие сверху — те же заметки, что приложение показывает в окне обновления.
 
+## v0.19.0 — 2026-11-24
+
+## English
+
+- You can now create up to three custom DPI bypass strategies under "My strategies". Start from a built-in strategy and change only the sections you need, or import a JSON or zapret .bat line.
+- IP addresses and subnets added to DPI bypass exclusions now take effect.
+- Subscription servers that use traffic masking, such as ML-KEM and XMC servers, now connect instead of timing out.
+- Updated the TrustTunnel component, and the Xray engine received a security fix.
+
+## Русский
+
+- Теперь можно создать до трёх своих стратегий обхода DPI в разделе «Мои стратегии». Возьмите за основу встроенную стратегию и измените только нужные секции или импортируйте строку JSON или zapret .bat.
+- IP-адреса и подсети в исключениях обхода DPI теперь действительно работают.
+- Серверы подписок с маскировкой трафика, например ML-KEM и XMC, теперь подключаются, а не висят без ответа.
+- Обновлён компонент TrustTunnel, а движок Xray получил исправление безопасности.
+
 ## v0.18.1 — 2026-11-22
 
 ## English
