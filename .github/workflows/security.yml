@@ -151,7 +151,10 @@ jobs:
             cd xray-core
             GOTOOLCHAIN=local go get github.com/klauspost/compress@v1.20.2
             GOTOOLCHAIN=local go get github.com/andybalholm/brotli@v1.2.7
-            GOTOOLCHAIN=local go get google.golang.org/grpc@v1.83.2
+            # GO-2026-6278: no tagged gorilla/websocket release has the fix; the exact
+            # fix commit is pinned, as in build.yml. Xray's own grpc 1.85.0 is not
+            # affected by GO-2026-6443, so it is no longer downgraded here.
+            GOTOOLCHAIN=local go get github.com/gorilla/websocket@v1.5.4-0.20240701034025-d67f41855da4
             GOTOOLCHAIN=local go get golang.org/x/net@v0.62.0
             GOTOOLCHAIN=local go mod tidy
             CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-s -w -buildid=" -o "$tmpdir/xray" ./main
