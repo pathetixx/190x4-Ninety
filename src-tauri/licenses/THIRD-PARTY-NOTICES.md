@@ -74,7 +74,7 @@ Local SOCKS bridge for `tt://` endpoints.
 
 | | |
 | --- | --- |
-| Version | `v1.1.12` |
+| Version | `v1.3.0` |
 | Source | <https://github.com/TrustTunnel/TrustTunnelClient> |
 | License | Apache License 2.0 |
 | Text | [`trusttunnel-client.txt`](./trusttunnel-client.txt) |
