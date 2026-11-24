@@ -1,23 +1,22 @@
 // Ninety · user-defined DPI strategies.
 //
-// A custom strategy is winws arguments typed by the user. winws runs with
-// administrator rights while this text lives in a directory a regular user can
-// write, so it gets the same treatment as channel data: it is never trusted on
-// read. Every launch re-parses the stored text and passes it through an
-// allowlist that is wider than the channel one (users paste zapret options the
-// curated set doesn't use), but still lets no file path, config file or process
-// option through: payloads resolve only inside our bin-data directory, lists
-// only to the app's own list names.
+// A custom strategy has the same shape as a built-in one: a name, a description,
+// an `experimental` flag and the full winws argument list split into sections by
+// `--new`. The editor lets the user start from a built-in strategy and change
+// only the sections they need, so a tweak for one game never means retyping the
+// profiles that keep sites, video and voice working.
 //
-// Two shapes of input are accepted:
-//   - a snippet: desync options without filters, the way zapret strategies are
-//     usually shared (`--dpi-desync=fake --dpi-desync-fooling=ts …`). It is
-//     wrapped into a TCP 80/443 section for the chosen target;
-//   - sections: a full zapret line with `--filter-*`, `--new` and optionally
-//     `--wf-*` (a Flowseal .bat line is accepted as is).
-// An optional built-in base strategy is appended after the custom part: the
-// user's sections win the first match, everything else keeps working as in
-// the base.
+// winws runs with administrator rights while the stored strategy lives in a
+// directory a regular user can write, so it is never trusted on read. Every
+// check and every launch re-parses it through an allowlist that is wider than
+// the channel one (users paste zapret options the curated set doesn't use) but
+// lets no file path, config file or process option through: payloads resolve
+// only inside our bin-data directory, lists only to the app's own list files.
+//
+// The WinDivert interception (`--wf-tcp`/`--wf-udp`) is always assembled from
+// the section filters, so a section on a new port can't be left without
+// packets. The app's own substitutions (paths, game filter, autolist gate, VPN
+// endpoint exclusion) are applied at launch exactly as for built-in strategies.
 
 use std::path::{Path, PathBuf};
 
@@ -25,56 +24,30 @@ use serde::{Deserialize, Serialize};
 
 pub(super) const CUSTOM_ID_PREFIX: &str = "custom-";
 pub(super) const MAX_CUSTOM_STRATEGIES: usize = 3;
-pub(super) const MAX_CUSTOM_TEXT_BYTES: usize = 16 * 1024;
+pub(super) const MAX_CUSTOM_TEXT_BYTES: usize = 64 * 1024;
 pub(super) const MAX_CUSTOM_NAME_CHARS: usize = 40;
+pub(super) const MAX_CUSTOM_DESC_CHARS: usize = 300;
 const CUSTOM_STORE_FILE: &str = "custom-strategies.json";
-const CUSTOM_STORE_VERSION: u32 = 1;
+const CUSTOM_STORE_VERSION: u32 = 2;
 // Reported issues are capped: one typo must not flood the editor.
-const MAX_ISSUES: usize = 8;
+const MAX_ISSUES: usize = 12;
 const MAX_LIST_ITEMS: usize = 256;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Target {
-    // Domains from the built-in lists and "My domains".
-    #[default]
-    Lists,
-    // Every TCP 80/443 connection, including apps without a hostname.
-    All,
-}
-
-impl Target {
-    pub(super) fn parse(raw: &str) -> Self {
-        match raw {
-            "all" => Self::All,
-            _ => Self::Lists,
-        }
-    }
-
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Lists => "lists",
-            Self::All => "all",
-        }
-    }
-}
-
+/// A stored custom strategy, in the built-in strategy format plus its origin.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct CustomStrategy {
     pub(super) id: String,
     pub(super) name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(super) desc: String,
+    #[serde(default)]
+    pub(super) experimental: bool,
+    // The built-in strategy the user started from. Only the editor uses it, to
+    // mark which sections differ; the launch never reads the base.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) base: Option<String>,
-    // Kept as a string: an unknown value from a newer build degrades to the
-    // default target instead of failing the whole store.
     #[serde(default)]
-    pub(super) target: String,
-    pub(super) text: String,
-}
-
-impl CustomStrategy {
-    pub(super) fn target(&self) -> Target {
-        Target::parse(&self.target)
-    }
+    pub(super) args: Vec<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -90,6 +63,9 @@ pub(super) struct Issue {
     pub(super) code: &'static str,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub(super) arg: String,
+    // Zero-based section index, when the issue belongs to one section.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) section: Option<usize>,
 }
 
 impl Issue {
@@ -98,6 +74,7 @@ impl Issue {
             level: "error",
             code,
             arg: shown_arg(arg),
+            section: None,
         }
     }
 
@@ -106,7 +83,13 @@ impl Issue {
             level: "warn",
             code,
             arg: String::new(),
+            section: None,
         }
+    }
+
+    fn at(mut self, section: usize) -> Self {
+        self.section = Some(section);
+        self
     }
 
     pub(super) fn is_error(&self) -> bool {
@@ -136,25 +119,30 @@ fn shown_arg(arg: &str) -> String {
     }
 }
 
-/// What a built-in base reference resolved to.
-#[derive(Clone, Copy)]
-pub(super) enum Base<'a> {
-    None,
-    Found(&'a [String]),
-    Missing(&'a str),
+/// Name, description and flag carried by a pasted or imported JSON strategy.
+#[derive(Debug, Default, Serialize)]
+pub(super) struct Meta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) desc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) experimental: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize)]
 pub(super) struct Report {
     pub(super) ok: bool,
-    // "snippet" | "sections"
-    pub(super) mode: &'static str,
-    pub(super) sections: usize,
-    pub(super) own_hosts: bool,
-    pub(super) any_protocol: bool,
     pub(super) issues: Vec<Issue>,
+    // Canonical arguments of each section, without --wf-* and --new.
+    pub(super) sections: Vec<Vec<String>>,
+    // Explicit --wf-* ports the section filters don't already imply (needed
+    // only next to `*` or negated filters); kept with the stored strategy.
+    pub(super) wf_extra: Vec<String>,
     // Final winws arguments before placeholder substitution (empty on error).
     pub(super) args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) meta: Option<Meta>,
     #[serde(skip)]
     pub(super) bins: Vec<String>,
 }
@@ -164,6 +152,20 @@ impl Report {
         self.issues.iter().find(|issue| issue.is_error())
     }
 
+    /// The form a strategy is stored in: sections plus only the interception
+    /// the filters can't imply. The full --wf-* is assembled on every launch,
+    /// so deleting a section also drops its ports.
+    pub(super) fn stored_args(&self) -> Vec<String> {
+        let mut out = self.wf_extra.clone();
+        for (index, section) in self.sections.iter().enumerate() {
+            if index > 0 {
+                out.push("--new".to_string());
+            }
+            out.extend(section.iter().cloned());
+        }
+        out
+    }
+
     fn push(&mut self, issue: Issue) {
         if self.issues.len() < MAX_ISSUES && !self.issues.contains(&issue) {
             self.issues.push(issue);
@@ -171,7 +173,7 @@ impl Report {
     }
 }
 
-// ── Tokenizer ──────────────────────────────────────────────────────────
+// ── Input ──────────────────────────────────────────────────────────────
 
 /// Split pasted text into winws tokens. Understands double and single quotes,
 /// .bat line continuations (`^`) and comment lines (`#`, `::`, `//`).
@@ -240,6 +242,53 @@ fn strip_launcher(tokens: Vec<String>) -> Result<Vec<String>, Issue> {
         Some(end) => Ok(tokens.into_iter().skip(end + 1).collect()),
         None => Err(Issue::error("stray", &tokens[0])),
     }
+}
+
+#[derive(Deserialize)]
+struct JsonStrategy {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    desc: Option<String>,
+    #[serde(default)]
+    experimental: Option<bool>,
+    args: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonInput {
+    Strategy(JsonStrategy),
+    Args(Vec<String>),
+    // strategies.json: the first strategy is taken.
+    Set(Vec<JsonStrategy>),
+}
+
+/// Text, a .bat line or JSON in the built-in strategy format → tokens.
+fn parse_input(text: &str) -> Result<(Vec<String>, Option<Meta>), Issue> {
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        let parsed: JsonInput =
+            serde_json::from_str(trimmed).map_err(|e| Issue::error("json", &e.to_string()))?;
+        let strategy = match parsed {
+            JsonInput::Args(args) => return Ok((args, None)),
+            JsonInput::Strategy(strategy) => strategy,
+            JsonInput::Set(mut set) => {
+                if set.is_empty() {
+                    return Err(Issue::error("empty", ""));
+                }
+                set.swap_remove(0)
+            }
+        };
+        let meta = Meta {
+            name: strategy.name,
+            desc: strategy.desc,
+            experimental: strategy.experimental,
+        };
+        return Ok((strategy.args, Some(meta)));
+    }
+    let tokens = strip_launcher(tokenize(trimmed)?)?;
+    Ok((tokens, None))
 }
 
 // ── Option schema ──────────────────────────────────────────────────────
@@ -766,14 +815,16 @@ fn valid_flag_name(flag: &str) -> bool {
 }
 
 /// Tokens → canonical options. Accepts both `--flag=value` and `--flag value`.
+/// Issues carry the index of the section (counted by `--new`) they occur in.
 fn parse_options(tokens: &[String], report: &mut Report) -> Vec<String> {
     let mut out = Vec::with_capacity(tokens.len());
+    let mut section = 0usize;
     let mut i = 0;
     while i < tokens.len() {
         let token = &tokens[i];
         i += 1;
         if !token.starts_with("--") {
-            report.push(Issue::error("stray", token));
+            report.push(Issue::error("stray", token).at(section));
             continue;
         }
         let (flag, mut value) = match token.split_once('=') {
@@ -781,7 +832,7 @@ fn parse_options(tokens: &[String], report: &mut Report) -> Vec<String> {
             None => (token.as_str(), None),
         };
         if !valid_flag_name(flag) {
-            report.push(Issue::error("unknown", token));
+            report.push(Issue::error("unknown", token).at(section));
             continue;
         }
         let wants_value = value.is_none() && kind_of(flag).is_some_and(takes_value);
@@ -794,8 +845,13 @@ fn parse_options(tokens: &[String], report: &mut Report) -> Vec<String> {
             None => flag.to_string(),
         };
         match canonical_arg(flag, value.as_deref(), &mut report.bins) {
-            Ok(arg) => out.push(arg),
-            Err(code) => report.push(Issue::error(code, &shown)),
+            Ok(arg) => {
+                if arg == "--new" {
+                    section += 1;
+                }
+                out.push(arg);
+            }
+            Err(code) => report.push(Issue::error(code, &shown).at(section)),
         }
     }
     out
@@ -819,247 +875,153 @@ fn push_ports(into: &mut Vec<String>, value: &str) {
     }
 }
 
-const WRAP_PORTS: &str = "80,443";
-const LIST_INCLUDES: [&str; 3] = [
-    "--hostlist=%LISTS%list-general.txt",
-    "--hostlist=%LISTS%list-general-user.txt",
-    "--hostlist=%LISTS%list-google.txt",
-];
-const DOMAIN_EXCLUDES: [&str; 2] = [
-    "--hostlist-exclude=%LISTS%list-exclude.txt",
-    "--hostlist-exclude=%LISTS%list-exclude-user.txt",
-];
-const IP_EXCLUDES: [&str; 2] = [
-    "--ipset-exclude=%LISTS%ipset-exclude.txt",
-    "--ipset-exclude=%LISTS%ipset-exclude-user.txt",
-];
-
-/// A filterless snippet becomes one TCP 80/443 section. User exclusions are
-/// kept; domain exclusions are left out only where they would make the
-/// section skip traffic without a hostname, which "all traffic" with
-/// any-protocol exists for.
-fn wrap_snippet(
-    user: Vec<String>,
-    target: Target,
-    own_hosts: bool,
-    any_protocol: bool,
-) -> Vec<String> {
-    let mut out = vec![format!("--filter-tcp={WRAP_PORTS}")];
-    let lists = target == Target::Lists && !own_hosts;
-    if lists {
-        out.extend(LIST_INCLUDES.iter().map(|arg| arg.to_string()));
-    }
-    let hostname_aware = user
-        .iter()
-        .any(|arg| matches!(flag_of(arg), "--hostlist" | "--hostlist-domains"));
-    let mut extra: Vec<&str> = Vec::new();
-    if lists || hostname_aware || !any_protocol {
-        extra.extend(DOMAIN_EXCLUDES);
-    }
-    extra.extend(IP_EXCLUDES);
-    for arg in extra {
-        if !user.iter().any(|existing| existing == arg) {
-            out.push(arg.to_string());
-        }
-    }
-    out.extend(user);
-    out
-}
-
-/// Derive the WinDivert ports from section filters when the user gave none.
-/// Returns None when a section uses `*` or a negation: the interception set
-/// can't be inferred then and must be spelled out with --wf-*.
-fn derive_wf(options: &[String], flag: &str) -> Option<Vec<String>> {
+/// Union of one protocol's section filters. Err(section) when a section uses
+/// `*` or a negation: the interception set can't be inferred from it.
+fn derive_wf(sections: &[Vec<String>], flag: &str) -> Result<Vec<String>, usize> {
     let mut ports = Vec::new();
-    for arg in options {
-        let Some(value) = value_of(arg, flag) else {
-            continue;
-        };
-        if value
-            .split(',')
-            .any(|item| item == "*" || item.starts_with('~'))
-        {
-            return None;
+    for (index, section) in sections.iter().enumerate() {
+        for arg in section {
+            let Some(value) = value_of(arg, flag) else {
+                continue;
+            };
+            if value
+                .split(',')
+                .any(|item| item == "*" || item.starts_with('~'))
+            {
+                return Err(index);
+            }
+            push_ports(&mut ports, value);
         }
-        push_ports(&mut ports, value);
     }
-    Some(ports)
+    Ok(ports)
 }
 
-/// Build the final winws arguments of a custom strategy (before placeholder
-/// substitution). `bin_exists` tells whether a payload file is present in the
-/// active bin-data; launch-time callers that check files later pass `|_| true`.
-pub(super) fn build(
-    text: &str,
-    target: Target,
-    base: Base<'_>,
-    bin_exists: &dyn Fn(&str) -> bool,
-) -> Report {
-    let mut report = Report {
-        mode: "snippet",
-        sections: 1,
-        ..Report::default()
-    };
-    if text.len() > MAX_CUSTOM_TEXT_BYTES {
-        report.push(Issue::error("tooLong", ""));
-        return report;
-    }
-    let tokens = match tokenize(text).and_then(strip_launcher) {
-        Ok(tokens) => tokens,
-        Err(issue) => {
-            report.push(issue);
-            return report;
-        }
-    };
+/// Check a custom strategy and build its final winws arguments (before
+/// placeholder substitution). `bin_exists` tells whether a payload file is
+/// present in the active bin-data; launch-time callers that check files later
+/// pass `|_| true`.
+pub(super) fn check_tokens(tokens: &[String], bin_exists: &dyn Fn(&str) -> bool) -> Report {
+    let mut report = Report::default();
     if tokens.is_empty() {
         report.push(Issue::error("empty", ""));
         return report;
     }
-    let options = parse_options(&tokens, &mut report);
+    let options = parse_options(tokens, &mut report);
     for name in report.bins.clone() {
         if !bin_exists(&name) {
             report.push(Issue::error("binMissing", &name));
         }
     }
-    if let Base::Missing(id) = base {
-        report.push(Issue::error("baseMissing", id));
-    }
-    if report.first_error().is_some() {
-        return report;
-    }
 
-    let has = |flags: &[&str]| options.iter().any(|arg| flags.contains(&flag_of(arg)));
-    report.any_protocol = options
-        .iter()
-        .any(|arg| arg == "--dpi-desync-any-protocol=1");
-    report.own_hosts = has(&["--hostlist", "--hostlist-domains", "--ipset", "--ipset-ip"]);
-    let sections_mode = has(&[
-        "--new",
-        "--filter-tcp",
-        "--filter-udp",
-        "--wf-tcp",
-        "--wf-udp",
-    ]);
-
-    let mut wf_tcp = Vec::new();
-    let mut wf_udp = Vec::new();
-    let custom: Vec<String> = if sections_mode {
-        report.mode = "sections";
-        for (flag, into) in [("--wf-tcp", &mut wf_tcp), ("--wf-udp", &mut wf_udp)] {
-            for arg in &options {
-                if let Some(value) = value_of(arg, flag) {
-                    push_ports(into, value);
-                }
-            }
+    // Explicit interception is kept (a section with `*` needs it), the rest is
+    // derived from the filters below.
+    let mut explicit_tcp = Vec::new();
+    let mut explicit_udp = Vec::new();
+    let mut sections: Vec<Vec<String>> = vec![Vec::new()];
+    for arg in options {
+        if let Some(value) = value_of(&arg, "--wf-tcp") {
+            push_ports(&mut explicit_tcp, value);
+        } else if let Some(value) = value_of(&arg, "--wf-udp") {
+            push_ports(&mut explicit_udp, value);
+        } else if arg == "--new" {
+            sections.push(Vec::new());
+        } else if let Some(current) = sections.last_mut() {
+            current.push(arg);
         }
-        let sections: Vec<String> = options
+    }
+    let last = sections.len() - 1;
+    for (index, section) in sections.iter().enumerate() {
+        if section.is_empty() {
+            report.push(Issue::error("emptySection", "").at(index));
+            continue;
+        }
+        let has = |flags: &[&str]| section.iter().any(|arg| flags.contains(&flag_of(arg)));
+        // A section without an l4 filter takes every intercepted packet, so the
+        // sections below it never see traffic.
+        if index < last && !has(&["--filter-tcp", "--filter-udp"]) {
+            report.push(Issue::warn("noFilter").at(index));
+        }
+        if !has(&["--dpi-desync"]) {
+            report.push(Issue::warn("noDesync").at(index));
+        }
+    }
+    let derived_tcp = derive_wf(&sections, "--filter-tcp");
+    let derived_udp = derive_wf(&sections, "--filter-udp");
+    let mut interception: Vec<(&str, Vec<String>)> = Vec::with_capacity(2);
+    for (flag, explicit, derived) in [
+        ("--wf-tcp", &explicit_tcp, &derived_tcp),
+        ("--wf-udp", &explicit_udp, &derived_udp),
+    ] {
+        let derived_ports: &[String] = match derived {
+            Ok(ports) => ports,
+            Err(index) => {
+                if explicit.is_empty() {
+                    report.push(Issue::error("wfNeeded", "").at(*index));
+                }
+                &[]
+            }
+        };
+        let extra: Vec<String> = explicit
             .iter()
-            .filter(|arg| !matches!(flag_of(arg), "--wf-tcp" | "--wf-udp"))
+            .filter(|port| !derived_ports.contains(port))
             .cloned()
             .collect();
-        let mut current = 0usize;
-        report.sections = 1;
-        for arg in &sections {
-            if arg == "--new" {
-                if current == 0 {
-                    report.push(Issue::error("emptySection", ""));
-                }
-                report.sections += 1;
-                current = 0;
-            } else {
-                current += 1;
-            }
+        if !extra.is_empty() {
+            report.wf_extra.push(format!("{flag}={}", extra.join(",")));
         }
-        if current == 0 {
-            report.push(Issue::error("emptySection", ""));
+        let mut ports = explicit.clone();
+        for port in derived_ports {
+            push_ports(&mut ports, port);
         }
-        for (wf, flag) in [(&mut wf_tcp, "--filter-tcp"), (&mut wf_udp, "--filter-udp")] {
-            if wf.is_empty() {
-                match derive_wf(&sections, flag) {
-                    Some(ports) => *wf = ports,
-                    None => report.push(Issue::error("wfNeeded", "")),
-                }
-            }
-        }
-        if wf_tcp.is_empty() && wf_udp.is_empty() {
-            report.push(Issue::error("wfNeeded", ""));
-        }
-        sections
-    } else {
-        if !has(&["--dpi-desync"]) {
-            report.push(Issue::error("noDesync", ""));
-        }
-        push_ports(&mut wf_tcp, WRAP_PORTS);
-        wrap_snippet(options, target, report.own_hosts, report.any_protocol)
-    };
+        interception.push((flag, ports));
+    }
+    if interception.iter().all(|(_, ports)| ports.is_empty()) {
+        report.push(Issue::error("wfNeeded", ""));
+    }
     if report.first_error().is_some() {
         return report;
     }
 
-    let mut base_sections = Vec::new();
-    if let Base::Found(args) = base {
-        for arg in args {
-            if let Some(value) = value_of(arg, "--wf-tcp") {
-                push_ports(&mut wf_tcp, value);
-            } else if let Some(value) = value_of(arg, "--wf-udp") {
-                push_ports(&mut wf_udp, value);
-            } else {
-                base_sections.push(arg.clone());
-            }
+    let mut args = Vec::with_capacity(tokens.len() + 2);
+    for (flag, ports) in &interception {
+        if !ports.is_empty() {
+            args.push(format!("{flag}={}", ports.join(",")));
         }
     }
-
-    let mut args = Vec::with_capacity(custom.len() + base_sections.len() + 3);
-    if !wf_tcp.is_empty() {
-        args.push(format!("--wf-tcp={}", wf_tcp.join(",")));
-    }
-    if !wf_udp.is_empty() {
-        args.push(format!("--wf-udp={}", wf_udp.join(",")));
-    }
-    args.extend(custom);
-    if !base_sections.is_empty() {
-        args.push("--new".to_string());
-        args.extend(base_sections);
+    for (index, section) in sections.iter().enumerate() {
+        if index > 0 {
+            args.push("--new".to_string());
+        }
+        args.extend(section.iter().cloned());
     }
     if args.len() > super::MAX_STRATEGY_ARGS {
         report.push(Issue::error("tooLong", ""));
         return report;
     }
-
-    if report.mode == "snippet" {
-        if target == Target::Lists && !report.own_hosts && report.any_protocol {
-            report.push(Issue::warn("anyProtocolLists"));
-        }
-        if matches!(base, Base::None) {
-            report.push(Issue::warn("noBase"));
-        }
-    }
     report.ok = true;
+    report.sections = sections;
     report.args = args;
     report
 }
 
-/// Resolve the base reference against the active built-in set and build.
-pub(super) fn build_strategy(
-    item: &CustomStrategy,
-    builtins: &[super::Strategy],
-    bin_exists: &dyn Fn(&str) -> bool,
-) -> Report {
-    build(
-        &item.text,
-        item.target(),
-        resolve_base(item.base.as_deref(), builtins),
-        bin_exists,
-    )
-}
-
-pub(super) fn resolve_base<'a>(base: Option<&'a str>, builtins: &'a [super::Strategy]) -> Base<'a> {
-    match base.map(str::trim).filter(|id| !id.is_empty()) {
-        None => Base::None,
-        Some(id) => match builtins.iter().find(|s| s.id == id) {
-            Some(strategy) => Base::Found(&strategy.args),
-            None => Base::Missing(id),
-        },
+/// Check text typed or imported in the editor.
+pub(super) fn check_text(text: &str, bin_exists: &dyn Fn(&str) -> bool) -> Report {
+    if text.len() > MAX_CUSTOM_TEXT_BYTES {
+        let mut report = Report::default();
+        report.push(Issue::error("tooLong", ""));
+        return report;
+    }
+    match parse_input(text) {
+        Ok((tokens, meta)) => {
+            let mut report = check_tokens(&tokens, bin_exists);
+            report.meta = meta;
+            report
+        }
+        Err(issue) => {
+            let mut report = Report::default();
+            report.push(issue);
+            report
+        }
     }
 }
 
@@ -1072,8 +1034,7 @@ pub(super) fn is_custom_id(id: &str) -> bool {
 
 /// Trim, collapse whitespace and drop control characters.
 pub(super) fn normalize_name(raw: &str) -> Result<String, &'static str> {
-    let cleaned: String = raw.chars().filter(|c| !c.is_control()).collect();
-    let name = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = collapse(raw);
     if name.is_empty() {
         Err("nameEmpty")
     } else if name.chars().count() > MAX_CUSTOM_NAME_CHARS {
@@ -1081,6 +1042,20 @@ pub(super) fn normalize_name(raw: &str) -> Result<String, &'static str> {
     } else {
         Ok(name)
     }
+}
+
+pub(super) fn normalize_desc(raw: &str) -> Result<String, &'static str> {
+    let desc = collapse(raw);
+    if desc.chars().count() > MAX_CUSTOM_DESC_CHARS {
+        Err("descLong")
+    } else {
+        Ok(desc)
+    }
+}
+
+fn collapse(raw: &str) -> String {
+    let cleaned: String = raw.chars().filter(|c| !c.is_control()).collect();
+    cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub(super) fn new_id(existing: &[CustomStrategy]) -> String {
@@ -1106,27 +1081,28 @@ fn store_path(dpi_data: &Path) -> PathBuf {
 }
 
 /// Keep only well-formed entries: the file is user-writable, and a manual
-/// edit must neither crash listing nor smuggle in more than the limit.
+/// edit must neither crash listing nor smuggle in more than the limit. The
+/// arguments themselves are checked on every use, not here.
 fn sanitize_store(store: CustomStore) -> CustomStore {
     let mut items: Vec<CustomStrategy> = Vec::new();
     for item in store.items {
         if items.len() >= MAX_CUSTOM_STRATEGIES {
             break;
         }
-        let Ok(name) = normalize_name(&item.name) else {
+        let (Ok(name), Ok(desc)) = (normalize_name(&item.name), normalize_desc(&item.desc)) else {
             continue;
         };
         if !is_custom_id(&item.id)
-            || item.text.len() > MAX_CUSTOM_TEXT_BYTES
+            || item.args.len() > super::MAX_STRATEGY_ARGS
+            || item
+                .args
+                .iter()
+                .any(|arg| arg.len() > super::MAX_STRATEGY_ARG_LEN)
             || items.iter().any(|known| known.id == item.id)
         {
             continue;
         }
-        items.push(CustomStrategy {
-            name,
-            target: Target::parse(&item.target).as_str().to_string(),
-            ..item
-        });
+        items.push(CustomStrategy { name, desc, ..item });
     }
     CustomStore { items }
 }
@@ -1168,34 +1144,34 @@ pub(super) fn save_store(dpi_data: &Path, items: &[CustomStrategy]) -> Result<()
     )
 }
 
-/// One custom strategy as the UI lists it.
+/// One custom strategy as the UI lists it: the built-in shape plus `custom`.
 #[derive(Serialize)]
 pub(super) struct ListItem<'a> {
     pub(super) id: &'a str,
     pub(super) name: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    pub(super) desc: &'a str,
+    pub(super) experimental: bool,
     pub(super) custom: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) base: Option<&'a str>,
-    pub(super) target: &'static str,
-    pub(super) text: &'a str,
+    pub(super) args: &'a [String],
     // First blocking problem, if the strategy can't start as stored (for
-    // example, its base left the channel set).
+    // example, a payload file left the channel set).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) problem: Option<&'static str>,
 }
 
-pub(super) fn list_item<'a>(
-    item: &'a CustomStrategy,
-    builtins: &[super::Strategy],
-) -> ListItem<'a> {
-    let report = build_strategy(item, builtins, &|_| true);
+pub(super) fn list_item(item: &CustomStrategy) -> ListItem<'_> {
+    let report = check_tokens(&item.args, &|_| true);
     ListItem {
         id: &item.id,
         name: &item.name,
+        desc: &item.desc,
+        experimental: item.experimental,
         custom: true,
         base: item.base.as_deref(),
-        target: item.target().as_str(),
-        text: &item.text,
+        args: &item.args,
         problem: report.first_error().map(|issue| issue.code),
     }
 }
@@ -1208,75 +1184,95 @@ mod tests {
         true
     }
 
-    fn snippet(text: &str, target: Target) -> Report {
-        build(text, target, Base::None, &all_bins)
+    fn check(text: &str) -> Report {
+        check_text(text, &all_bins)
     }
 
-    const USER_EXAMPLE: &str = "--dpi-desync=fake --dpi-desync-any-protocol=1 --dpi-desync-fooling=ts --dpi-desync-repeats=6 --dpi-desync-cutoff=d2 --dpi-desync-fake-unknown=@tls_clienthello_max_ru.bin";
+    // The strategy Dima tested: ALT11 with only the game TCP section replaced.
+    const ALT11_GAME: &str = include_str!("custom_alt11_game.json");
 
     #[test]
-    fn user_example_wraps_into_all_traffic_section() {
-        let report = snippet(USER_EXAMPLE, Target::All);
+    fn imported_json_strategy_keeps_every_section() {
+        let report = check(ALT11_GAME);
         assert!(report.ok, "{:?}", report.issues);
-        assert_eq!(report.mode, "snippet");
-        assert!(report.any_protocol);
+        let meta = report.meta.as_ref().unwrap();
+        assert_eq!(meta.name.as_deref(), Some("ALT11 + GAME TLS FAKE"));
+        assert_eq!(meta.experimental, Some(true));
+        assert_eq!(report.sections.len(), 9);
+        // The interception assembled from the filters equals the one ALT11 spells out.
         assert_eq!(
-            report.args,
-            vec![
-                "--wf-tcp=80,443",
-                "--filter-tcp=80,443",
-                "--ipset-exclude=%LISTS%ipset-exclude.txt",
-                "--ipset-exclude=%LISTS%ipset-exclude-user.txt",
-                "--dpi-desync=fake",
-                "--dpi-desync-any-protocol=1",
-                "--dpi-desync-fooling=ts",
-                "--dpi-desync-repeats=6",
-                "--dpi-desync-cutoff=d2",
-                "--dpi-desync-fake-unknown=%BIN%tls_clienthello_max_ru.bin",
-            ]
+            report.args[0],
+            "--wf-tcp=80,443,2053,2083,2087,2096,8443,%GameFilterTCP%"
         );
+        assert_eq!(
+            report.args[1],
+            "--wf-udp=443,19294-19344,50000-50100,%GameFilterUDP%"
+        );
+        let original: serde_json::Value = serde_json::from_str(ALT11_GAME).unwrap();
+        let original: Vec<String> = original["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(report.args, original);
+        assert!(report.issues.is_empty(), "{:?}", report.issues);
+        // ALT11's interception is fully implied by its filters: nothing extra is stored.
+        assert!(report.wf_extra.is_empty());
+        assert_eq!(report.stored_args(), original[2..].to_vec());
+    }
+
+    #[test]
+    fn interception_is_assembled_from_section_filters() {
+        let report = check(
+            "--filter-tcp=443 --dpi-desync=fake\n--new\n--filter-udp=50000-50100 --dpi-desync=fake",
+        );
+        assert!(report.ok, "{:?}", report.issues);
+        assert_eq!(report.args[0], "--wf-tcp=443");
+        assert_eq!(report.args[1], "--wf-udp=50000-50100");
+        // A custom section on a new port is added to an explicit interception list.
+        let report = check("--wf-tcp=80 --filter-tcp=443,5222 --dpi-desync=fake");
+        assert_eq!(report.args[0], "--wf-tcp=80,443,5222");
+        assert_eq!(report.wf_extra, vec!["--wf-tcp=80"]);
+        assert_eq!(report.stored_args()[0], "--wf-tcp=80");
+    }
+
+    #[test]
+    fn user_example_section_with_filter() {
+        let report = check(
+            "--filter-tcp=%GameFilterTCP% --dpi-desync=fake --dpi-desync-any-protocol=1 --dpi-desync-fooling=ts --dpi-desync-repeats=6 --dpi-desync-cutoff=d2 --dpi-desync-fake-unknown=@tls_clienthello_max_ru.bin",
+        );
+        assert!(report.ok, "{:?}", report.issues);
+        assert_eq!(report.args[0], "--wf-tcp=%GameFilterTCP%");
+        assert!(report
+            .args
+            .contains(&"--dpi-desync-fake-unknown=%BIN%tls_clienthello_max_ru.bin".to_string()));
         assert_eq!(report.bins, vec!["tls_clienthello_max_ru.bin"]);
-        // Without a base only this section runs: the UI warns about it.
-        assert!(report.issues.iter().any(|i| i.code == "noBase"));
     }
 
     #[test]
-    fn lists_target_gates_by_hostlists_and_warns_about_any_protocol() {
-        let report = snippet(USER_EXAMPLE, Target::Lists);
-        assert!(report.ok);
+    fn filterless_section_needs_interception_and_warns_when_not_last() {
+        let report = check("--dpi-desync=fake --dpi-desync-fooling=ts");
+        assert_eq!(report.first_error().map(|i| i.code), Some("wfNeeded"));
+        let report = check("--dpi-desync=fake\n--new\n--filter-tcp=443 --dpi-desync=fake");
+        assert!(report.ok, "{:?}", report.issues);
         assert!(report
-            .args
-            .contains(&"--hostlist=%LISTS%list-general-user.txt".to_string()));
-        assert!(report
-            .args
-            .contains(&"--hostlist-exclude=%LISTS%list-exclude-user.txt".to_string()));
-        assert!(report.issues.iter().any(|i| i.code == "anyProtocolLists"));
+            .issues
+            .iter()
+            .any(|i| i.code == "noFilter" && i.section == Some(0)));
     }
 
     #[test]
-    fn all_traffic_keeps_domain_exclusions_without_any_protocol() {
-        let report = snippet("--dpi-desync=fake --dpi-desync-fooling=ts", Target::All);
-        assert!(report.ok);
-        assert!(report
-            .args
-            .contains(&"--hostlist-exclude=%LISTS%list-exclude.txt".to_string()));
-    }
-
-    #[test]
-    fn base_sections_follow_custom_part_and_ports_merge() {
-        let base = vec![
-            "--wf-tcp=80,443,2053,%GameFilterTCP%".to_string(),
-            "--wf-udp=443,%GameFilterUDP%".to_string(),
-            "--filter-udp=443".to_string(),
-            "--dpi-desync=fake".to_string(),
-        ];
-        let report = build(USER_EXAMPLE, Target::All, Base::Found(&base), &all_bins);
-        assert!(report.ok);
-        assert_eq!(report.args[0], "--wf-tcp=80,443,2053,%GameFilterTCP%");
-        assert_eq!(report.args[1], "--wf-udp=443,%GameFilterUDP%");
-        let new_at = report.args.iter().position(|a| a == "--new").unwrap();
-        assert_eq!(&report.args[new_at + 1..], &base[2..]);
-        assert!(!report.issues.iter().any(|i| i.code == "noBase"));
+    fn issues_point_at_their_section() {
+        let report =
+            check("--filter-tcp=443 --dpi-desync=fake\n--new\n--filter-tcp=80 --dpi-desync=bogus");
+        let issue = report.first_error().unwrap();
+        assert_eq!((issue.code, issue.section), ("value", Some(1)));
+        let report = check(
+            "--filter-tcp=443 --dpi-desync=fake --new --new --filter-tcp=80 --dpi-desync=fake",
+        );
+        let issue = report.first_error().unwrap();
+        assert_eq!((issue.code, issue.section), ("emptySection", Some(1)));
     }
 
     #[test]
@@ -1285,57 +1281,59 @@ mod tests {
             --filter-tcp=443 --hostlist=\"%LISTS%list-general.txt\" --dpi-desync=fake,multisplit ^\n\
             --dpi-desync-split-pos=1,midsld --dpi-desync-fake-tls=\"%BIN%tls_clienthello_www_google_com.bin\" --new ^\n\
             --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=6";
-        let report = snippet(text, Target::Lists);
+        let report = check(text);
         assert!(report.ok, "{:?}", report.issues);
-        assert_eq!(report.mode, "sections");
-        assert_eq!(report.sections, 2);
+        assert_eq!(report.sections.len(), 2);
         assert_eq!(report.args[0], "--wf-tcp=80,443");
-        // UDP interception is derived from the section filter.
         assert_eq!(report.args[1], "--wf-udp=443");
-        assert!(report
-            .args
-            .contains(&"--hostlist=%LISTS%list-general.txt".to_string()));
     }
 
     #[test]
-    fn space_separated_values_are_joined() {
-        let report = snippet("--dpi-desync fake --dpi-desync-repeats 6", Target::Lists);
+    fn json_args_array_and_strategy_set_are_accepted() {
+        let report = check(r#"["--filter-udp=443", "--dpi-desync=fake"]"#);
         assert!(report.ok, "{:?}", report.issues);
-        assert!(report.args.contains(&"--dpi-desync-repeats=6".to_string()));
+        assert!(report.meta.is_none());
+        let report = check(r#"[{"name": "A", "args": ["--filter-tcp=443", "--dpi-desync=fake"]}]"#);
+        assert!(report.ok, "{:?}", report.issues);
+        assert_eq!(report.meta.unwrap().name.as_deref(), Some("A"));
+        let report = check(r#"{"name": "broken""#);
+        assert_eq!(report.first_error().map(|i| i.code), Some("json"));
     }
 
     #[test]
     fn dangerous_and_unknown_options_are_rejected() {
         for (text, code) in [
-            ("--dpi-desync=fake --debug=@C:\\Windows\\x.txt", "managed"),
-            ("--dpi-desync=fake --wf-raw=@C:\\x", "managed"),
-            ("--dpi-desync=fake --hostlist-auto=C:\\x.txt", "managed"),
-            ("--dpi-desync=fake --pidfile=C:\\x", "managed"),
-            ("--dpi-desync=fake --frobnicate=1", "unknown"),
+            ("--filter-tcp=443 --debug=@C:\\Windows\\x.txt", "managed"),
+            ("--filter-tcp=443 --wf-raw=@C:\\x", "managed"),
+            ("--filter-tcp=443 --hostlist-auto=C:\\x.txt", "managed"),
+            ("--filter-tcp=443 --pidfile=C:\\x", "managed"),
+            ("--filter-tcp=443 --frobnicate=1", "unknown"),
             ("@C:\\config.txt", "stray"),
-            ("--dpi-desync=fake --hostlist=C:\\Windows\\win.ini", "list"),
+            ("--filter-tcp=443 --hostlist=C:\\Windows\\win.ini", "list"),
             (
-                "--dpi-desync=fake --dpi-desync-fake-tls=C:\\Windows\\x.bin",
+                "--filter-tcp=443 --dpi-desync-fake-tls=C:\\Windows\\x.bin",
                 "path",
             ),
             (
-                "--dpi-desync=fake --dpi-desync-fake-tls=@..\\..\\x.bin",
+                "--filter-tcp=443 --dpi-desync-fake-tls=@..\\..\\x.bin",
                 "path",
             ),
             (
-                "--dpi-desync=fake --dpi-desync-fake-tls=@%LISTS%x.bin",
+                "--filter-tcp=443 --dpi-desync-fake-tls=@%LISTS%x.bin",
                 "path",
             ),
-            ("--dpi-desync=fake,multisplit,fake", "combo"),
-            ("--dpi-desync=multisplit,fake", "combo"),
-            ("--dpi-desync=nonsense", "value"),
-            ("--dpi-desync=fake --dpi-desync-repeats=0", "value"),
-            ("--dpi-desync=fake --dpi-desync-cutoff=x2", "value"),
-            ("--dpi-desync-fooling=ts", "noDesync"),
-            ("--dpi-desync=fake --dpi-desync-ttl", "noValue"),
-            ("--dpi-desync=\"fake", "quote"),
+            (
+                "--filter-tcp=443 --dpi-desync=fake,multisplit,fake",
+                "combo",
+            ),
+            ("--filter-tcp=443 --dpi-desync=multisplit,fake", "combo"),
+            ("--filter-tcp=443 --dpi-desync=nonsense", "value"),
+            ("--filter-tcp=443 --dpi-desync-repeats=0", "value"),
+            ("--filter-tcp=443 --dpi-desync-cutoff=x2", "value"),
+            ("--filter-tcp=443 --dpi-desync-ttl", "noValue"),
+            ("--filter-tcp=443 --dpi-desync=\"fake", "quote"),
         ] {
-            let report = snippet(text, Target::Lists);
+            let report = check(text);
             assert!(!report.ok, "{text} must be rejected");
             assert_eq!(
                 report.first_error().map(|i| i.code),
@@ -1348,24 +1346,20 @@ mod tests {
     }
 
     #[test]
-    fn missing_payload_and_base_are_reported() {
-        let report = build(USER_EXAMPLE, Target::All, Base::None, &|_| false);
-        assert_eq!(report.first_error().map(|i| i.code), Some("binMissing"));
-        let report = build(USER_EXAMPLE, Target::All, Base::Missing("alt99"), &all_bins);
-        assert_eq!(report.first_error().map(|i| i.code), Some("baseMissing"));
+    fn unknown_protocol_filter_is_allowed() {
+        let report = check(
+            "--filter-tcp=%GameFilterTCP% --filter-l7=unknown --dpi-desync=fake --dpi-desync-any-protocol=1",
+        );
+        assert!(report.ok, "{:?}", report.issues);
     }
 
     #[test]
-    fn sections_need_derivable_interception() {
-        let report = snippet("--filter-tcp=* --dpi-desync=fake", Target::Lists);
-        assert_eq!(report.first_error().map(|i| i.code), Some("wfNeeded"));
-        let report = snippet(
-            "--wf-tcp=443 --filter-tcp=* --dpi-desync=fake",
-            Target::Lists,
+    fn missing_payload_is_reported() {
+        let report = check_text(
+            "--filter-tcp=443 --dpi-desync=fake --dpi-desync-fake-tls=@nope.bin",
+            &|_| false,
         );
-        assert!(report.ok, "{:?}", report.issues);
-        let report = snippet("--filter-tcp=443 --dpi-desync=fake --new", Target::Lists);
-        assert_eq!(report.first_error().map(|i| i.code), Some("emptySection"));
+        assert_eq!(report.first_error().map(|i| i.code), Some("binMissing"));
     }
 
     #[test]
@@ -1404,6 +1398,7 @@ mod tests {
         );
         assert_eq!(normalize_name("   "), Err("nameEmpty"));
         assert_eq!(normalize_name(&"я".repeat(41)), Err("nameLong"));
+        assert_eq!(normalize_desc(&"d".repeat(301)), Err("descLong"));
         let id = new_id(&[]);
         assert!(is_custom_id(&id), "{id}");
         assert!(!is_custom_id("alt11"));
@@ -1415,9 +1410,13 @@ mod tests {
         let item = |id: &str| CustomStrategy {
             id: id.to_string(),
             name: "n".to_string(),
+            desc: String::new(),
+            experimental: false,
             base: None,
-            target: "weird".to_string(),
-            text: "--dpi-desync=fake".to_string(),
+            args: vec![
+                "--filter-tcp=443".to_string(),
+                "--dpi-desync=fake".to_string(),
+            ],
         };
         let store = sanitize_store(CustomStore {
             items: vec![
@@ -1431,6 +1430,5 @@ mod tests {
         });
         let ids: Vec<&str> = store.items.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["custom-1", "custom-2", "custom-3"]);
-        assert!(store.items.iter().all(|s| s.target == "lists"));
     }
 }

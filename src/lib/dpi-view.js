@@ -60,6 +60,8 @@ const I = {
   sliders:  '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
   trash:    '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 15H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
   plus:     '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  chevronUp:   '<path d="m6 15 6-6 6 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
   pencil:   '<path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/>',
 };
 function ic(name, size = 16, stroke = 1.5) {
@@ -93,10 +95,11 @@ export const MAX_CUSTOM_STRATEGIES = 3;
 // it won't start as stored (its base left the set, the text no longer passes).
 function strategyDesc(s) {
   if (!s?.custom) return stratDesc(s?.desc);
-  if (s.problem === "baseMissing") return esc(t("dpi.custom.issue.baseMissing", { arg: s.base || "" }));
   if (s.problem) return esc(t("dpi.custom.broken"));
+  // The user's own description is shown in any interface language: they wrote it.
+  if (s.desc) return esc(s.desc);
   const base = s.base ? builtinStrategies().find((b) => b.id === s.base) : null;
-  return esc(base ? t("dpi.custom.descBase", { base: base.name }) : t("dpi.custom.descNoBase"));
+  return esc(base ? t("dpi.custom.descFrom", { base: base.name }) : t("dpi.custom.descEmpty"));
 }
 
 // Which strategy to mark as recommended and on what basis.
@@ -394,6 +397,7 @@ function renderBody() {
             <div class="dpi-strategy__row">
               <span class="dpi-strategy__name">${esc(cur.name)}</span>
               ${cur.custom ? `<span class="dpi-strategy__tag" data-kind="custom">${t("dpi.custom.tag")}</span>` : ""}
+              ${cur.custom && cur.experimental ? `<span class="dpi-strategy__tag" data-kind="custom">${t("dpi.custom.tagExperimental")}</span>` : ""}
               ${cur.name === rec.name ? `<span class="dpi-strategy__tag">${t(rec.measured ? "dpi.strategy.recTagMeasured" : "dpi.strategy.recTag")}</span>` : ""}
             </div>
             <div class="dpi-strategy__desc">${strategyDesc(cur)}</div>
@@ -1180,7 +1184,7 @@ function renderStratList(query) {
   const total = customStrategies().length;
   const full = total >= MAX_CUSTOM_STRATEGIES;
   const row = (s) => `<div class="strat" data-active="${s.id === cur.id}" data-custom="${!!s.custom}" data-broken="${!!s.problem}" data-dpi-strat="${escapeAttr(s.id)}">
-        <div class="strat__main"><div class="strat__name">${esc(s.name)}</div><div class="strat__desc">${strategyDesc(s)}</div></div>
+        <div class="strat__main"><div class="strat__name">${esc(s.name)}${s.custom && s.experimental ? ` <span class="strat__tag">${t("dpi.custom.tagExperimental")}</span>` : ""}</div><div class="strat__desc">${strategyDesc(s)}</div></div>
         ${s.custom ? `<button class="strat__edit" data-dpi-custom-edit="${escapeAttr(s.id)}" title="${escapeAttr(t("dpi.custom.edit"))}" aria-label="${escapeAttr(t("dpi.custom.edit"))}">${ic("pencil", 13)}</button>` : ""}
         <span class="strat__check">${ic("check", 11, 2.5)}</span>
       </div>`;
@@ -1196,39 +1200,111 @@ function renderStratList(query) {
 }
 
 /* ═══════════ CUSTOM STRATEGY EDITOR (dynamic) ═══════════ */
-// One drawer for creating and editing. Every change of the text, target or base
-// goes to dpi_custom_check (debounced): the backend owns parsing and the allowlist,
-// so the editor shows exactly what the launch would accept.
+// A custom strategy is a full winws profile list in the built-in format. The
+// editor shows it by section: start from a built-in strategy and change only
+// the sections that need it, so a tweak for one game never means retyping the
+// profiles that keep sites, video and voice working. Rust owns parsing and the
+// allowlist (dpi_custom_check); here text is only split into sections and labelled.
 let customEl = null;
 let CE = null;
 let customCheckTimer = 0;
 let customCheckSeq = 0;
 
+// A rough split for labels and section boundaries; the real parsing is in Rust.
+export function splitTokens(text) {
+  // A token may carry quoted parts in the middle (--hostlist="%LISTS%x.txt"),
+  // as in a .bat line; the quotes are dropped like the Rust tokenizer does.
+  return (String(text || "").match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) || [])
+    .map((token) => token.replace(/["']/g, ""));
+}
+const isWf = (arg) => arg.startsWith("--wf-tcp=") || arg.startsWith("--wf-udp=");
+
+// Flat winws args → section texts (one argument per line). Interception is
+// assembled from the filters, so built-in --wf-* lines are not carried over.
+export function argsToSections(args, { dropWf = true } = {}) {
+  const sections = [[]];
+  for (const arg of args || []) {
+    if (arg === "--new") sections.push([]);
+    else if (!dropWf || !isWf(arg)) sections[sections.length - 1].push(arg);
+  }
+  return sections.map((section) => section.join("\n"));
+}
+const sameSection = (a, b) => splitTokens(a).join(" ") === splitTokens(b).join(" ");
+const builtinSections = (id) => {
+  const base = builtinStrategies().find((s) => s.id === id);
+  return base ? argsToSections(base.args) : [];
+};
+
+// Short label of a section from its filters: "TCP 80,443 · list-general".
+export function sectionLabel(text) {
+  const args = splitTokens(text);
+  const values = (flag) => args.filter((a) => a.startsWith(flag + "=")).map((a) => a.slice(flag.length + 1));
+  const ports = (list) => list.join(",").replace(/%GameFilter(?:TCP|UDP)?%/g, t("dpi.custom.slotGame"));
+  const parts = [];
+  const tcp = values("--filter-tcp");
+  const udp = values("--filter-udp");
+  if (tcp.length) parts.push("TCP " + ports(tcp));
+  if (udp.length) parts.push("UDP " + ports(udp));
+  if (!parts.length) parts.push(t("dpi.custom.slotAll"));
+  const l7 = values("--filter-l7");
+  if (l7.length) parts.push(l7.join(","));
+  const lists = values("--hostlist").map((v) => v.replace(/^%LISTS%/, "").replace(/\.txt$/, ""));
+  const domains = values("--hostlist-domains");
+  if (lists.length) parts.push(lists.join(" + "));
+  else if (domains.length) parts.push(domains.join(","));
+  else if (values("--ipset").length || values("--ipset-ip").length) parts.push("ipset");
+  return parts.join(" · ");
+}
+
+// Which built-in strategy imported sections were made from: the one sharing the
+// most identical sections, if at least half of them match.
+export function guessBase(sections, strategies) {
+  let best = null;
+  let bestHits = 0;
+  for (const s of strategies || []) {
+    const base = argsToSections(s.args);
+    const hits = sections.filter((text) => base.some((b) => sameSection(b, text))).length;
+    if (hits > bestHits) { best = s; bestHits = hits; }
+  }
+  return best && bestHits * 2 >= sections.length ? best.id : "";
+}
+
+// Sections with the built-in section each one came from: an identical one first,
+// then the same position. null — a section the base doesn't have.
+function withOrigins(texts, baseId) {
+  const base = baseId ? builtinSections(baseId) : [];
+  const used = new Set();
+  const origins = texts.map((text) => {
+    const same = base.findIndex((b, i) => !used.has(i) && sameSection(b, text));
+    if (same >= 0) { used.add(same); return same; }
+    return null;
+  });
+  return texts.map((text, i) => {
+    let origin = origins[i];
+    if (origin == null && i < base.length && !used.has(i)) { origin = i; used.add(i); }
+    return { text, origin };
+  });
+}
+
+function sectionState(slot) {
+  if (slot.origin == null) return "new";
+  const base = builtinSections(CE.base)[slot.origin];
+  return base != null && sameSection(base, slot.text) ? "same" : "changed";
+}
+
+function composeCustomText() {
+  return CE.mode === "text" ? CE.text : CE.slots.map((s) => s.text.trim()).join("\n--new\n");
+}
+
 function defaultCustomBase() {
   const cur = stratExact(S.strategy);
   if (cur && !cur.custom) return cur.id;
-  const fromCustom = cur?.base && builtinStrategies().find((s) => s.id === cur.base);
-  return fromCustom ? fromCustom.id : (stratExact(DEFAULT_STRATEGY) || builtinStrategies()[0])?.id || "";
-}
-
-function customTargetOpt(id) {
-  const on = CE.target === id;
-  const hint = id === "all" ? "targetAllHint" : "targetListsHint";
-  const title = id === "all" ? "targetAll" : "targetLists";
-  return `<button type="button" class="dpi-scope__opt" data-on="${on}" data-dpi-custom-target="${id}" role="radio" aria-checked="${on}">
-      <span class="dpi-scope__mark"></span>
-      <span class="dpi-scope__txt">
-        <span class="dpi-scope__t">${t("dpi.custom." + title)}</span>
-        <span class="dpi-scope__d">${t("dpi.custom." + hint)}</span>
-      </span>
-    </button>`;
+  return (stratExact(DEFAULT_STRATEGY) || builtinStrategies()[0])?.id || "";
 }
 
 function customBaseOptions() {
   const builtins = builtinStrategies();
-  const known = !CE.base || builtins.some((s) => s.id === CE.base);
   return `<option value="" ${CE.base ? "" : "selected"}>${esc(t("dpi.custom.baseNone"))}</option>` +
-    (known ? "" : `<option value="${escapeAttr(CE.base)}" selected>${esc(t("dpi.custom.issue.baseMissing", { arg: CE.base }))}</option>`) +
     builtins.map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === CE.base ? "selected" : ""}>${esc(s.name)}</option>`).join("");
 }
 
@@ -1241,48 +1317,66 @@ function openCustomEditor(id = null) {
     return;
   }
   closeDrawer();
+  const base = existing ? (existing.base || "") : defaultCustomBase();
+  const texts = existing ? argsToSections(existing.args, { dropWf: false }) : builtinSections(base);
   CE = {
     id: existing?.id || null,
     name: existing?.name || "",
-    text: existing?.text || "",
-    target: existing?.target === "all" ? "all" : "lists",
-    base: existing ? existing.base || "" : defaultCustomBase(),
-    // An existing strategy keeps the target the user chose; for a new one the
-    // editor may suggest "All traffic" once (see applyCustomReport).
-    targetTouched: !!existing,
+    desc: existing?.desc || "",
+    experimental: !!existing?.experimental,
+    base,
+    slots: withOrigins(texts.length ? texts : [""], base),
+    mode: "slots",
+    text: "",
     report: null,
+    verify: null,
     saving: false,
   };
+  const title = t(existing ? "dpi.custom.titleEdit" : "dpi.custom.titleNew");
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <div class="drawer-bg" data-dpi-custom-bg></div>
-    <aside class="drawer drawer--editor drawer--custom" role="dialog" aria-label="${escapeAttr(t(existing ? "dpi.custom.titleEdit" : "dpi.custom.titleNew"))}">
+    <aside class="drawer drawer--editor drawer--custom" role="dialog" aria-label="${escapeAttr(title)}">
       <div class="drawer__head">
-        <div><div class="drawer__kicker">CUSTOM STRATEGY · WINWS</div><div class="drawer__title">${t(existing ? "dpi.custom.titleEdit" : "dpi.custom.titleNew")}</div></div>
+        <div><div class="drawer__kicker">CUSTOM STRATEGY · WINWS</div><div class="drawer__title">${esc(title)}</div></div>
         <button class="drawer__close" data-dpi-custom-close aria-label="${escapeAttr(t("dpi.editor.close"))}">${ic("close", 16)}</button>
       </div>
       <div class="dpi-editor dpi-custom">
-        <label class="dpi-custom__field">
-          <span class="dpi-custom__label">${t("dpi.custom.name")}</span>
-          <input type="text" class="dpi-custom__input" id="dpi-custom-name" maxlength="40" autocomplete="off" spellcheck="false"
-            placeholder="${escapeAttr(t("dpi.custom.namePlaceholder"))}" value="${escapeAttr(CE.name)}">
-        </label>
-        <label class="dpi-custom__field">
-          <span class="dpi-custom__label">${t("dpi.custom.args")}</span>
-          <textarea class="dpi-editor__area dpi-custom__area" id="dpi-custom-text" spellcheck="false" autocomplete="off"
-            placeholder="--dpi-desync=fake --dpi-desync-fooling=ts --dpi-desync-repeats=6 --dpi-desync-fake-tls=@tls_clienthello_max_ru.bin">${esc(CE.text)}</textarea>
-          <span class="dpi-editor__hint">${t("dpi.custom.argsHint")}</span>
-        </label>
-        <div class="dpi-custom__status" id="dpi-custom-status" aria-live="polite"></div>
-        <div class="dpi-custom__field" id="dpi-custom-target">
-          <span class="dpi-custom__label">${t("dpi.custom.target")}</span>
-          <div class="dpi-custom__targets" id="dpi-custom-targets" role="radiogroup" aria-label="${escapeAttr(t("dpi.custom.target"))}"></div>
+        <div class="dpi-custom__grid">
+          <label class="dpi-custom__field">
+            <span class="dpi-custom__label">${t("dpi.custom.name")}</span>
+            <input type="text" class="dpi-custom__input" id="dpi-custom-name" maxlength="40" autocomplete="off" spellcheck="false"
+              placeholder="${escapeAttr(t("dpi.custom.namePlaceholder"))}" value="${escapeAttr(CE.name)}">
+          </label>
+          <label class="dpi-custom__field">
+            <span class="dpi-custom__label">${t("dpi.custom.base")}</span>
+            <select class="dpi-fake-select dpi-custom__select" id="dpi-custom-base">${customBaseOptions()}</select>
+          </label>
         </div>
         <label class="dpi-custom__field">
-          <span class="dpi-custom__label">${t("dpi.custom.base")}</span>
-          <select class="dpi-fake-select dpi-custom__select" id="dpi-custom-base">${customBaseOptions()}</select>
-          <span class="dpi-editor__hint">${t("dpi.custom.baseHint")}</span>
+          <span class="dpi-custom__label">${t("dpi.custom.desc")}</span>
+          <input type="text" class="dpi-custom__input" id="dpi-custom-desc" maxlength="300" autocomplete="off"
+            placeholder="${escapeAttr(t("dpi.custom.descPlaceholder"))}" value="${escapeAttr(CE.desc)}">
         </label>
+        <label class="dpi-custom__check">
+          <input type="checkbox" id="dpi-custom-exp" ${CE.experimental ? "checked" : ""}>
+          <span>${t("dpi.custom.experimental")}</span>
+        </label>
+        <div class="dpi-custom__bar">
+          <div class="seg" role="tablist">
+            <button class="seg__btn" data-dpi-custom-mode="slots">${t("dpi.custom.slotMode")}</button>
+            <button class="seg__btn" data-dpi-custom-mode="text">${t("dpi.custom.textMode")}</button>
+          </div>
+          <div class="dpi-custom__tools">
+            <button class="btn btn--sm" data-dpi-custom-import>${ic("download", 13)} ${t("dpi.custom.importFile")}</button>
+            <button class="btn btn--sm" data-dpi-custom-export>${ic("box", 13)} ${t("dpi.custom.exportFile")}</button>
+            <button class="btn btn--sm" data-dpi-custom-copy>${ic("list", 13)} ${t("dpi.custom.copyJson")}</button>
+          </div>
+        </div>
+        <div class="dpi-editor__hint" id="dpi-custom-hint"></div>
+        <div id="dpi-custom-sections"></div>
+        <div class="dpi-custom__status" id="dpi-custom-status" aria-live="polite"></div>
+        <div class="dpi-custom__status" id="dpi-custom-verify" aria-live="polite"></div>
         <details class="dpi-custom__preview" id="dpi-custom-preview-wrap" hidden>
           <summary>${t("dpi.custom.preview")}</summary>
           <pre class="dpi-custom__cmd" id="dpi-custom-preview"></pre>
@@ -1291,6 +1385,7 @@ function openCustomEditor(id = null) {
       <div class="dpi-editor__foot dpi-custom__foot">
         ${existing ? `<button class="btn btn--sm dpi-custom__delete" data-dpi-custom-delete>${ic("trash", 13)} ${t("dpi.custom.delete")}</button>` : "<span></span>"}
         <div class="dpi-editor__actions">
+          <button class="btn btn--sm" data-dpi-custom-verify>${ic("cpu", 13)} ${t("dpi.custom.verify")}</button>
           <button class="btn btn--sm" data-dpi-custom-close>${t("dpi.editor.cancel")}</button>
           <button class="btn btn--sm btn--primary" data-dpi-custom-save disabled>${ic("check", 13)} ${t("dpi.editor.save")}</button>
         </div>
@@ -1298,16 +1393,20 @@ function openCustomEditor(id = null) {
     </aside>`;
   customEl = wrap;
   document.body.appendChild(wrap);
-  renderCustomTargets();
   wrap.querySelector("#dpi-custom-name").addEventListener("input", (e) => { CE.name = e.target.value; updateCustomSave(); });
-  wrap.querySelector("#dpi-custom-text").addEventListener("input", (e) => { CE.text = e.target.value; scheduleCustomCheck(); });
-  wrap.querySelector("#dpi-custom-base").addEventListener("change", (e) => { CE.base = e.target.value; scheduleCustomCheck(0); });
+  wrap.querySelector("#dpi-custom-desc").addEventListener("input", (e) => { CE.desc = e.target.value; });
+  wrap.querySelector("#dpi-custom-exp").addEventListener("change", (e) => { CE.experimental = e.target.checked; });
+  wrap.querySelector("#dpi-custom-base").addEventListener("change", (e) => changeCustomBase(e.target.value));
+  const sections = wrap.querySelector("#dpi-custom-sections");
+  sections.addEventListener("input", onCustomSectionInput);
+  sections.addEventListener("focusout", onCustomSectionBlur);
+  renderCustomSections();
   scheduleCustomCheck(0);
   requestAnimationFrame(() => requestAnimationFrame(() => {
     wrap.querySelector(".drawer-bg").dataset.open = "true";
     wrap.querySelector(".drawer").dataset.open = "true";
   }));
-  setTimeout(() => wrap.querySelector(existing ? "#dpi-custom-text" : "#dpi-custom-name")?.focus(), 320);
+  setTimeout(() => wrap.querySelector("#dpi-custom-name")?.focus(), 320);
 }
 
 function closeCustomEditor() {
@@ -1322,17 +1421,209 @@ function closeCustomEditor() {
   setTimeout(() => w.remove(), 340);
 }
 
-function renderCustomTargets() {
-  const box = customEl?.querySelector("#dpi-custom-targets");
-  const field = customEl?.querySelector("#dpi-custom-target");
-  if (!box || !field) return;
-  const r = CE.report;
-  // A full line brings its own filters, and a snippet with its own domain/IP
-  // filters is applied by them: the choice would change nothing there.
-  field.hidden = !!r?.ok && r.mode === "sections";
-  box.innerHTML = r?.ok && r.own_hosts
-    ? `<div class="dpi-custom__note">${t("dpi.custom.ownFilters")}</div>`
-    : customTargetOpt("lists") + customTargetOpt("all");
+function renderCustomSections() {
+  const box = customEl?.querySelector("#dpi-custom-sections");
+  if (!box) return;
+  customEl.querySelectorAll("[data-dpi-custom-mode]").forEach((b) => { b.dataset.on = String(b.dataset.dpiCustomMode === CE.mode); });
+  customEl.querySelector("#dpi-custom-hint").textContent = t(CE.mode === "text" ? "dpi.custom.textHint" : "dpi.custom.slotsHint");
+  if (CE.mode === "text") {
+    box.innerHTML = `<textarea class="dpi-editor__area dpi-custom__area dpi-custom__area--full" id="dpi-custom-text" spellcheck="false" autocomplete="off"
+      placeholder="--filter-tcp=443 --dpi-desync=fake …">${esc(CE.text)}</textarea>`;
+    applyCustomIssues();
+    return;
+  }
+  const count = CE.slots.length;
+  box.innerHTML = CE.slots.map((slot, i) => {
+    const state = sectionState(slot);
+    const lines = Math.min(12, Math.max(3, slot.text.split("\n").length + 1));
+    const badge = sectionBadge(state);
+    const action = (attr, icon, label, disabled = false) =>
+      `<button class="dpi-slot__act" ${attr}="${i}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}" ${disabled ? "disabled" : ""}>${ic(icon, 13)}</button>`;
+    return `<div class="dpi-slot" data-slot="${i}" data-state="${state}">
+        <div class="dpi-slot__head">
+          <span class="dpi-slot__num">#${i + 1}</span>
+          <span class="dpi-slot__label" data-slot-label="${i}">${esc(sectionLabel(slot.text) || t("dpi.custom.slotEmpty"))}</span>
+          <span data-slot-badge="${i}">${badge}</span>
+          <span class="dpi-slot__acts">
+            ${action("data-slot-reset", "refresh", t("dpi.custom.slotReset"))}
+            ${action("data-slot-up", "chevronUp", t("dpi.custom.slotUp"), i === 0)}
+            ${action("data-slot-down", "chevronDown", t("dpi.custom.slotDown"), i === count - 1)}
+            ${action("data-slot-remove", "trash", t("dpi.custom.slotRemove"), count === 1)}
+          </span>
+        </div>
+        <textarea class="dpi-slot__area" data-slot-text="${i}" rows="${lines}" spellcheck="false" autocomplete="off">${esc(slot.text)}</textarea>
+        <div class="dpi-slot__issues" data-slot-issues="${i}"></div>
+      </div>`;
+  }).join("") + `<button class="strat-add dpi-slot__add" data-slot-add>${ic("plus", 14)} ${t("dpi.custom.slotAdd")}</button>`;
+  applyCustomIssues();
+}
+
+function sectionBadge(state) {
+  return state === "same"
+    ? ""
+    : `<span class="dpi-slot__badge" data-state="${state}">${t(state === "new" ? "dpi.custom.slotNew" : "dpi.custom.slotChanged")}</span>`;
+}
+
+function customChanged() {
+  CE.verify = null;
+  renderCustomVerify();
+  scheduleCustomCheck();
+}
+
+function onCustomSectionInput(e) {
+  if (!CE) return;
+  if (e.target.id === "dpi-custom-text") { CE.text = e.target.value; customChanged(); return; }
+  const index = Number(e.target.dataset.slotText);
+  if (!Number.isInteger(index) || !CE.slots[index]) return;
+  CE.slots[index].text = e.target.value;
+  const label = customEl.querySelector(`[data-slot-label="${index}"]`);
+  if (label) label.textContent = sectionLabel(e.target.value) || t("dpi.custom.slotEmpty");
+  renderCustomSectionState(index);
+  customChanged();
+}
+
+// A pasted block with --new inside one section is split into sections on blur.
+function onCustomSectionBlur(e) {
+  if (!CE || CE.mode !== "slots") return;
+  const index = Number(e.target.dataset?.slotText);
+  if (!Number.isInteger(index) || !CE.slots[index]) return;
+  if (!splitTokens(CE.slots[index].text).includes("--new")) return;
+  const parts = argsToSections(splitTokens(CE.slots[index].text), { dropWf: false }).filter((p) => p.trim());
+  CE.slots.splice(index, 1, ...parts.map((text) => ({ text, origin: null })));
+  CE.slots = withOrigins(CE.slots.map((s) => s.text), CE.base);
+  renderCustomSections();
+  customChanged();
+}
+
+// Badge of one section, updated in place: re-rendering would replace the textarea
+// being typed in. The reset button is shown by CSS for changed sections only.
+function renderCustomSectionState(index) {
+  const slot = CE?.slots[index];
+  const card = customEl?.querySelector(`[data-slot="${index}"]`);
+  if (!slot || !card) return;
+  const state = sectionState(slot);
+  if (card.dataset.state === state) return;
+  card.dataset.state = state;
+  const badge = card.querySelector(`[data-slot-badge="${index}"]`);
+  if (badge) badge.innerHTML = sectionBadge(state);
+}
+
+function moveCustomSection(index, delta) {
+  const to = index + delta;
+  if (to < 0 || to >= CE.slots.length) return;
+  const [slot] = CE.slots.splice(index, 1);
+  CE.slots.splice(to, 0, slot);
+  renderCustomSections();
+  customChanged();
+}
+
+async function changeCustomBase(id) {
+  const select = customEl?.querySelector("#dpi-custom-base");
+  const touched = CE.mode === "text" ? !!CE.text.trim() : CE.slots.some((s) => s.text.trim() && sectionState(s) !== "same");
+  if (touched) {
+    const name = builtinStrategies().find((s) => s.id === id)?.name || t("dpi.custom.baseNone");
+    const ok = await openConfirmModal({
+      title: t("dpi.custom.baseConfirmTitle"),
+      message: t("dpi.custom.baseConfirm", { base: name }),
+      confirmLabel: t("dpi.custom.baseConfirmOk"),
+      cancelLabel: t("dpi.editor.cancel"),
+    });
+    if (!CE) return;
+    if (!ok) { if (select) select.value = CE.base; return; }
+  }
+  CE.base = id;
+  const texts = builtinSections(id);
+  CE.slots = withOrigins(texts.length ? texts : [""], id);
+  CE.mode = "slots";
+  renderCustomSections();
+  customChanged();
+}
+
+async function setCustomMode(mode) {
+  if (!CE || CE.mode === mode) return;
+  if (mode === "text") {
+    CE.text = composeCustomText();
+    CE.mode = "text";
+    renderCustomSections();
+    return;
+  }
+  await loadCustomText(CE.text);
+}
+
+// Text, a .bat line or JSON → sections, through the Rust parser so the sections
+// are exactly what would be saved. A JSON strategy also brings its name,
+// description and flag, and the base it was made from is recognised.
+async function loadCustomText(text, { fromFile = false } = {}) {
+  let report = null;
+  try { report = await invoke("dpi_custom_check", { text }); } catch (e) { toast(String(e?.message || e), "error", 4000); }
+  if (!CE) return false;
+  let texts;
+  if (report?.ok && report.sections?.length) {
+    texts = report.sections.map((args) => args.join("\n"));
+    if (report.wf_extra?.length) texts[0] = [...report.wf_extra, texts[0]].join("\n");
+  } else if (fromFile || !text.trim()) {
+    // Nothing usable: keep the user in the full text with the errors shown.
+    CE.mode = "text";
+    CE.text = text;
+    renderCustomSections();
+    applyCustomReport(report);
+    return false;
+  } else {
+    texts = argsToSections(splitTokens(text).filter((tok, i, all) => all.slice(0, i + 1).some((x) => x.startsWith("--"))), { dropWf: false });
+  }
+  const meta = report?.meta || {};
+  if (meta.name && (!CE.name.trim() || fromFile)) CE.name = String(meta.name).slice(0, 40);
+  if (meta.desc != null && (!CE.desc.trim() || fromFile)) CE.desc = String(meta.desc).slice(0, 300);
+  if (typeof meta.experimental === "boolean") CE.experimental = meta.experimental;
+  const guessed = guessBase(texts, builtinStrategies());
+  if (guessed || fromFile) CE.base = guessed;
+  CE.slots = withOrigins(texts, CE.base);
+  CE.mode = "slots";
+  const set = (sel, prop, value) => { const el = customEl?.querySelector(sel); if (el) el[prop] = value; };
+  set("#dpi-custom-name", "value", CE.name);
+  set("#dpi-custom-desc", "value", CE.desc);
+  set("#dpi-custom-exp", "checked", CE.experimental);
+  const select = customEl?.querySelector("#dpi-custom-base");
+  if (select) { select.innerHTML = customBaseOptions(); select.value = CE.base; }
+  renderCustomSections();
+  customChanged();
+  return true;
+}
+
+async function importCustomFile() {
+  let text;
+  try { text = await invoke("dpi_custom_import_file"); } catch (e) { toast(t("dpi.custom.importErr", { err: e?.message || e }), "error", 4500); return; }
+  if (text == null || !CE) return;
+  if (await loadCustomText(text, { fromFile: true })) toast(t("dpi.custom.imported", { name: CE.name || "—" }), "info", 2400);
+}
+
+// The strategy in the built-in format: the same shape winws strategies ship in,
+// with the full interception, ready to share or import back.
+function customJson() {
+  const name = CE.name.trim() || "custom";
+  const strategy = {
+    id: CE.id || name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "custom",
+    name,
+    desc: CE.desc.trim(),
+    experimental: CE.experimental,
+    args: CE.report?.args || [],
+  };
+  return JSON.stringify(strategy, null, 2);
+}
+
+async function exportCustomFile() {
+  if (!CE?.report?.ok) return;
+  try {
+    if (await invoke("dpi_custom_export_file", { json: customJson(), name: CE.name.trim() })) toast(t("dpi.custom.exported"), "info", 2000);
+  } catch (e) {
+    toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 4500);
+  }
+}
+
+async function copyCustomJson() {
+  if (!CE?.report?.ok) return;
+  try { await navigator.clipboard.writeText(customJson()); toast(t("dpi.custom.copied"), "info", 1800); }
+  catch (e) { toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 3500); }
 }
 
 function scheduleCustomCheck(delay = 300) {
@@ -1343,12 +1634,10 @@ function scheduleCustomCheck(delay = 300) {
 async function runCustomCheck() {
   if (!CE) return;
   const seq = ++customCheckSeq;
-  if (!CE.text.trim()) {
-    applyCustomReport(null);
-    return;
-  }
+  const text = composeCustomText();
+  if (!text.trim()) { applyCustomReport(null); return; }
   try {
-    const report = await invoke("dpi_custom_check", { text: CE.text, target: CE.target, base: CE.base || null });
+    const report = await invoke("dpi_custom_check", { text });
     if (seq !== customCheckSeq || !CE) return;
     applyCustomReport(report);
   } catch (e) {
@@ -1357,57 +1646,121 @@ async function runCustomCheck() {
   }
 }
 
+function issueHtml(issue, withSection) {
+  const text = t("dpi.custom.issue." + issue.code, { arg: issue.arg || "" });
+  const shown = withSection && Number.isInteger(issue.section) ? t("dpi.custom.inSection", { n: issue.section + 1, text }) : text;
+  const warn = issue.level === "warn";
+  return `<div class="dpi-custom__issue" data-level="${warn ? "warn" : "error"}">${ic(warn ? "info" : "alert", 13)}<span>${esc(shown)}</span></div>`;
+}
+
 function applyCustomReport(report) {
   if (!CE) return;
-  // A snippet with --dpi-desync-any-protocol=1 is meant for traffic without a domain,
-  // which "Sites from the lists" can't match: suggest "All traffic" once, until
-  // the user picks a target themselves.
-  if (report?.ok && report.mode === "snippet" && report.any_protocol && !report.own_hosts
-      && !CE.targetTouched && CE.target === "lists") {
-    CE.target = "all";
-    CE.targetTouched = true;
-    renderCustomTargets();
-    scheduleCustomCheck(0);
-    return;
-  }
   CE.report = report;
-  const status = customEl?.querySelector("#dpi-custom-status");
-  if (status) {
-    const issue = (i) => `<div class="dpi-custom__issue" data-level="${i.level === "warn" ? "warn" : "error"}">${ic(i.level === "warn" ? "info" : "alert", 13)}<span>${esc(t("dpi.custom.issue." + i.code, { arg: i.arg || "" }))}</span></div>`;
-    const issues = report?.issues || [];
-    const head = report?.ok
-      ? `<div class="dpi-custom__ok">${ic("check", 13)}<span>${esc(report.mode === "sections" ? t("dpi.custom.modeSections", { n: report.sections }) : t("dpi.custom.modeSnippet"))}</span></div>`
-      : "";
-    const failure = report?.failure ? `<div class="dpi-custom__issue" data-level="error">${ic("alert", 13)}<span>${esc(report.failure)}</span></div>` : "";
-    status.innerHTML = head + failure +
-      issues.filter((i) => i.level !== "warn").map(issue).join("") +
-      issues.filter((i) => i.level === "warn").map(issue).join("");
-  }
+  applyCustomIssues();
   const previewWrap = customEl?.querySelector("#dpi-custom-preview-wrap");
   const preview = customEl?.querySelector("#dpi-custom-preview");
   if (previewWrap && preview) {
     previewWrap.hidden = !report?.ok;
     preview.textContent = report?.ok ? report.args.join(" ").split(" --new ").join("\n--new ") : "";
   }
-  renderCustomTargets();
   updateCustomSave();
+}
+
+// Section issues go under their section; the rest (and every issue in the
+// full-text mode) into the common status block.
+function applyCustomIssues() {
+  const status = customEl?.querySelector("#dpi-custom-status");
+  if (!status || !CE) return;
+  const report = CE.report;
+  const issues = report?.issues || [];
+  const bySlot = CE.mode === "slots" && (report?.ok ? report.sections.length === CE.slots.length : true);
+  customEl.querySelectorAll("[data-slot-issues]").forEach((box) => { box.innerHTML = ""; });
+  customEl.querySelectorAll("[data-slot]").forEach((card) => { card.dataset.error = "false"; });
+  const common = [];
+  for (const issue of issues) {
+    const box = bySlot && Number.isInteger(issue.section) ? customEl.querySelector(`[data-slot-issues="${issue.section}"]`) : null;
+    if (box) {
+      box.insertAdjacentHTML("beforeend", issueHtml(issue, false));
+      if (issue.level !== "warn") box.closest("[data-slot]").dataset.error = "true";
+    } else {
+      common.push(issue);
+    }
+  }
+  const head = report?.ok
+    ? `<div class="dpi-custom__ok">${ic("check", 13)}<span>${esc(t("dpi.custom.checkOk", { n: report.sections.length }))}</span></div>`
+    : "";
+  const failure = report?.failure ? `<div class="dpi-custom__issue" data-level="error">${ic("alert", 13)}<span>${esc(report.failure)}</span></div>` : "";
+  status.innerHTML = head + failure +
+    common.filter((i) => i.level !== "warn").map((i) => issueHtml(i, true)).join("") +
+    common.filter((i) => i.level === "warn").map((i) => issueHtml(i, true)).join("");
+}
+
+function renderCustomVerify() {
+  const box = customEl?.querySelector("#dpi-custom-verify");
+  if (!box || !CE) return;
+  const v = CE.verify;
+  const btn = customEl.querySelector("[data-dpi-custom-verify]");
+  if (btn) btn.disabled = !CE.report?.ok || v?.status === "running";
+  if (!v) { box.innerHTML = ""; return; }
+  const line = (level, icon, text) => `<div class="dpi-custom__issue" data-level="${level}">${ic(icon, 13)}<span>${text}</span></div>`;
+  const note = (key) => `<div class="dpi-custom__note">${esc(t(key))}</div>`;
+  let html;
+  if (v.status === "running") html = note("dpi.custom.verifying");
+  else if (v.status === "ok") html = `<div class="dpi-custom__ok">${ic("cpu", 13)}<span>${esc(t("dpi.custom.verifyOk"))}</span></div>`;
+  else if (v.status === "failed") html = line("error", "alert", `${esc(t("dpi.custom.verifyFailed"))}<pre class="dpi-custom__out">${esc(v.output || "")}</pre>`);
+  else if (v.status === "needsAdmin") html = note("dpi.custom.verifyAdmin");
+  else html = note("dpi.custom.verifySkipped");
+  if (v.warnings?.length) {
+    html += line("warn", "info", `${esc(t("dpi.custom.verifyWarnings"))}<pre class="dpi-custom__out">${esc(v.warnings.join("\n"))}</pre>`);
+  }
+  box.innerHTML = html;
+}
+
+async function verifyCustom() {
+  if (!CE?.report?.ok || CE.verify?.status === "running") return CE?.verify;
+  const text = composeCustomText();
+  CE.verify = { status: "running", forText: text };
+  renderCustomVerify();
+  let result;
+  try {
+    result = await invoke("dpi_custom_verify", { text, gameFilter: S.gameFilter, ipset: S.ipset });
+  } catch (e) {
+    result = { status: "failed", output: String(e?.message || e), warnings: [] };
+  }
+  if (!CE || CE.verify?.forText !== text) return null;
+  CE.verify = { ...result, forText: text };
+  renderCustomVerify();
+  updateCustomSave();
+  return CE.verify;
 }
 
 function updateCustomSave() {
   const btn = customEl?.querySelector("[data-dpi-custom-save]");
   if (!btn || !CE) return;
-  btn.disabled = CE.saving || !CE.report?.ok || !CE.name.trim();
+  btn.disabled = CE.saving || !CE.report?.ok || !CE.name.trim() || CE.verify?.status === "running";
+  for (const sel of ["[data-dpi-custom-export]", "[data-dpi-custom-copy]"]) {
+    const b = customEl.querySelector(sel);
+    if (b) b.disabled = !CE.report?.ok;
+  }
+  const verifyBtn = customEl.querySelector("[data-dpi-custom-verify]");
+  if (verifyBtn) verifyBtn.disabled = !CE.report?.ok || CE.verify?.status === "running";
 }
 
 async function saveCustomEditor() {
   if (!CE || CE.saving || !CE.report?.ok || !CE.name.trim()) return;
+  const text = composeCustomText();
+  // winws checks the parameters itself before anything is saved; without
+  // administrator rights the check is skipped and happens at launch.
+  const verified = CE.verify?.forText === text ? CE.verify : await verifyCustom();
+  if (!CE) return;
+  if (verified?.status === "failed") { toast(t("dpi.custom.verifyFailed"), "error", 4000); return; }
   CE.saving = true;
   updateCustomSave();
   const editing = CE.id;
   const wasActive = !!editing && stratExact(S.strategy)?.id === editing;
   try {
     const saved = await invoke("dpi_custom_save", {
-      id: editing, name: CE.name, text: CE.text, target: CE.target, base: CE.base || null,
+      id: editing, name: CE.name, desc: CE.desc, experimental: CE.experimental, base: CE.base || null, text,
     });
     closeCustomEditor();
     // The selection is kept by name: follow a rename of the active strategy before
@@ -1421,10 +1774,8 @@ async function saveCustomEditor() {
     if (!editing) {
       // A new strategy is applied right away: "added it and it works".
       await setStrategy(stratByName(saved.id));
-    } else if (wasActive) {
-      await restartIfRunning();
-      toast(t("dpi.custom.toastSaved", { name: saved.name }), "info", 2000);
     } else {
+      if (wasActive) await restartIfRunning();
       toast(t("dpi.custom.toastSaved", { name: saved.name }), "info", 2000);
     }
   } catch (e) {
@@ -1463,6 +1814,43 @@ async function deleteCustomEditor() {
   } catch (e) {
     toast(t("prof.toastErr", { err: e?.message || e }), "error", 4500);
   }
+}
+
+// Clicks inside the custom editor. true — handled.
+function onCustomEditorClick(target) {
+  if (!CE) return false;
+  const slotAction = (attr) => {
+    const el = target.closest(`[${attr}]`);
+    return el ? Number(el.getAttribute(attr)) : null;
+  };
+  let i;
+  if ((i = slotAction("data-slot-up")) != null) { moveCustomSection(i, -1); return true; }
+  if ((i = slotAction("data-slot-down")) != null) { moveCustomSection(i, 1); return true; }
+  if ((i = slotAction("data-slot-remove")) != null) {
+    if (CE.slots.length > 1) { CE.slots.splice(i, 1); renderCustomSections(); customChanged(); }
+    return true;
+  }
+  if ((i = slotAction("data-slot-reset")) != null) {
+    const base = builtinSections(CE.base)[CE.slots[i]?.origin];
+    if (base != null) { CE.slots[i].text = base; renderCustomSections(); customChanged(); }
+    return true;
+  }
+  if (target.closest("[data-slot-add]")) {
+    CE.slots.push({ text: "", origin: null });
+    renderCustomSections();
+    customEl.querySelector(`[data-slot-text="${CE.slots.length - 1}"]`)?.focus();
+    return true;
+  }
+  const mode = target.closest("[data-dpi-custom-mode]");
+  if (mode) { setCustomMode(mode.dataset.dpiCustomMode); return true; }
+  if (target.closest("[data-dpi-custom-import]")) { importCustomFile(); return true; }
+  if (target.closest("[data-dpi-custom-export]")) { exportCustomFile(); return true; }
+  if (target.closest("[data-dpi-custom-copy]")) { copyCustomJson(); return true; }
+  if (target.closest("[data-dpi-custom-verify]")) { verifyCustom(); return true; }
+  if (target.closest("[data-dpi-custom-save]")) { saveCustomEditor(); return true; }
+  if (target.closest("[data-dpi-custom-delete]")) { deleteCustomEditor(); return true; }
+  if (target.closest("[data-dpi-custom-close]") || target.closest("[data-dpi-custom-bg]")) { closeCustomEditor(); return true; }
+  return false;
 }
 
 /* ═══════════ DOMAIN LIST EDITOR (dynamic) ═══════════ */
@@ -1533,11 +1921,13 @@ async function saveListEditor(kind) {
   const area = editorEl?.querySelector("#dpi-editor-area");
   if (!area) return;
   try {
-    await invoke("dpi_write_list", { kind, content: area.value });
+    const r = await invoke("dpi_write_list", { kind, content: area.value });
     await loadDomains();
     closeListEditor();
     await restartIfRunning(); // apply the fresh list to the engine
-    toast(kind === "exclude" ? t("dpi.editor.toastExclude") : t("dpi.editor.toastUser"), "info", 1800);
+    if (r?.ignoredIps) toast(t("dpi.editor.toastIpsIgnored", { n: r.ignoredIps }), "warn", 6000);
+    else if (r?.movedIps) toast(t("dpi.editor.toastIpsMoved", { n: r.movedIps }), "info", 3000);
+    else toast(kind === "exclude" ? t("dpi.editor.toastExclude") : t("dpi.editor.toastUser"), "info", 1800);
   } catch (e) {
     toast(t("dpi.editor.toastErr", { err: e?.message || e }), "error", 3500);
   }
@@ -1554,17 +1944,7 @@ function onClick(e) {
   const customEdit = target.closest("[data-dpi-custom-edit]");
   if (customEdit) { e.stopPropagation(); openCustomEditor(customEdit.dataset.dpiCustomEdit); return; }
   if (target.closest("[data-dpi-custom-new]")) { openCustomEditor(null); return; }
-  if (target.closest("[data-dpi-custom-close]") || target.closest("[data-dpi-custom-bg]")) { closeCustomEditor(); return; }
-  if (target.closest("[data-dpi-custom-save]")) { saveCustomEditor(); return; }
-  if (target.closest("[data-dpi-custom-delete]")) { deleteCustomEditor(); return; }
-  const customTarget = target.closest("[data-dpi-custom-target]");
-  if (customTarget && CE) {
-    CE.target = customTarget.dataset.dpiCustomTarget === "all" ? "all" : "lists";
-    CE.targetTouched = true;
-    renderCustomTargets();
-    scheduleCustomCheck(0);
-    return;
-  }
+  if (onCustomEditorClick(target)) return;
   const strat = target.closest("[data-dpi-strat]");
   if (strat) { setStrategy(stratByName(strat.dataset.dpiStrat)); closeDrawer(); return; }
   if (target.closest("[data-dpi-logs]")) { e.preventDefault(); invoke("open_log_dir").catch(() => goView("logs")); return; }

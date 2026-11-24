@@ -688,6 +688,7 @@ fn ensure_lists(app: &AppHandle) -> Result<PathBuf, String> {
             std::fs::write(&to, b"").map_err(|e| format!("touch {name}: {e}"))?;
         }
     }
+    migrate_exclude_ips(&dst)?;
     Ok(dst)
 }
 
@@ -1718,7 +1719,7 @@ pub fn dpi_strategies(app: AppHandle) -> Result<String, String> {
     let store = custom::load_store(&dpi_data_dir(&app)?);
     if let Some(items) = list.as_array_mut() {
         for item in &store.items {
-            let value = serde_json::to_value(custom::list_item(item, &active.strategies))
+            let value = serde_json::to_value(custom::list_item(item))
                 .map_err(|e| format!("serialize custom strategy: {e}"))?;
             items.push(value);
         }
@@ -1977,7 +1978,7 @@ fn launch_args(
             .find(|item| item.id == strategy_id)
             .ok_or_else(not_found)?;
         let broken_prefix = custom_broken_prefix(&item.name);
-        let report = custom::build_strategy(item, &active.strategies, &|_| true);
+        let report = custom::check_tokens(&item.args, &|_| true);
         if let Some(issue) = report.first_error() {
             return Err(format!("{broken_prefix} {}", issue.token()));
         }
@@ -1998,6 +1999,62 @@ fn launch_args(
         bins: Vec::new(),
         broken_prefix: String::new(),
     })
+}
+
+fn game_filter_ports(game_filter: &str) -> (&'static str, &'static str) {
+    match game_filter {
+        "tcpudp" => ("1024-65535", "1024-65535"),
+        _ => ("12", "12"), // off — a harmless single port (like Flowseal's default)
+    }
+}
+
+// The winws argv for a strategy after every substitution the app owns: paths,
+// the game ipset, the autolist gate and the VPN endpoint exclusion. The real
+// launch and the custom-strategy dry run share it, so the engine checks exactly
+// what would start.
+fn assemble_argv(
+    strategy_args: &[String],
+    bindata: &Path,
+    lists: &Path,
+    game_filter: &str,
+    ipset: &str,
+    auto_debug_log: Option<&Path>,
+) -> Vec<String> {
+    let (g_tcp, g_udp) = game_filter_ports(game_filter);
+    let bindata_s = strip_verbatim(&bindata.to_string_lossy());
+    let lists_s = strip_verbatim(&lists.to_string_lossy());
+    let args: Vec<String> = strategy_args
+        .iter()
+        .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
+        .collect();
+    // The active VPN endpoint gets separate managed files: a node switch replaces
+    // the value, doesn't accumulate old addresses and doesn't touch user exclusions.
+    // Game sections come before distributing exclusions: we lift the ipset gate from them, otherwise
+    // with IPset=Off/Loaded the game filter matches nothing (see ungate_game_ipset).
+    let args = if game_filter == "tcpudp" {
+        ungate_game_ipset(args, lists, g_tcp, g_udp)
+    } else {
+        args
+    };
+    // "Blocked only": the sections that are ungated by an empty ipset in "All sites"
+    // are switched to the winws autolist — the bypass applies only to domains
+    // that behaved as blocked.
+    let args = if ipset == "auto" {
+        let mut args = gate_by_autohostlist(args, lists);
+        if let Some(log) = auto_debug_log {
+            args.insert(
+                0,
+                format!(
+                    "--hostlist-auto-debug={}",
+                    strip_verbatim(&log.to_string_lossy())
+                ),
+            );
+        }
+        args
+    } else {
+        args
+    };
+    spread_exclusion_across_sections(args, &active_vpn_exclusion_args(lists))
 }
 
 // Whether a payload named by a custom strategy is available to winws: the
@@ -2021,57 +2078,218 @@ fn custom_issue(code: &str, arg: &str) -> String {
     crate::util::i18n_error_with(&format!("dpi.custom.issue.{code}"), &[("arg", arg)])
 }
 
-/// Live check of a custom strategy for the editor: issues, the detected shape
-/// and the final winws arguments. Saves nothing.
+/// Live check of a custom strategy for the editor: issues per section, the
+/// canonical sections and the final winws arguments. Accepts winws options, a
+/// line from a zapret .bat file or JSON in the built-in strategy format.
 #[tauri::command]
-pub async fn dpi_custom_check(
-    app: AppHandle,
-    text: String,
-    target: String,
-    base: Option<String>,
-) -> Result<serde_json::Value, String> {
+pub async fn dpi_custom_check(app: AppHandle, text: String) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let active = load_strategies(&app)?;
         let bin_exists = custom_bin_lookup(&app, &active)?;
-        let report = custom::build(
-            &text,
-            custom::Target::parse(&target),
-            custom::resolve_base(base.as_deref(), &active.strategies),
-            &bin_exists,
-        );
+        let report = custom::check_text(&text, &bin_exists);
         serde_json::to_value(&report).map_err(|e| format!("serialize check: {e}"))
     })
     .await
     .map_err(|e| format!("custom strategy check failed: {e}"))?
 }
 
+const DRY_RUN_TIMEOUT: Duration = Duration::from_secs(6);
+const DRY_RUN_OUTPUT_TAIL: usize = 1500;
+#[cfg(target_os = "windows")]
+const ERROR_ELEVATION_REQUIRED: i32 = 740;
+
+#[derive(Serialize)]
+struct DryRunResult {
+    // "ok" | "failed" | "needsAdmin" | "timeout" | "unavailable"
+    status: &'static str,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    output: String,
+    warnings: Vec<String>,
+}
+
+impl DryRunResult {
+    fn status(status: &'static str) -> Self {
+        Self {
+            status,
+            output: String::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
+
+// A running winws refuses a second copy with the same WinDivert filter, even in
+// --dry-run. One extra port makes the filter differ without touching what the
+// check is about.
+fn dry_run_argv(mut argv: Vec<String>) -> Vec<String> {
+    match argv.iter_mut().find(|arg| arg.starts_with("--wf-tcp=")) {
+        Some(arg) => arg.push_str(",1"),
+        None => argv.insert(0, "--wf-tcp=1".to_string()),
+    }
+    argv.insert(0, "--dry-run".to_string());
+    argv
+}
+
+fn tail_chars(text: &str, limit: usize) -> String {
+    let chars: Vec<char> = text.trim().chars().collect();
+    if chars.len() > limit {
+        chars[chars.len() - limit..].iter().collect()
+    } else {
+        chars.into_iter().collect()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_dry_run(exe: &Path, bin: &Path, argv: &[String]) -> DryRunResult {
+    use std::io::Read;
+    use std::os::windows::process::CommandExt;
+    let spawned = std::process::Command::new(exe)
+        .args(argv)
+        .current_dir(bin)
+        .creation_flags(0x0800_0000)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        // winws.exe asks for administrator rights in its manifest.
+        Err(e) if e.raw_os_error() == Some(ERROR_ELEVATION_REQUIRED) => {
+            return DryRunResult::status("needsAdmin")
+        }
+        Err(e) => {
+            return DryRunResult {
+                status: "failed",
+                output: format!("spawn winws: {e}"),
+                warnings: Vec::new(),
+            }
+        }
+    };
+    crate::job_guard::bind_pid(child.id());
+    // Both pipes are drained while waiting: a chatty winws must not block on a
+    // full pipe and look like a hang.
+    let read_pipe = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut out);
+            }
+            out
+        })
+    };
+    let stdout = read_pipe(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = read_pipe(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let started = Instant::now();
+    let code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code(),
+            Ok(None) if started.elapsed() < DRY_RUN_TIMEOUT => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            _ => {
+                let _ = terminate_child_bounded(&mut child, "winws --dry-run");
+                return DryRunResult::status("timeout");
+            }
+        }
+    };
+    let mut output = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
+    output.push_str(&String::from_utf8_lossy(&stderr.join().unwrap_or_default()));
+    let warnings = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.to_ascii_lowercase().contains("warning"))
+        .map(|line| tail_chars(line, 300))
+        .take(8)
+        .collect();
+    DryRunResult {
+        status: if code == Some(0) { "ok" } else { "failed" },
+        output: tail_chars(&output, DRY_RUN_OUTPUT_TAIL),
+        warnings,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn run_dry_run(_exe: &Path, _bin: &Path, _argv: &[String]) -> DryRunResult {
+    DryRunResult::status("unavailable")
+}
+
+/// Ask winws itself whether it accepts a custom strategy: `--dry-run` with the
+/// argv the launch would build for the current game filter and bypass scope.
+#[tauri::command]
+pub async fn dpi_custom_verify(
+    app: AppHandle,
+    state: State<'_, DpiState>,
+    text: String,
+    game_filter: String,
+    ipset: String,
+) -> Result<serde_json::Value, String> {
+    let (exe, bin, argv) = {
+        let _data = state.data.lock().await;
+        let active = load_strategies(&app)?;
+        let bin_exists = custom_bin_lookup(&app, &active)?;
+        let report = custom::check_text(&text, &bin_exists);
+        if let Some(issue) = report.first_error() {
+            return Err(issue.token());
+        }
+        let bin = bin_dir(&app, false)?;
+        let exe = bin.join("winws.exe");
+        if !exe.exists() {
+            return Err(crate::util::i18n_error_with(
+                "backend.dpi.winwsMissing",
+                &[("path", &exe.display().to_string())],
+            ));
+        }
+        // The same files the launch uses; writing the scope file again with the
+        // current mode leaves a running engine's view unchanged.
+        let lists = ensure_lists(&app)?;
+        write_ipset_mode(&app, &lists, &ipset)?;
+        let bindata = ensure_bindata(&app, &active)?;
+        let argv = assemble_argv(&report.args, &bindata, &lists, &game_filter, &ipset, None);
+        (exe, bin, dry_run_argv(argv))
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || run_dry_run(&exe, &bin, &argv))
+        .await
+        .map_err(|e| format!("winws dry run did not finish: {e}"))?;
+    serde_json::to_value(&result).map_err(|e| format!("serialize dry run: {e}"))
+}
+
 /// Create (id = None) or update a custom strategy. The text must pass the same
 /// check the launch does; at most MAX_CUSTOM_STRATEGIES are kept.
+#[allow(clippy::too_many_arguments)] // Tauri IPC: named fields form the wire contract.
 #[tauri::command]
 pub async fn dpi_custom_save(
     app: AppHandle,
     state: State<'_, DpiState>,
     id: Option<String>,
     name: String,
-    text: String,
-    target: String,
+    desc: Option<String>,
+    experimental: Option<bool>,
     base: Option<String>,
+    text: String,
 ) -> Result<serde_json::Value, String> {
     let _data = state.data.lock().await;
     let active = load_strategies(&app)?;
     let name = custom::normalize_name(&name).map_err(|code| custom_issue(code, ""))?;
-    let target = custom::Target::parse(&target);
-    let base = base.map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+    let desc = custom::normalize_desc(desc.as_deref().unwrap_or_default())
+        .map_err(|code| custom_issue(code, ""))?;
+    // The base only labels unchanged sections in the editor; an unknown id is dropped.
+    let base = base
+        .map(|b| b.trim().to_string())
+        .filter(|b| active.strategies.iter().any(|s| s.id == *b));
     let bin_exists = custom_bin_lookup(&app, &active)?;
-    let report = custom::build(
-        &text,
-        target,
-        custom::resolve_base(base.as_deref(), &active.strategies),
-        &bin_exists,
-    );
+    let report = custom::check_text(&text, &bin_exists);
     if let Some(issue) = report.first_error() {
         return Err(issue.token());
     }
+    let args = report.stored_args();
 
     let dpi_data = dpi_data_dir(&app)?;
     let mut store = custom::load_store(&dpi_data);
@@ -2087,17 +2305,25 @@ pub async fn dpi_custom_save(
     if taken {
         return Err(custom_issue("nameTaken", ""));
     }
+    let item = custom::CustomStrategy {
+        id: String::new(),
+        name,
+        desc,
+        experimental: experimental.unwrap_or(false),
+        base,
+        args,
+    };
     let saved_id = match id {
         Some(id) => {
-            let item = store
+            let slot = store
                 .items
                 .iter_mut()
-                .find(|item| item.id == id)
+                .find(|existing| existing.id == id)
                 .ok_or_else(|| custom_issue("notFound", ""))?;
-            item.name = name;
-            item.text = text;
-            item.target = target.as_str().to_string();
-            item.base = base;
+            *slot = custom::CustomStrategy {
+                id: id.clone(),
+                ..item
+            };
             id
         }
         None => {
@@ -2110,21 +2336,18 @@ pub async fn dpi_custom_save(
             let id = custom::new_id(&store.items);
             store.items.push(custom::CustomStrategy {
                 id: id.clone(),
-                name,
-                base,
-                target: target.as_str().to_string(),
-                text,
+                ..item
             });
             id
         }
     };
     custom::save_store(&dpi_data, &store.items)?;
-    let item = store
+    let saved = store
         .items
         .iter()
-        .find(|item| item.id == saved_id)
+        .find(|existing| existing.id == saved_id)
         .ok_or_else(|| custom_issue("notFound", ""))?;
-    serde_json::to_value(custom::list_item(item, &active.strategies))
+    serde_json::to_value(custom::list_item(saved))
         .map_err(|e| format!("serialize custom strategy: {e}"))
 }
 
@@ -2143,6 +2366,102 @@ pub async fn dpi_custom_delete(
         return Err(custom_issue("notFound", ""));
     }
     custom::save_store(&dpi_data, &store.items)
+}
+
+// A strategy file is small: 9 sections of a Flowseal profile take a few KB.
+const MAX_STRATEGY_FILE_BYTES: u64 = 512 * 1024;
+
+fn strategy_file_dialog(app: &AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut builder = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .add_filter("zapret .bat / .txt", &["bat", "cmd", "txt"]);
+    if let Some(window) = app.get_webview_window("main") {
+        builder = builder.set_parent(&window);
+    }
+    builder
+}
+
+fn read_strategy_file(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|e| format!("open strategy file: {e}"))?;
+    let mut body = Vec::new();
+    file.take(MAX_STRATEGY_FILE_BYTES + 1)
+        .read_to_end(&mut body)
+        .map_err(|e| format!("read strategy file: {e}"))?;
+    if body.len() as u64 > MAX_STRATEGY_FILE_BYTES {
+        return Err(custom_issue("tooLong", ""));
+    }
+    // .bat files from Windows are often in the OEM code page; their options are ASCII anyway.
+    let text = String::from_utf8_lossy(&body);
+    Ok(text.trim_start_matches('\u{feff}').to_string())
+}
+
+/// Pick a strategy file (JSON in the built-in format, or a zapret .bat) in the
+/// system dialog and return its text for the editor. `None` — the dialog was closed.
+#[tauri::command]
+pub async fn dpi_custom_import_file(app: AppHandle) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = strategy_file_dialog(&app).blocking_pick_file() else {
+            return Ok(None);
+        };
+        let path = picked
+            .into_path()
+            .map_err(|e| format!("strategy path: {e}"))?;
+        read_strategy_file(&path).map(Some)
+    })
+    .await
+    .map_err(|e| format!("strategy import did not finish: {e}"))?
+}
+
+// A file name derived from the strategy name, safe on Windows.
+fn strategy_file_name(name: &str) -> String {
+    let stem: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches('-');
+    if stem.is_empty() {
+        "ninety-strategy.json".to_string()
+    } else {
+        format!("ninety-{stem}.json")
+    }
+}
+
+/// Save a strategy as JSON in the built-in format to a file the user picks.
+/// `false` — the dialog was closed.
+#[tauri::command]
+pub async fn dpi_custom_export_file(
+    app: AppHandle,
+    json: String,
+    name: String,
+) -> Result<bool, String> {
+    if json.len() as u64 > MAX_STRATEGY_FILE_BYTES {
+        return Err(custom_issue("tooLong", ""));
+    }
+    serde_json::from_str::<serde_json::Value>(&json)
+        .map_err(|e| custom_issue("json", &e.to_string()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let dialog = strategy_file_dialog(&app).set_file_name(strategy_file_name(&name));
+        let Some(picked) = dialog.blocking_save_file() else {
+            return Ok(false);
+        };
+        let path = picked
+            .into_path()
+            .map_err(|e| format!("strategy path: {e}"))?;
+        write_replace(&path, &json, "strategy file")?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("strategy export did not finish: {e}"))?
 }
 
 /// Starts winws with the selected strategy. game_filter: "off"|"tcpudp";
@@ -2204,11 +2523,6 @@ pub async fn dpi_start(
     let lists = ensure_lists(&app)?;
     write_ipset_mode(&app, &lists, &ipset)?;
 
-    let (g_tcp, g_udp) = match game_filter.as_str() {
-        "tcpudp" => ("1024-65535", "1024-65535"),
-        _ => ("12", "12"), // off — a harmless single port (like Flowseal's default)
-    };
-
     // %BIN% → writable bin-data (the channel overlay), NOT the engine: cwd below stays
     // on the read-only resource (winws.exe + WinDivert.dll are loaded from there).
     let bindata = ensure_bindata(&app, &active)?;
@@ -2225,44 +2539,19 @@ pub async fn dpi_start(
             crate::util::i18n_error_with("dpi.custom.issue.binMissing", &[("arg", missing)])
         ));
     }
-    let bindata_s = strip_verbatim(&bindata.to_string_lossy());
-    let lists_s = strip_verbatim(&lists.to_string_lossy());
-    let args: Vec<String> = launch
-        .args
-        .iter()
-        .map(|a| subst(a, &bindata_s, &lists_s, g_tcp, g_udp))
-        .collect();
-    // The active VPN endpoint gets separate managed files: a node switch replaces
-    // the value, doesn't accumulate old addresses and doesn't touch user exclusions.
-    // Game sections come before distributing exclusions: we lift the ipset gate from them, otherwise
-    // with IPset=Off/Loaded the game filter matches nothing (see ungate_game_ipset).
-    let args = if game_filter == "tcpudp" {
-        ungate_game_ipset(args, &lists, g_tcp, g_udp)
+    let auto_debug_log = if ipset == "auto" && !logs_disabled {
+        auto_hostlist_log_file(&app).inspect(|log| trim_auto_hostlist_log(log))
     } else {
-        args
+        None
     };
-    // "Blocked only": the sections that are ungated by an empty ipset in "All sites"
-    // are switched to the winws autolist — the bypass applies only to domains
-    // that behaved as blocked.
-    let args = if ipset == "auto" {
-        let mut args = gate_by_autohostlist(args, &lists);
-        if !logs_disabled {
-            if let Some(log) = auto_hostlist_log_file(&app) {
-                trim_auto_hostlist_log(&log);
-                args.insert(
-                    0,
-                    format!(
-                        "--hostlist-auto-debug={}",
-                        strip_verbatim(&log.to_string_lossy())
-                    ),
-                );
-            }
-        }
-        args
-    } else {
-        args
-    };
-    let args = spread_exclusion_across_sections(args, &active_vpn_exclusion_args(&lists));
+    let args = assemble_argv(
+        &launch.args,
+        &bindata,
+        &lists,
+        &game_filter,
+        &ipset,
+        auto_debug_log.as_deref(),
+    );
 
     if !dpi_operation_current(&state, generation) {
         return Err(crate::util::i18n_error("backend.dpi.cancelled"));
@@ -2625,52 +2914,123 @@ fn read_list_text(path: &Path) -> Result<String, String> {
     }
 }
 
-/// Read a user domain list (for the editor in the UI).
-/// kind: "user" (bypass domains) | "exclude" (exclusions).
+// Exclusions accept domains and IP addresses or subnets alike, but winws reads
+// addresses only from an ipset: in list-exclude-user.txt an IP matched nothing
+// and the exclusion silently did nothing. Addresses live in this file instead.
+const USER_IPSET_EXCLUDE: &str = "ipset-exclude-user.txt";
+
+fn list_entries(text: &str) -> impl Iterator<Item = &str> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//"))
+}
+
+// Split list text into the domain part (comments kept) and IP/CIDR entries.
+fn split_domains_and_ips(text: &str) -> (String, Vec<String>) {
+    let mut domains = String::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ips = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.starts_with('#') || t.starts_with("//") {
+            domains.push_str(t);
+            domains.push('\n');
+            continue;
+        }
+        if let Ok(entry) = normalize_ipset_entry(t) {
+            if !ips.contains(&entry) {
+                ips.push(entry);
+            }
+            continue;
+        }
+        if seen.insert(t.to_string()) {
+            domains.push_str(t);
+            domains.push('\n');
+        }
+    }
+    (domains, ips)
+}
+
+// Move addresses typed into the domain exclusions before this fix into the ipset,
+// so an exclusion that never worked starts working without reopening the editor.
+fn migrate_exclude_ips(lists: &Path) -> Result<(), String> {
+    let domain_path = lists.join("list-exclude-user.txt");
+    let text = read_list_text(&domain_path)?;
+    if !list_entries(&text).any(|entry| normalize_ipset_entry(entry).is_ok()) {
+        return Ok(());
+    }
+    let (domains, moved) = split_domains_and_ips(&text);
+    let ipset_path = lists.join(USER_IPSET_EXCLUDE);
+    let mut ips: Vec<String> = list_entries(&read_list_text(&ipset_path)?)
+        .map(str::to_string)
+        .collect();
+    for entry in moved {
+        if !ips.contains(&entry) {
+            ips.push(entry);
+        }
+    }
+    write_replace(&ipset_path, &render_list_lines(&ips), "migrate exclude ips")?;
+    write_replace(&domain_path, &domains, "migrate exclude domains")
+}
+
+/// Read a user list for the editor in the UI. kind: "user" (bypass domains) |
+/// "exclude" (exclusions: domains, then IP addresses and subnets).
 #[tauri::command]
 pub fn dpi_read_list(app: AppHandle, kind: String) -> Result<String, String> {
     let lists = ensure_lists(&app)?;
-    let p = lists.join(user_list_name(&kind));
-    read_list_text(&p)
+    let mut text = read_list_text(&lists.join(user_list_name(&kind)))?;
+    if kind == "exclude" {
+        let ips = read_list_text(&lists.join(USER_IPSET_EXCLUDE))?;
+        for entry in list_entries(&ips) {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(entry);
+            text.push('\n');
+        }
+    }
+    Ok(text)
 }
 
-/// Save a user domain list from the editor. Normalizes:
-/// trims every line, drops empty lines and duplicates (keeps # and // comments).
-/// Returns the number of domain entries (without comments) to update the counter.
+/// Save a user list from the editor. Trims every line, drops empty lines and
+/// duplicates, keeps # and // comments. In the exclusions IP addresses and
+/// subnets go to the ipset; in "My domains" they are kept but reported, since a
+/// hostlist matches only domains. Returns the domain count and both IP counts.
 #[tauri::command]
 pub async fn dpi_write_list(
     app: AppHandle,
     state: State<'_, DpiState>,
     kind: String,
     content: String,
-) -> Result<usize, String> {
+) -> Result<serde_json::Value, String> {
     let _data = state.data.lock().await;
     let lists = ensure_lists(&app)?;
-    let mut seen = std::collections::BTreeSet::new();
-    let mut out = String::new();
-    let mut n = 0usize;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.is_empty() {
-            continue;
+    let name = user_list_name(&kind);
+    let (domains, ips) = split_domains_and_ips(&content);
+    let (body, moved, ignored) = if kind == "exclude" {
+        write_replace(
+            &lists.join(USER_IPSET_EXCLUDE),
+            &render_list_lines(&ips),
+            "write user ipset exclusions",
+        )?;
+        (domains, ips.len(), 0)
+    } else {
+        // The hostlist keeps the addresses the user typed, they are only reported.
+        let mut body = domains;
+        for entry in &ips {
+            body.push_str(entry);
+            body.push('\n');
         }
-        if t.starts_with('#') || t.starts_with("//") {
-            out.push_str(t);
-            out.push('\n');
-            continue;
-        }
-        if seen.insert(t.to_string()) {
-            out.push_str(t);
-            out.push('\n');
-            n += 1;
-        }
-    }
-    write_replace(
-        &lists.join(user_list_name(&kind)),
-        &out,
-        &format!("write {}", user_list_name(&kind)),
-    )?;
-    Ok(n)
+        (body, 0, ips.len())
+    };
+    write_replace(&lists.join(name), &body, &format!("write {name}"))?;
+    let count = list_entries(&body)
+        .filter(|entry| normalize_ipset_entry(entry).is_err())
+        .count();
+    Ok(serde_json::json!({ "count": count, "movedIps": moved, "ignoredIps": ignored }))
 }
 
 // A domain that goes into the winws hostlist. The IP branch is normalized separately
@@ -5506,6 +5866,68 @@ mod tests {
         );
         assert!(ipset_base_from_service("").is_none());
         assert!(ipset_base_from_service("# only comments\n\n   \n").is_none());
+    }
+
+    // Dima typed server addresses into "Exclusions" and they did nothing: winws
+    // reads that file as a hostlist. Addresses must end up in the ipset.
+    #[test]
+    fn exclusion_addresses_are_split_from_domains() {
+        let (domains, ips) =
+            split_domains_and_ips("# note\nbank.ru\n1.2.3.4\nbank.ru\n10.0.0.0/8\n1.2.3.4/32\n");
+        assert_eq!(domains, "# note\nbank.ru\n");
+        assert_eq!(ips, vec!["1.2.3.4/32", "10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn exclusion_addresses_typed_earlier_are_migrated() {
+        let root = std::env::temp_dir().join(format!(
+            "ninety-dpi-exclude-migrate-{}-{}",
+            std::process::id(),
+            TEMP_FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("list-exclude-user.txt"), "bank.ru\n5.6.7.8\n").unwrap();
+        std::fs::write(root.join(USER_IPSET_EXCLUDE), "9.9.9.0/24\n").unwrap();
+        migrate_exclude_ips(&root).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("list-exclude-user.txt")).unwrap(),
+            "bank.ru\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(USER_IPSET_EXCLUDE)).unwrap(),
+            "9.9.9.0/24\n5.6.7.8/32\n"
+        );
+        // Nothing left to move: the files stay as they are.
+        migrate_exclude_ips(&root).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join(USER_IPSET_EXCLUDE)).unwrap(),
+            "9.9.9.0/24\n5.6.7.8/32\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dry_run_changes_the_filter_so_a_running_engine_does_not_block_it() {
+        let argv = dry_run_argv(vec![
+            "--wf-tcp=80,443".to_string(),
+            "--filter-tcp=443".to_string(),
+        ]);
+        assert_eq!(
+            argv,
+            vec!["--dry-run", "--wf-tcp=80,443,1", "--filter-tcp=443"]
+        );
+        let argv = dry_run_argv(vec!["--wf-udp=443".to_string()]);
+        assert_eq!(argv, vec!["--dry-run", "--wf-tcp=1", "--wf-udp=443"]);
+    }
+
+    #[test]
+    fn strategy_file_names_are_safe() {
+        assert_eq!(
+            strategy_file_name("ALT11 + GAME"),
+            "ninety-alt11---game.json"
+        );
+        assert_eq!(strategy_file_name("Мой"), "ninety-strategy.json");
     }
 
     #[test]

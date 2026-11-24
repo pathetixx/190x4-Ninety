@@ -1117,7 +1117,6 @@
 .dpi-custom__input:focus { border-color: var(--accent-soft); }
 .dpi-custom__input::placeholder { color: var(--text-lo); }
 .drawer--custom .dpi-custom__area { flex: none; min-height: 132px; resize: vertical; line-height: 1.6; }
-.dpi-custom__targets { display: grid; gap: 8px; }
 .dpi-custom__note,
 .dpi-custom__ok,
 .dpi-custom__issue {
@@ -1184,3 +1183,123 @@
   box-shadow: none;
   pointer-events: none;
 }
+
+/* Sectioned editor: a full strategy is long, so the drawer is wider. */
+.drawer.drawer--custom { width: 680px; }
+.strat__tag {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+  background: var(--overlay-2);
+  vertical-align: middle;
+}
+.dpi-custom__grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 760px) { .dpi-custom__grid { grid-template-columns: minmax(0, 1fr); } }
+.dpi-custom__check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+  color: var(--text-mid);
+  cursor: pointer;
+  user-select: none;
+}
+.dpi-custom__check input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
+.dpi-custom__bar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-1);
+}
+.dpi-custom__tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.dpi-custom__tools .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+#dpi-custom-sections { display: flex; flex-direction: column; gap: 10px; }
+.drawer--custom .dpi-custom__area--full { min-height: 320px; }
+.dpi-slot {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-1);
+  background: var(--ink-2);
+  transition: border-color 160ms var(--ease-out);
+}
+.dpi-slot[data-state="changed"],
+.dpi-slot[data-state="new"] { box-shadow: inset 2px 0 0 var(--accent-soft); }
+.dpi-slot[data-error="true"] { border-color: var(--accent); }
+.dpi-slot__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dpi-slot__num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-lo);
+}
+.dpi-slot__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dpi-slot__badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+}
+.dpi-slot__acts { display: flex; gap: 2px; flex-shrink: 0; }
+.dpi-slot__act {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--text-lo);
+  cursor: pointer;
+}
+.dpi-slot__act:hover:not(:disabled) { color: var(--text-hi); background: var(--overlay-3); }
+.dpi-slot__act:disabled { opacity: 0.3; cursor: default; }
+.dpi-slot:not([data-state="changed"]) [data-slot-reset] { display: none; }
+.dpi-slot__area {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line-2);
+  background: var(--ink-0);
+  color: var(--text-hi);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  outline: none;
+  white-space: pre;
+  overflow-x: auto;
+  transition: border-color 140ms ease;
+}
+.dpi-slot__area:focus { border-color: var(--accent-soft); }
+.dpi-slot__issues { display: flex; flex-direction: column; gap: 6px; }
+.dpi-slot__issues:empty { display: none; }
+.dpi-slot__add { margin: 0; }
+.dpi-custom__out {
+  margin: 6px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-mid);
+}
+.dpi-custom__foot .dpi-editor__actions { flex-wrap: wrap; justify-content: flex-end; }
